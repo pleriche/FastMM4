@@ -1,0 +1,29 @@
+LIBRARY     BORLNDMM.DLL
+
+EXPORTS
+    GetAllocMemCount = @Borlndmm_@GetAllocMemCount$qqrv ;To make it the 2nd export, ___CPPdebugHook always the 1st export
+    GetAllocMemSize  = @Borlndmm_@GetAllocMemSize$qqrv
+    GetHeapStatus    = @Borlndmm_@GetHeapStatus$qqrv
+    DumpBlocks       = @Borlndmm_@DumpBlocks$qqrv
+    ReallocMemory    = @Borlndmm_@ReallocMemory$qpvi
+    FreeMemory       = @Borlndmm_@FreeMemory$qpv
+    GetMemory        = @Borlndmm_@GetMemory$qi
+
+    ;@Borlndmm@SysUnregisterExpectedMemoryLeak$qqrpi = @Borlndmm_@UnregisterExpectedMemoryLeak$qqrpv
+    ;@Borlndmm@SysRegisterExpectedMemoryLeak$qqrpi   = @Borlndmm_@RegisterExpectedMemoryLeak$qqrpv
+
+    ;@Borlndmm@SysAllocMem$qqri     = @Borlndmm_@SysAllocMem$qqrui
+    @Borlndmm@SysReallocMem$qqrpvi = @Borlndmm_@SysReallocMem$qqrpvi
+    @Borlndmm@SysFreeMem$qqrpv     = @Borlndmm_@SysFreeMem$qqrpv
+    @Borlndmm@SysGetMem$qqri       = @Borlndmm_@SysGetMem$qqri
+
+    @Borlndmm@HeapRelease$qqrv     = @Borlndmm_@HeapRelease$qqrv
+    @Borlndmm@HeapAddRef$qqrv      = @Borlndmm_@HeapAddRef$qqrv
+
+    ;SetMMLogFileName          = @Fastmm4@SetMMLogFileName$qqrpc
+    ;GetCurrentAllocationGroup = @Fastmm4@GetCurrentAllocationGroup$qqrv
+    ;PushAllocationGroup       = @Fastmm4@PushAllocationGroup$qqrui
+    ;PopAllocationGroup        = @Fastmm4@PopAllocationGroup$qqrv
+    ;LogAllocatedBlocksToFile  = @Fastmm4@LogAllocatedBlocksToFile$qqruiui
+
+

@@ -1,0 +1,9 @@
+USEUNIT("DLLEntry.cpp");
+USEUNIT("FastMM4BCB.cpp");
+USEUNIT("FastMM4.pas");
+USEUNIT("BorlndMM_.pas");
+USEDEF("Export.def");
+//---------------------------------------------------------------------------
+This file is used by the project manager only and should be treated like the project file
+
+DllEntryPoint

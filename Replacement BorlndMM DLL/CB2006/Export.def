@@ -1,0 +1,29 @@
+LIBRARY     BORLNDMM.DLL
+
+EXPORTS
+    GetAllocMemCount = @Borlndmm@GetAllocMemCount$qqrv  ;To make it the 2nd export, ___CPPdebugHook always the 1st export
+    GetAllocMemSize  = @Borlndmm@GetAllocMemSize$qqrv
+    GetHeapStatus    = @Borlndmm@GetHeapStatus$qqrv
+    DumpBlocks       = @Borlndmm@DumpBlocks$qqrv
+    ReallocMemory    = @Borlndmm@ReallocMemory$qpvi
+    FreeMemory       = @Borlndmm@FreeMemory$qpv
+    GetMemory        = @Borlndmm@GetMemory$qi
+
+    @Borlndmm@SysUnregisterExpectedMemoryLeak$qqrpi = @Borlndmm@UnregisterExpectedMemoryLeak$qqrpv
+    @Borlndmm@SysRegisterExpectedMemoryLeak$qqrpi   = @Borlndmm@RegisterExpectedMemoryLeak$qqrpv
+
+    @Borlndmm@SysAllocMem$qqri     = @Borlndmm@SysAllocMem$qqrui
+    @Borlndmm@SysReallocMem$qqrpvi
+    @Borlndmm@SysFreeMem$qqrpv
+    @Borlndmm@SysGetMem$qqri
+
+    @Borlndmm@HeapRelease$qqrv
+    @Borlndmm@HeapAddRef$qqrv
+
+    SetMMLogFileName          = @Fastmm4@SetMMLogFileName$qqrpc
+    GetCurrentAllocationGroup = @Fastmm4@GetCurrentAllocationGroup$qqrv
+    PushAllocationGroup       = @Fastmm4@PushAllocationGroup$qqrui
+    PopAllocationGroup        = @Fastmm4@PopAllocationGroup$qqrv
+    LogAllocatedBlocksToFile  = @Fastmm4@LogAllocatedBlocksToFile$qqruiui
+
+
