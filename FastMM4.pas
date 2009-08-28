@@ -1,6 +1,6 @@
 (*
 
-Fast Memory Manager 4.93
+Fast Memory Manager 4.94
 
 Description:
  A fast replacement memory manager for CodeGear Delphi Win32 applications that
@@ -731,7 +731,7 @@ Change log:
   - Included the updated Czech translation by Rene Mihula.
   - When FastMM raises an error due to a freed block being modified, it now
     logs detail about which bytes in the block were modified.
-  Version 4.93 (?? ??? 2009):
+  Version 4.94 (28 August 2009):
   - Added the DoNotInstallIfDLLMissing option that prevents FastMM from
     installing itself if the FastMM_FullDebugMode.dll library is not
     available. (Only applicable when FullDebugMode and LoadDebugDLLDynamically
@@ -763,6 +763,7 @@ Change log:
   - New FullDebugMode feature: Whenever FreeMem or ReallocMem is called, FastMM
     will check that the block was actually allocated through the same FastMM
     instance. This is useful for tracking down memory manager sharing issues.
+  - Compatible with Delphi 2010.
 
 *)
 
@@ -940,7 +941,7 @@ interface
 {-------------------------Public constants-----------------------------}
 const
   {The current version of FastMM}
-  FastMMVersion = '4.93';
+  FastMMVersion = '4.94';
   {The number of small block types}
 {$ifdef Align16Bytes}
   NumSmallBlockTypes = 46;
