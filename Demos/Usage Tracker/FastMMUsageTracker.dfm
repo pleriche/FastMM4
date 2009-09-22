@@ -94,6 +94,7 @@ object fFastMMUsageTracker: TfFastMMUsageTracker
         PopupMenu = smMM4Allocation
         ScrollBars = ssVertical
         TabOrder = 0
+        OnDrawCell = sgBlockStatisticsDrawCell
         ColWidths = (
           83
           104

@@ -37,9 +37,11 @@ Notes:
 
 Change log:
 
-  Version 2.00 (24 April 2008):
+  Version 2.10 (22 September 2009):
   - New usage tracker implemented by Hanspeter Widmer with many new features.
     (Thanks Hanspeter!);
+  - Colour coding of changes in the allocation map added by Murray McGowan
+    (red for an increase in usage, green for a decrease). (Thanks Murray!)
 
 *)
 
@@ -112,21 +114,17 @@ type
     procedure miVMDumpCopyAlltoClipboardClick(Sender: TObject);
     procedure miGeneralInformationCopyAlltoClipboardClick(Sender: TObject);
     procedure siMM4AllocationCopyAlltoClipboardClick(Sender: TObject);
+    procedure sgBlockStatisticsDrawCell(Sender: TObject; ACol,
+      ARow: Integer; Rect: TRect; State: TGridDrawState);
   private
-    {The current state}
-    FMemoryManagerState: TMemoryManagerState;
+    {The current and previous memory manager states}
+    FMemoryManagerState, FPrevMemoryManagerState: TMemoryManagerState;
     FMemoryMapEx: TMemoryMapEx;
-
     AddressSpacePageCount: Integer;
-
     OR_VMDumpDownCell: TGridCoord;
-
     procedure HeaderClicked(AGrid: TStringgrid; const ACell: TGridCoord);
     procedure SortGrid(grid: TStringgrid; PB_Nummeric: Boolean; byColumn: Integer; ascending: Boolean);
-
     procedure UpdateGraphMetrics;
-
-
   public
     {Refreshes the display}
     procedure RefreshSnapShot;
@@ -479,7 +477,8 @@ var
   LU_MEM_FREE: DWord;
   LU_MEM_COMMIT: DWord;
   LU_MEM_RESERVE: DWord;
-  LAllocatedSize, LTotalBlocks, LTotalAllocated, LTotalReserved: Cardinal;
+  LAllocatedSize, LTotalBlocks, LTotalAllocated, LTotalReserved,
+    LPrevAllocatedSize, LPrevTotalBlocks, LPrevTotalAllocated, LPrevTotalReserved: Cardinal;
 
   procedure UpdateVMGraph(var AMemoryMap: TMemoryMapEx);
   var
@@ -594,6 +593,21 @@ var
   var
     LInd: Integer;
     LU_StateLength: Cardinal;
+    LPrevSBState, LSBState: ^TSmallBlockTypeState;
+
+    procedure UpdateBlockStatistics(c, r, current, prev: Integer);
+    var
+      s : string;
+    begin
+      s := IntToStr(current);
+      if current > prev then
+        s := s + ' (+' + IntToStr(current - prev) + ')'
+      else if current < prev then
+        s := s + ' (-' + IntToStr(prev - current) + ')';
+      sgBlockStatistics.Cells[c, r] := s;
+      sgBlockStatistics.Objects[c, r] := Pointer(current - prev);
+    end;
+
   begin
     LU_StateLength := Length(FMemoryManagerState.SmallBlockTypeStates);
     {Set up the row count}
@@ -610,50 +624,59 @@ var
     {Set the texts inside the results string grid}
     for LInd := 0 to High(FMemoryManagerState.SmallBlockTypeStates) do
     begin
-      with FMemoryManagerState.SmallBlockTypeStates[LInd] do
-      begin
-        sgBlockStatistics.Cells[1, LInd + 1] := IntToStr(AllocatedBlockCount);
-        Inc(LTotalBlocks, AllocatedBlockCount);
-        LAllocatedSize := AllocatedBlockCount * UseableBlockSize;
-        sgBlockStatistics.Cells[2, LInd + 1] := IntToStr(LAllocatedSize);
-        Inc(LTotalAllocated, LAllocatedSize);
-        sgBlockStatistics.Cells[3, LInd + 1] := IntToStr(ReservedAddressSpace);
-        Inc(LTotalReserved, ReservedAddressSpace);
-        if ReservedAddressSpace > 0 then
-          sgBlockStatistics.Cells[4, LInd + 1] := FormatFloat('0.##%', LAllocatedSize / ReservedAddressSpace * 100)
-        else
-          sgBlockStatistics.Cells[4, LInd + 1] := 'N/A';
-      end;
+      LPrevSBState := @FPrevMemoryManagerState.SmallBlockTypeStates[LInd];
+      LSBState := @FMemoryManagerState.SmallBlockTypeStates[LInd];
+      UpdateBlockStatistics(1, LInd + 1, LSBState.AllocatedBlockCount, LPrevSBState.AllocatedBlockCount);
+      Inc(LTotalBlocks, LSBState.AllocatedBlockCount);
+      Inc(LPrevTotalBlocks, LPrevSBState.AllocatedBlockCount);
+      LAllocatedSize := LSBState.AllocatedBlockCount * LSBState.UseableBlockSize;
+      LPrevAllocatedSize := LPrevSBState.AllocatedBlockCount * LPrevSBState.UseableBlockSize;
+      UpdateBlockStatistics(2, LInd + 1, LAllocatedSize, LPrevAllocatedSize);
+      Inc(LTotalAllocated, LAllocatedSize);
+      Inc(LPrevTotalAllocated, LPrevAllocatedSize);
+      UpdateBlockStatistics(3, LInd + 1, LSBState.ReservedAddressSpace, LPrevSBState.ReservedAddressSpace);
+      Inc(LTotalReserved, LSBState.ReservedAddressSpace);
+      Inc(LPrevTotalReserved, LPrevSBState.ReservedAddressSpace);
+      if LSBState.ReservedAddressSpace > 0 then
+        sgBlockStatistics.Cells[4, LInd + 1] := FormatFloat('0.##%', LAllocatedSize / LSBState.ReservedAddressSpace * 100)
+      else
+        sgBlockStatistics.Cells[4, LInd + 1] := 'N/A';
     end;
-    {Medium blocks}
+    {-----------Medium blocks---------}
     LInd := length(FMemoryManagerState.SmallBlockTypeStates) + 1;
-    sgBlockStatistics.Cells[1, LInd] := IntToStr(FMemoryManagerState.AllocatedMediumBlockCount);
+    UpdateBlockStatistics(1, LInd, FMemoryManagerState.AllocatedMediumBlockCount, FPrevMemoryManagerState.AllocatedMediumBlockCount);
     Inc(LTotalBlocks, FMemoryManagerState.AllocatedMediumBlockCount);
-    sgBlockStatistics.Cells[2, LInd] := IntToStr(FMemoryManagerState.TotalAllocatedMediumBlockSize);
+    Inc(LPrevTotalBlocks, FPrevMemoryManagerState.AllocatedMediumBlockCount);
+    UpdateBlockStatistics(2, LInd, FMemoryManagerState.TotalAllocatedMediumBlockSize, FPrevMemoryManagerState.TotalAllocatedMediumBlockSize);
     Inc(LTotalAllocated, FMemoryManagerState.TotalAllocatedMediumBlockSize);
-    sgBlockStatistics.Cells[3, LInd] := IntToStr(FMemoryManagerState.ReservedMediumBlockAddressSpace);
+    Inc(LPrevTotalAllocated, FPrevMemoryManagerState.TotalAllocatedMediumBlockSize);
+    UpdateBlockStatistics(3, LInd, FMemoryManagerState.ReservedMediumBlockAddressSpace, FPrevMemoryManagerState.ReservedMediumBlockAddressSpace);
     Inc(LTotalReserved, FMemoryManagerState.ReservedMediumBlockAddressSpace);
+    Inc(LPrevTotalReserved, FPrevMemoryManagerState.ReservedMediumBlockAddressSpace);
     if FMemoryManagerState.ReservedMediumBlockAddressSpace > 0 then
       sgBlockStatistics.Cells[4, LInd] := FormatFloat('0.##%', FMemoryManagerState.TotalAllocatedMediumBlockSize / FMemoryManagerState.ReservedMediumBlockAddressSpace * 100)
     else
       sgBlockStatistics.Cells[4, LInd] := 'N/A';
-    {Large blocks}
-    LInd := length(FMemoryManagerState.SmallBlockTypeStates) + 2;
-    sgBlockStatistics.Cells[1, LInd] := IntToStr(FMemoryManagerState.AllocatedLargeBlockCount);
+    {----------Large blocks----------}
+    LInd := Length(FMemoryManagerState.SmallBlockTypeStates) + 2;
+    UpdateBlockStatistics(1, LInd, FMemoryManagerState.AllocatedLargeBlockCount, FPrevMemoryManagerState.AllocatedLargeBlockCount);
     Inc(LTotalBlocks, FMemoryManagerState.AllocatedLargeBlockCount);
-    sgBlockStatistics.Cells[2, LInd] := IntToStr(FMemoryManagerState.TotalAllocatedLargeBlockSize);
+    Inc(LPrevTotalBlocks, FPrevMemoryManagerState.AllocatedLargeBlockCount);
+    UpdateBlockStatistics(2, LInd, FMemoryManagerState.TotalAllocatedLargeBlockSize, FPrevMemoryManagerState.TotalAllocatedLargeBlockSize);
     Inc(LTotalAllocated, FMemoryManagerState.TotalAllocatedLargeBlockSize);
-    sgBlockStatistics.Cells[3, LInd] := IntToStr(FMemoryManagerState.ReservedLargeBlockAddressSpace);
+    Inc(LPrevTotalAllocated, FPrevMemoryManagerState.TotalAllocatedLargeBlockSize);
+    UpdateBlockStatistics(3, LInd, FMemoryManagerState.ReservedLargeBlockAddressSpace, FPrevMemoryManagerState.ReservedLargeBlockAddressSpace);
     Inc(LTotalReserved, FMemoryManagerState.ReservedLargeBlockAddressSpace);
+    Inc(LPrevTotalReserved, FPrevMemoryManagerState.ReservedLargeBlockAddressSpace);
     if FMemoryManagerState.ReservedLargeBlockAddressSpace > 0 then
       sgBlockStatistics.Cells[4, LInd] := FormatFloat('0.##%', FMemoryManagerState.TotalAllocatedLargeBlockSize / FMemoryManagerState.ReservedLargeBlockAddressSpace * 100)
     else
       sgBlockStatistics.Cells[4, LInd] := 'N/A';
-    {Overall}
-    LInd := length(FMemoryManagerState.SmallBlockTypeStates) + 3;
-    sgBlockStatistics.Cells[1, LInd] := IntToStr(LTotalBlocks);
-    sgBlockStatistics.Cells[2, LInd] := IntToStr(LTotalAllocated);
-    sgBlockStatistics.Cells[3, LInd] := IntToStr(LTotalReserved);
+    {-----------Overall--------------}
+    LInd := Length(FMemoryManagerState.SmallBlockTypeStates) + 3;
+    UpdateBlockStatistics(1, Lind, LTotalBlocks, LPrevTotalBlocks);
+    UpdateBlockStatistics(2, Lind, LTotalAllocated, LPrevTotalAllocated);
+    UpdateBlockStatistics(3, Lind, LTotalReserved, LPrevTotalReserved);
     if LTotalReserved > 0 then
       sgBlockStatistics.Cells[4, LInd] := FormatFloat('0.##%', LTotalAllocated / LTotalReserved * 100)
     else
@@ -848,6 +871,10 @@ begin
   LTotalAllocated := 0;
   LTotalReserved := 0;
 
+  LPrevTotalBlocks := 0;
+  LPrevTotalAllocated := 0;
+  LPrevTotalReserved := 0;
+
   // Set hourglass cursor
   Save_Cursor := Screen.Cursor;
   Screen.Cursor := crHourGlass;
@@ -873,9 +900,36 @@ begin
     // Screen updates
     dgMemoryMap.Invalidate;
 
+    FPrevMemoryManagerState := FMemoryManagerState;
   finally
     FreeAndNil(LP_FreeVMList);
     Screen.Cursor := Save_Cursor;
+  end;
+end;
+
+procedure TfFastMMUsageTracker.sgBlockStatisticsDrawCell(Sender: TObject;
+  ACol, ARow: Integer; Rect: TRect; State: TGridDrawState);
+var
+  d: integer;
+  y: integer;
+  s: string;
+  LOldColour, LColour: TColor;
+begin
+  d := Integer(sgBlockStatistics.Objects[ACol, ARow]);
+  if d <> 0 then
+  begin
+    LOldColour := sgBlockStatistics.Canvas.Brush.Color;
+    if d < 0 then
+      LColour := clLime
+    else
+      LColour := clRed;
+    sgBlockStatistics.Canvas.Brush.Color := LColour;
+    sgBlockStatistics.Canvas.Font.Color := clWindowText;
+    s := sgBlockStatistics.Cells[ACol, ARow];
+    y := sgBlockStatistics.Canvas.TextHeight(s);
+    y := ((Rect.Bottom - Rect.Top) - y) div 2;
+    sgBlockStatistics.Canvas.TextRect(Rect, Rect.Left + 2, Rect.top + y, s);
+    sgBlockStatistics.Canvas.Brush.Color := LOldColour;
   end;
 end;
 
@@ -1080,11 +1134,11 @@ begin
         LMarker := 'u'; // down wedge in Marlett font
       with LGrid.canvas do
       begin
-        font.Name := 'Marlett';
-        font.Charset := SYMBOL_CHARSET;
-        font.Size := 12;
-        textout(Rect.Right - TextWidth(LMarker), Rect.Top, LMarker);
-        font := LGrid.font;
+        Font.Name := 'Marlett';
+        Font.Charset := SYMBOL_CHARSET;
+        Font.Size := 12;
+        TextOut(Rect.Right - TextWidth(LMarker), Rect.Top, LMarker);
+        Font := LGrid.font;
       end;
     end;
   end;

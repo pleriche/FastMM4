@@ -1,6 +1,6 @@
 (*
 
-Fast Memory Manager 4.94
+Fast Memory Manager 4.95
 
 Description:
  A fast replacement memory manager for CodeGear Delphi Win32 applications that
@@ -229,6 +229,7 @@ Acknowledgements (for version 4):
  - Patrick van Logchem for the DisableLoggingOfMemoryDumps option.
  - Norbert Spiegel for the BCB4 support code.
  - Uwe Schuster for the improved string leak detection code.
+ - Murray McGowan for improvements to the usage tracker.
  - Everyone who have made donations. Thanks!
  - Any other Fastcoders or supporters that I have forgotten, and also everyone
    that helped with the older versions.
@@ -764,6 +765,13 @@ Change log:
     will check that the block was actually allocated through the same FastMM
     instance. This is useful for tracking down memory manager sharing issues.
   - Compatible with Delphi 2010.
+  Version 4.95 (?? ??? ????):
+  - Reduced the minimum block size to 4 bytes from the previous value of 12
+    bytes (only applicable to 8 byte alignment). This reduces memory usage if
+    the application allocates many blocks <= 4 bytes in size.
+  - Added colour-coded change indication to the FastMM usage tracker, making
+    it easier to spot changes in memory usage grid. (Thanks to Murray
+    McGowan.)
 
 *)
 
@@ -941,12 +949,12 @@ interface
 {-------------------------Public constants-----------------------------}
 const
   {The current version of FastMM}
-  FastMMVersion = '4.94';
+  FastMMVersion = '4.95';
   {The number of small block types}
 {$ifdef Align16Bytes}
   NumSmallBlockTypes = 46;
 {$else}
-  NumSmallBlockTypes = 55;
+  NumSmallBlockTypes = 56;
 {$endif}
 
 {----------------------------Public types------------------------------}
@@ -1199,6 +1207,7 @@ uses
   FastMM4Messages;
 
 {Fixed size move procedures}
+procedure Move4(const ASource; var ADest; ACount: Integer); forward;
 procedure Move12(const ASource; var ADest; ACount: Integer); forward;
 procedure Move20(const ASource; var ADest; ACount: Integer); forward;
 procedure Move28(const ASource; var ADest; ACount: Integer); forward;
@@ -1639,6 +1648,9 @@ var
    less) where possible.}
   SmallBlockTypes: packed array[0..NumSmallBlockTypes - 1] of TSmallBlockType =(
     {8/16 byte jumps}
+{$ifndef Align16Bytes}
+    (BlockSize: 8 {$ifdef UseCustomFixedSizeMoveRoutines}; UpsizeMoveProcedure: Move4{$endif}),
+{$endif}
     (BlockSize: 16 {$ifdef UseCustomFixedSizeMoveRoutines}; UpsizeMoveProcedure: Move12{$endif}),
 {$ifndef Align16Bytes}
     (BlockSize: 24 {$ifdef UseCustomFixedSizeMoveRoutines}; UpsizeMoveProcedure: Move20{$endif}),
@@ -2031,6 +2043,12 @@ end;
 
 {Fixed size move operations ignore the size parameter. All moves are assumed to
  be non-overlapping.}
+
+procedure Move4(const ASource; var ADest; ACount: Integer);
+asm
+  mov eax, [eax]
+  mov [edx], eax
+end;
 
 procedure Move12(const ASource; var ADest; ACount: Integer);
 asm
@@ -8679,7 +8697,7 @@ begin
   {Initialize the memory manager}
   {-------------Set up the small block types-------------}
   LPreviousBlockSize := 0;
-  for LInd := 0 to high(SmallBlockTypes) do
+  for LInd := 0 to High(SmallBlockTypes) do
   begin
     {Set the move procedure}
 {$ifdef UseCustomFixedSizeMoveRoutines}
