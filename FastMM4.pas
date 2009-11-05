@@ -230,6 +230,7 @@ Acknowledgements (for version 4):
  - Norbert Spiegel for the BCB4 support code.
  - Uwe Schuster for the improved string leak detection code.
  - Murray McGowan for improvements to the usage tracker.
+ - Michael Hieke for the SuppressFreeMemErrorsInsideException option.
  - Everyone who have made donations. Thanks!
  - Any other Fastcoders or supporters that I have forgotten, and also everyone
    that helped with the older versions.
@@ -772,6 +773,14 @@ Change log:
   - Added colour-coded change indication to the FastMM usage tracker, making
     it easier to spot changes in memory usage grid. (Thanks to Murray
     McGowan.)
+  - Added the SuppressFreeMemErrorsInsideException FullDebugMode option: If
+    FastMM encounters a problem with a memory block inside the FullDebugMode
+    FreeMem handler then an "invalid pointer operation" exception will usually
+    be raised. If the FreeMem occurs while another exception is being handled
+    (perhaps in the try.. finally code) then the original exception will be
+    lost. With this option set FastMM will ignore errors inside FreeMem when an
+    exception is being handled, thus allowing the original exception to
+    propagate. This option is on by default. (Thanks to Michael Hieke.)
 
 *)
 
@@ -6849,7 +6858,12 @@ begin
   end
   else
   begin
-    Result := -1;
+{$ifdef SuppressFreeMemErrorsInsideException}
+    if ExceptObject <> nil then
+      Result := 0
+    else
+{$endif}
+      Result := -1;
   end;
 end;
 

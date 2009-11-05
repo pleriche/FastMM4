@@ -166,6 +166,15 @@ Set the default options for FastMM here.
    memory errors.}
   {.$define DisableLoggingOfMemoryDumps}
 
+  {If FastMM encounters a problem with a memory block inside the FullDebugMode
+   FreeMem handler then an "invalid pointer operation" exception will usually
+   be raised. If the FreeMem occurs while another exception is being handled
+   (perhaps in the try.. finally code) then the original exception will be
+   lost. With this option set FastMM will ignore errors inside FreeMem when an
+   exception is being handled, thus allowing the original exception to
+   propagate.}
+  {$define SuppressFreeMemErrorsInsideException}
+
 {---------------------------Memory Leak Reporting-----------------------------}
 
 {Set this option to enable reporting of memory leaks. Combine it with the two
