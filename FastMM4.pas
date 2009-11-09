@@ -771,7 +771,7 @@ Change log:
     bytes (only applicable to 8 byte alignment). This reduces memory usage if
     the application allocates many blocks <= 4 bytes in size.
   - Added colour-coded change indication to the FastMM usage tracker, making
-    it easier to spot changes in memory usage grid. (Thanks to Murray
+    it easier to spot changes in the memory usage grid. (Thanks to Murray
     McGowan.)
   - Added the SuppressFreeMemErrorsInsideException FullDebugMode option: If
     FastMM encounters a problem with a memory block inside the FullDebugMode
@@ -6859,7 +6859,7 @@ begin
   else
   begin
 {$ifdef SuppressFreeMemErrorsInsideException}
-    if ExceptObject <> nil then
+    if RaiseList <> nil then
       Result := 0
     else
 {$endif}
