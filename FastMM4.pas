@@ -231,6 +231,8 @@ Acknowledgements (for version 4):
  - Uwe Schuster for the improved string leak detection code.
  - Murray McGowan for improvements to the usage tracker.
  - Michael Hieke for the SuppressFreeMemErrorsInsideException option.
+ - Richard Bradbrook for fixing the Windows 95 FullDebugMode support that was
+   broken in version 4.94.
  - Everyone who have made donations. Thanks!
  - Any other Fastcoders or supporters that I have forgotten, and also everyone
    that helped with the older versions.
@@ -781,6 +783,8 @@ Change log:
     lost. With this option set FastMM will ignore errors inside FreeMem when an
     exception is being handled, thus allowing the original exception to
     propagate. This option is on by default. (Thanks to Michael Hieke.)
+  - Fixed Windows 95 FullDebugMode support that was broken in 4.94. (Thanks to
+    Richard Bradbrook.)
 
 *)
 
@@ -1208,7 +1212,7 @@ uses
 {$ifndef Linux}
   Windows,
   {$ifdef FullDebugMode}
-  ShlObj,
+  SHFolder,
   {$endif}
 {$else}
   Libc,
@@ -6030,7 +6034,8 @@ begin
   {Did log file creation fail? If so, the destination folder is perhaps read-only:
    Try to redirect logging to a file in the user's "My Documents" folder.}
   if (LFileHandle = INVALID_HANDLE_VALUE)
-    and SHGetSpecialFolderPathA(0, @LAlternateLogFileName, CSIDL_PERSONAL, True) then
+    and (SHGetFolderPathA(0, CSIDL_PERSONAL or CSIDL_FLAG_CREATE, 0,
+      SHGFP_TYPE_CURRENT, @LAlternateLogFileName) = S_OK) then
   begin
     {Extract the filename part from MMLogFileName and append it to the path of
      the "My Documents" folder.}
