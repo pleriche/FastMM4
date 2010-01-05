@@ -119,7 +119,7 @@ Important Notes Regarding Delphi 2005:
 
 Presently the latest service pack for Delphi 2005 is SP3, but unfortunately there are still bugs that prevent a replacement borlndmm.dll from working stably with the Delphi 2005 IDE. There is a collection of unofficial patches that need to be installed before you can use the replacement borlndmm.dll with the Delphi 2005 IDE. You can get it from:
 
-http://cc.borland.com/item.aspx?id=23618
+http://cc.embarcadero.com/item.aspx?id=23618
 
 Installing these patches together with the replacement borlndmm.dll should provide you with a faster and more stable Delphi 2005 IDE.
 
