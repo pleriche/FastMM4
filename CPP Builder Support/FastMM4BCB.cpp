@@ -1,10 +1,10 @@
 /*
 
-Fast Memory Manager: BCB support 2.02
+Fast Memory Manager: BCB support 2.04
 
 Description:
- FastMM support unit for BCB6 1.0. Loads FastMM4 on startup of the Borland C++
- Builder application or DLL.
+ FastMM support unit for C++ Builder. Loads FastMM4 on startup of the Borland 
+ C++ Builder application or DLL.
 
 Usage:
  1) Under the Project -> Options -> Linker menu uncheck "Use Dynamic RTL"
@@ -19,6 +19,7 @@ Acknowledgements:
    implementing the initial BCB support.
  - JiYuan Xie for doing an entire rewrite of this unit to allow leak reporting,
    etc. under BCB.
+ - Remy Lebeau for some bugfixes.
 
 Change log:
  Version 1.00 (15 June 2005):
@@ -34,8 +35,10 @@ Change log:
   - Fixed a compiler error when 'STRICT' is defined
  Version 2.02 (24 January 2009):
   - JiYuan Xie fixed the BCB compatibility. (Thanks!)
- Version 2.03 (03 MArch 2009):
+ Version 2.03 (03 March 2009):
   - Changes for BCB2009 in "TCHAR = wchar_t" mode
+ Version 2.04 (10 January 2010):
+  - Fixed a compilation error in BCB6 (Thanks to Remy Lebeau)
 
 */
 
@@ -44,6 +47,9 @@ Change log:
 #pragma hdrstop
 #include "FastMM4Messages.hpp"
 #include "FastMM4.hpp"
+
+//BCB6 support
+#include <tchar.h>
 
 #pragma option push
 #pragma option -k- -d -vi- -O2 -b- -3 -a8 -pc -RT- -x -xd -r -AT -vG- -vG0- -vG1- -vG2- -vG3- -vGc- -vGt- -vGd-
