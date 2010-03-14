@@ -799,6 +799,7 @@ interface
 {$OVERFLOWCHECKS OFF}
 {$OPTIMIZATION ON}
 {$TYPEDADDRESS OFF}
+{$LONGSTRINGS ON}
 
 {IDE debug mode always enables FullDebugMode and dynamic loading of the FullDebugMode DLL.}
 {$ifdef FullDebugModeInIDE}
