@@ -230,7 +230,8 @@ Acknowledgements (for version 4):
  - Norbert Spiegel for the BCB4 support code.
  - Uwe Schuster for the improved string leak detection code.
  - Murray McGowan for improvements to the usage tracker.
- - Michael Hieke for the SuppressFreeMemErrorsInsideException option.
+ - Michael Hieke for the SuppressFreeMemErrorsInsideException option as well
+   as a bugfix to GetMemoryMap.
  - Richard Bradbrook for fixing the Windows 95 FullDebugMode support that was
    broken in version 4.94.
  - Everyone who have made donations. Thanks!
@@ -784,7 +785,10 @@ Change log:
     exception is being handled, thus allowing the original exception to
     propagate. This option is on by default. (Thanks to Michael Hieke.)
   - Fixed Windows 95 FullDebugMode support that was broken in 4.94. (Thanks to
-    Richard Bradbrook.)
+    Richard Bradbrook.
+  - Fixed a bug affecting GetMemoryMap performance and accuracy of measurements
+    above 2GB if a large address space is not enabled for the project. (Thanks
+    to Michael Hieke.)
 
 *)
 
@@ -8440,7 +8444,13 @@ begin
     if AMemoryMap[LInd] = csUnallocated then
     begin
       {Query the address space starting at the chunk boundary}
-      VirtualQuery(Pointer(LInd * 65536), LMBI, SizeOf(LMBI));
+      if VirtualQuery(Pointer(LInd * 65536), LMBI, SizeOf(LMBI)) = 0 then
+      begin
+        {VirtualQuery may fail for addresses >2GB if a large address space is
+         not enabled.}
+        FillChar(AMemoryMap[LInd], 65536 - LInd, csSysReserved);
+        Break;
+      end;
       {Get the chunk number after the region}
       LNextChunk := (LMBI.RegionSize - 1) shr 16 + LInd + 1;
       {Validate}
