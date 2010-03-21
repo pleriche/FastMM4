@@ -4,7 +4,7 @@ uses
   ShareMem,
   Forms,
   DemoForm in 'DemoForm.pas' {Form1},
-  FastMMDebugSupport in '..\..\Replacement BorlndMM DLL\FastMMDebugSupport.pas';
+  FastMMDebugSupport in '..\..\Replacement BorlndMM DLL\Delphi\FastMMDebugSupport.pas';
 
 {$R *.res}
 
