@@ -5809,8 +5809,11 @@ asm
   {Point edx to the last dword}
   lea edx, [eax + ebx]
   {ebx = $ffffffff if no block could be allocated, otherwise size rounded down
-   to previous multiple of 4}
+   to previous multiple of 4. If ebx = 0 then the block size is 1..4 bytes and
+   the FPU based clearing loop should not be used (since it clears 8 bytes per
+   iteration).}
   or ebx, ecx
+  jz @ClearLastDWord
   {Large blocks are already zero filled}
   cmp ebx, MaximumMediumBlockSize - BlockHeaderSize
   jae @Done
@@ -5819,17 +5822,18 @@ asm
   {Load zero into st(0)}
   fldz
   {Clear groups of 8 bytes. Block sizes are always four less than a multiple
-   of 8, with a minimum of 12 bytes}
+   of 8.}
 @FillLoop:
   fst qword ptr [edx + ebx]
   add ebx, 8
   js @FillLoop
-  {Clear the last four bytes}
-  mov [edx], ecx
   {Clear st(0)}
   ffree st(0)
   {Correct the stack top}
   fincstp
+  {Clear the last four bytes}
+@ClearLastDWord:
+  mov [edx], ecx
 @Done:
   pop ebx
 end;
