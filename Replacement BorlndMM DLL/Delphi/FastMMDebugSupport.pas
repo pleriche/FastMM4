@@ -17,7 +17,7 @@ interface
 {Specify the full path and name for the filename to be used for logging memory
  errors, etc. If ALogFileName is nil or points to an empty string it will
  revert to the default log file name.}
-procedure SetMMLogFileName(ALogFileName: PChar = nil);
+procedure SetMMLogFileName(ALogFileName: PAnsiChar = nil);
 {Returns the current "allocation group". Whenever a GetMem request is serviced
  in FullDebugMode, the current "allocation group" is stored in the block header.
  This may help with debugging. Note that if a block is subsequently reallocated
