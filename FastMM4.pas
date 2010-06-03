@@ -1351,7 +1351,7 @@ const
   {Sleep time when a resource (small/medium/large block manager) is in use}
   InitialSleepTime = 0;
   {Used when the resource is still in use after the first sleep}
-  AdditionalSleepTime = 10;
+  AdditionalSleepTime = 1;
 {$endif}
   {Hexadecimal characters}
   HexTable: array[0..15] of AnsiChar = ('0', '1', '2', '3', '4', '5', '6', '7',
