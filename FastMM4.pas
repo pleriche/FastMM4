@@ -785,10 +785,13 @@ Change log:
     exception is being handled, thus allowing the original exception to
     propagate. This option is on by default. (Thanks to Michael Hieke.)
   - Fixed Windows 95 FullDebugMode support that was broken in 4.94. (Thanks to
-    Richard Bradbrook.
+    Richard Bradbrook.)
   - Fixed a bug affecting GetMemoryMap performance and accuracy of measurements
     above 2GB if a large address space is not enabled for the project. (Thanks
     to Michael Hieke.)
+  - Added the FullDebugModeRegisterAllAllocsAsExpectedMemoryLeak boolean flag.
+    When set, all allocations are automatically registered as expected memory
+    leaks. Only available in FullDebugMode. (Thanks to Brian Cook.)
 
 *)
 
@@ -1045,6 +1048,7 @@ var
    the already significant FullDebugMode overhead, so enable this option
    only when absolutely necessary.}
   FullDebugModeScanMemoryPoolBeforeEveryOperation: Boolean = False;
+  FullDebugModeRegisterAllAllocsAsExpectedMemoryLeak: Boolean = False;
 {$ifdef ManualLeakReportingControl}
   {Variable is declared in system.pas in newer Delphi versions.}
   {$ifndef BDS2006AndUp}
@@ -6793,6 +6797,9 @@ begin
         UpdateHeaderAndFooterCheckSums(Result);
         {Return the start of the actual block}
         Result := Pointer(Cardinal(Result) + SizeOf(TFullDebugBlockHeader));
+        {Should this block be marked as an expected leak automatically?}
+        if FullDebugModeRegisterAllAllocsAsExpectedMemoryLeak then
+          RegisterExpectedMemoryLeak(Result);
       end
       else
       begin
@@ -6866,6 +6873,9 @@ begin
         {Recalculate the checksums}
         UpdateHeaderAndFooterCheckSums(LActualBlock);
       end;
+      {Automatically deregister the expected memory leak?}
+      if FullDebugModeRegisterAllAllocsAsExpectedMemoryLeak then
+        UnregisterExpectedMemoryLeak(APointer);
       {Free the actual block}
       Result := FastFreeMem(LActualBlock);
     finally
