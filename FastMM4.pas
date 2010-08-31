@@ -1,11 +1,12 @@
 (*
 
-Fast Memory Manager 4.95
+Fast Memory Manager 4.96
 
 Description:
- A fast replacement memory manager for CodeGear Delphi Win32 applications that
- scales well under multi-threaded usage, is not prone to memory fragmentation,
- and supports shared memory without the use of external .DLL files.
+ A fast replacement memory manager for Embarcadero Delphi Win32 applications
+ that scales well under multi-threaded usage, is not prone to memory
+ fragmentation, and supports shared memory without the use of external .DLL
+ files.
 
 Homepage:
  http://fastmm.sourceforge.net
@@ -83,7 +84,7 @@ Contact Details:
 Support:
  If you have trouble using FastMM, you are welcome to drop me an e-mail at the
  address above, or you may post your questions in the BASM newsgroup on the
- CodeGear news server (which is where I hang out quite frequently).
+ Embarcadero news server (which is where I hang out quite frequently).
 
 Disclaimer:
  FastMM has been tested extensively with both single and multithreaded
@@ -769,7 +770,7 @@ Change log:
     will check that the block was actually allocated through the same FastMM
     instance. This is useful for tracking down memory manager sharing issues.
   - Compatible with Delphi 2010.
-  Version 4.95 (?? ??? ????):
+  Version 4.96 (31 August 2011):
   - Reduced the minimum block size to 4 bytes from the previous value of 12
     bytes (only applicable to 8 byte alignment). This reduces memory usage if
     the application allocates many blocks <= 4 bytes in size.
@@ -792,6 +793,7 @@ Change log:
   - Added the FullDebugModeRegisterAllAllocsAsExpectedMemoryLeak boolean flag.
     When set, all allocations are automatically registered as expected memory
     leaks. Only available in FullDebugMode. (Thanks to Brian Cook.)
+  - Compatible with Delphi XE.
 
 *)
 
@@ -970,7 +972,7 @@ interface
 {-------------------------Public constants-----------------------------}
 const
   {The current version of FastMM}
-  FastMMVersion = '4.95';
+  FastMMVersion = '4.96';
   {The number of small block types}
 {$ifdef Align16Bytes}
   NumSmallBlockTypes = 46;
@@ -8681,8 +8683,8 @@ begin
 {$endif}
     Exit;
   end;
-  {Has another MM been set, or has the CodeGear MM been used? If so, this file
-   is not the first unit in the uses clause of the project's .dpr file.}
+  {Has another MM been set, or has the Embarcadero MM been used? If so, this
+   file is not the first unit in the uses clause of the project's .dpr file.}
   if IsMemoryManagerSet then
   begin
     {When using runtime packages, another library may already have installed
@@ -9173,7 +9175,7 @@ initialization
   begin
     {Initialize all the lookup tables, etc. for the memory manager}
     InitializeMemoryManager;
-    {Has another MM been set, or has the CodeGear MM been used? If so, this
+    {Has another MM been set, or has the Embarcadero MM been used? If so, this
      file is not the first unit in the uses clause of the project's .dpr
      file.}
     if CheckCanInstallMemoryManager then

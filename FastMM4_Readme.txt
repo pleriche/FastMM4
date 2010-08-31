@@ -4,7 +4,7 @@ Fast Memory Manager - Readme
 Description:
 ------------
 
-A fast replacement memory manager for Borland Delphi Win32 applications that scales well under multi-threaded usage, is not prone to memory fragmentation, and supports shared memory without the use of external .DLL files.
+A fast replacement memory manager for Embarcadero Delphi Win32 applications that scales well under multi-threaded usage, is not prone to memory fragmentation, and supports shared memory without the use of external .DLL files.
 
 
 
@@ -59,7 +59,7 @@ E-mail:
 Support:
 --------
 
-If you have trouble using FastMM, you are welcome to drop me an e-mail at the address above, or you may post your questions in the BASM newsgroup on the Borland news server (which is where I hang out quite frequently).
+If you have trouble using FastMM, you are welcome to drop me an e-mail at the address above, or you may post your questions in the BASM newsgroup on the Embarcadero news server (which is where I hang out quite frequently).
 
 
 
