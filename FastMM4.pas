@@ -770,7 +770,7 @@ Change log:
     will check that the block was actually allocated through the same FastMM
     instance. This is useful for tracking down memory manager sharing issues.
   - Compatible with Delphi 2010.
-  Version 4.96 (31 August 2011):
+  Version 4.96 (31 August 2010):
   - Reduced the minimum block size to 4 bytes from the previous value of 12
     bytes (only applicable to 8 byte alignment). This reduces memory usage if
     the application allocates many blocks <= 4 bytes in size.
