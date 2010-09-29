@@ -1,6 +1,6 @@
 (*
 
-Fast Memory Manager 4.96
+Fast Memory Manager 4.97
 
 Description:
  A fast replacement memory manager for Embarcadero Delphi Win32 applications
@@ -794,6 +794,9 @@ Change log:
     When set, all allocations are automatically registered as expected memory
     leaks. Only available in FullDebugMode. (Thanks to Brian Cook.)
   - Compatible with Delphi XE.
+  Version 4.97 (?? ??? ????):
+  - Fixed a crash bug (that crept in in 4.96) that may manifest itself when
+    resizing a block to 4 bytes or less.
 
 *)
 
@@ -972,7 +975,7 @@ interface
 {-------------------------Public constants-----------------------------}
 const
   {The current version of FastMM}
-  FastMMVersion = '4.96';
+  FastMMVersion = '4.97';
   {The number of small block types}
 {$ifdef Align16Bytes}
   NumSmallBlockTypes = 46;
@@ -2207,7 +2210,8 @@ asm
 end;
 
 {Variable size move procedure: Assumes ACount is 4 less than a multiple of 16.
- Always moves at least 12 bytes, irrespective of ACount.}
+ Important note: Always moves at least 12 bytes (the minimum small block size
+ with 16 byte alignment), irrespective of ACount.}
 procedure MoveX16L4(const ASource; var ADest; ACount: Integer);
 asm
   {Make the counter negative based: The last 12 bytes are moved separately}
@@ -2290,11 +2294,14 @@ asm
 end;
 
 {Variable size move procedure: Assumes ACount is 4 less than a multiple of 8.
- Always moves at least 12 bytes, irrespective of ACount.}
+ Important note: Always moves at least 4 bytes (the smallest block size with
+ 8 byte alignment), irrespective of ACount.}
 procedure MoveX8L4(const ASource; var ADest; ACount: Integer);
 asm
   {Make the counter negative based: The last 4 bytes are moved separately}
   sub ecx, 4
+  {4 bytes or less? -> Use the Move4 routine.}
+  jle @FourBytesOrLess
   add eax, ecx
   add edx, ecx
   neg ecx
@@ -2326,9 +2333,7 @@ asm
   {Do the last 4 bytes}
   mov eax, [eax + ecx]
   mov [edx + ecx], eax
-  {$ifndef ForceMMX}
   ret
-  {$endif}
 {$endif}
 {FPU code is only used if MMX is not forced}
 {$ifndef ForceMMX}
@@ -2342,7 +2347,12 @@ asm
   {Do the last 4 bytes}
   mov eax, [eax + ecx]
   mov [edx + ecx], eax
+  ret
 {$endif}
+@FourBytesOrLess:
+  {Four or less bytes to move}
+  mov eax, [eax]
+  mov [edx], eax
 end;
 
 {----------------Windows Emulation Functions for Kylix Support-----------------}
@@ -3434,7 +3444,7 @@ begin
      thus negating the need to move the data?}
     LNextSegmentPointer := Pointer(Cardinal(APointer) - LargeBlockHeaderSize + (LBlockHeader and DropMediumAndLargeFlagsMask));
     VirtualQuery(LNextSegmentPointer, LMemInfo, SizeOf(LMemInfo));
-    if (LMemInfo.State = MEM_FREE) then
+    if LMemInfo.State = MEM_FREE then
     begin
       {Round the region size to the previous 64K}
       LMemInfo.RegionSize := LMemInfo.RegionSize and -LargeBlockGranularity;
