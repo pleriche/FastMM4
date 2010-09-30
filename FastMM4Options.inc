@@ -29,21 +29,6 @@ Set the default options for FastMM here.
  this memory manager and disable this option.}
 {$define UseCustomVariableSizeMoveRoutines}
 
-{Enable to always assume that the application is multithreaded. Enabling this
- option will cause a significant performance hit with single threaded
- applications. Enable if you are using multi-threaded third party tools that do
- not properly set the IsMultiThread variable. Also set this option if you are
- going to share this memory manager between a single threaded application and a
- multi-threaded DLL.}
-{.$define AssumeMultiThreaded}
-
-{Enable this option to never put a thread to sleep if a thread contention
- occurs. This option will improve performance if the ratio of the number of
- active threads to the number of CPU cores is low (typically < 2). With this
- option set a thread will enter a "busy waiting" loop instead of relinquishing
- its timeslice when a thread contention occurs.}
-{.$define NeverSleepOnThreadContention}
-
 {Enable this option to only install FastMM as the memory manager when the
  application is running inside the Delphi IDE. This is useful when you want
  to deploy the same EXE that you use for testing, but only want the debugging
@@ -66,6 +51,33 @@ Set the default options for FastMM here.
  of A/Vs. (See the FAQ for more detail.) You may have to combine this option
  with the NeverUninstall option.}
 {.$define UseRuntimePackages}
+
+{-----------------------Concurrency Management Options------------------------}
+
+{Enable to always assume that the application is multithreaded. Enabling this
+ option will cause a significant performance hit with single threaded
+ applications. Enable if you are using multi-threaded third party tools that do
+ not properly set the IsMultiThread variable. Also set this option if you are
+ going to share this memory manager between a single threaded application and a
+ multi-threaded DLL.}
+{.$define AssumeMultiThreaded}
+
+{Enable this option to not call Sleep when a thread contention occurs. This
+ option will improve performance if the ratio of the number of active threads
+ to the number of CPU cores is low (typically < 2). With this option set a
+ thread will usually enter a "busy waiting" loop instead of relinquishing its
+ timeslice when a thread contention occurs, unless UseSwitchToThread is
+ also defined (see below) in which case it will call SwitchToThread instead of
+ Sleep.}
+{.$define NeverSleepOnThreadContention}
+
+  {Set this option to call SwitchToThread instead of sitting in a "busy waiting"
+   loop when a thread contention occurs. This is used in conjunction with the
+   NeverSleepOnThreadContention option, and has no effect unless
+   NeverSleepOnThreadContention is also defined. This option may improve
+   performance with many CPU cores and/or threads of different priorities. Note
+   that the SwitchToThread API call is only available on Windows 2000 and later.
+  {.$define UseSwitchToThread}
 
 {-----------------------------Debugging Options-------------------------------}
 
