@@ -1206,7 +1206,7 @@ function RegisterExpectedMemoryLeak(ALeakedBlockSize: Integer; ACount: Integer =
 {$ifdef CheckCppObjectTypeEnabled}
 {Registers expected memory leaks by virtual object's typeId pointer.
  Usage: RegisterExpectedMemoryLeak(typeid(ACppObject).tpp, Count);}
-function RegisterExpectedMemoryLeak(ALeakedCppVirtObjTypeIdPtr: Pointer; ACount: Integer = 1): boolean; overload;
+function RegisterExpectedMemoryLeak(ALeakedCppVirtObjTypeIdPtr: Pointer; ACount: Integer): boolean; overload;
 {$endif}
 {Removes expected memory leaks. Returns true on success.}
 function UnregisterExpectedMemoryLeak(ALeakedPointer: Pointer): Boolean; overload;
@@ -1214,7 +1214,7 @@ function UnregisterExpectedMemoryLeak(ALeakedObjectClass: TClass; ACount: Intege
 function UnregisterExpectedMemoryLeak(ALeakedBlockSize: Integer; ACount: Integer = 1): Boolean; overload;
 {$ifdef CheckCppObjectTypeEnabled}
 {Usage: UnregisterExpectedMemoryLeak(typeid(ACppObject).tpp, Count);}
-function UnregisterExpectedMemoryLeak(ALeakedCppVirtObjTypeIdPtr: Pointer; ACount: Integer = 1): boolean; overload;
+function UnregisterExpectedMemoryLeak(ALeakedCppVirtObjTypeIdPtr: Pointer; ACount: Integer): boolean; overload;
 {$endif}
 {Returns a list of all expected memory leaks}
 function GetRegisteredMemoryLeaks: TRegisteredMemoryLeaks;
@@ -1375,7 +1375,7 @@ const
   HexTable: array[0..15] of AnsiChar = ('0', '1', '2', '3', '4', '5', '6', '7',
     '8', '9', 'A', 'B', 'C', 'D', 'E', 'F');
   {Copyright message - not used anywhere in the code}
-  Copyright: AnsiString = 'FastMM4 (c) 2004 - 2008 Pierre le Riche / Professional Software Development';
+  Copyright: AnsiString = 'FastMM4 (c) 2004 - 2010 Pierre le Riche / Professional Software Development';
 {$ifdef FullDebugMode}
   {Virtual Method Called On Freed Object Errors}
   StandardVirtualMethodNames: array[1 + vmtParent div 4 .. -1] of PAnsiChar = (
@@ -7606,7 +7606,7 @@ begin
 end;
 
 {$ifdef CheckCppObjectTypeEnabled}
-function RegisterExpectedMemoryLeak(ALeakedCppVirtObjTypeIdPtr: Pointer; ACount: Integer = 1): Boolean; overload;
+function RegisterExpectedMemoryLeak(ALeakedCppVirtObjTypeIdPtr: Pointer; ACount: Integer): Boolean; overload;
 var
   LNewEntry: TExpectedMemoryLeak;
 begin
@@ -7684,7 +7684,7 @@ begin
 end;
 
 {$ifdef CheckCppObjectTypeEnabled}
-function UnregisterExpectedMemoryLeak(ALeakedCppVirtObjTypeIdPtr: Pointer; ACount: Integer = 1): Boolean; overload;
+function UnregisterExpectedMemoryLeak(ALeakedCppVirtObjTypeIdPtr: Pointer; ACount: Integer): Boolean; overload;
 begin
   Result := RegisterExpectedMemoryLeak(ALeakedCppVirtObjTypeIdPtr, - ACount);
 end;
