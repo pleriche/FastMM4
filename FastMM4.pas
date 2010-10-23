@@ -1235,7 +1235,11 @@ uses
 {$ifndef Linux}
   Windows,
   {$ifdef FullDebugMode}
+    {$ifdef Delphi4or5}
+  ShlObj,
+    {$else}
   SHFolder,
+    {$endif}
   {$endif}
 {$else}
   Libc,
@@ -6120,8 +6124,12 @@ begin
   {Did log file creation fail? If so, the destination folder is perhaps read-only:
    Try to redirect logging to a file in the user's "My Documents" folder.}
   if (LFileHandle = INVALID_HANDLE_VALUE)
+{$ifdef Delphi4or5}
+    and SHGetSpecialFolderPathA(0, @LAlternateLogFileName, CSIDL_PERSONAL, True) then
+{$else}
     and (SHGetFolderPathA(0, CSIDL_PERSONAL or CSIDL_FLAG_CREATE, 0,
       SHGFP_TYPE_CURRENT, @LAlternateLogFileName) = S_OK) then
+{$endif}
   begin
     {Extract the filename part from MMLogFileName and append it to the path of
      the "My Documents" folder.}
