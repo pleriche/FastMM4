@@ -73,7 +73,9 @@ library BorlndMM;
 
 {$ifndef UseRTLMM}
 uses
-  FastMM4;
+  FastMM4 in 'FastMM4.pas',
+  FastMM4Messages in 'FastMM4Messages.pas';
+
 {$endif}
 
 {$R *.RES}
