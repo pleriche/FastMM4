@@ -4,7 +4,7 @@ Fast Memory Manager: 选项配置文件
 
 在这里为FastMM设置默认选项
 
-FastMM 4.84
+FastMM 4.97
 
 }
 
@@ -14,7 +14,7 @@ FastMM 4.84
    Contact me if you find any improper translation.
    如果翻译上有任何不恰当的地方请和我联系。
 
-   E-Mail: wqyfavor@163.com
+   E-Mail: wqyfavor@qq.com
 }
 
 {
@@ -80,20 +80,11 @@ FastMM 4.84
  器。因此建议将FastMM和FastMove代码相结合，并关闭此选项。}
 {$define UseCustomVariableSizeMoveRoutines}
 
-{开启后将默认程序是多线程的，但会导致单线程程序速度明显下降。在使用可能未正确设
- 置IsMultiThread变量的多线程的第三方工具时请开启此选项。在单线程主程序和多线程Dll
- 间共享内存管理器时也需开启。}
-{.$define AssumeMultiThreaded}
-
-{开启此选项将不会在线程冲突时让一个线程暂停，在活动进程与CPU核心数目比低（小于2）时
- 将会提升速度。开启后，冲突时一个线程将会进入“等待”循环而不是交出时间片。}
-{.$define NeverSleepOnThreadContention}
-
 {开启此选项会使程序仅在Delphi IDE内运行时才加裁FastMM作为内存管理器。当你希望发布的
  Exe就是你调试的Exe，但只希望在开发主机上使用调试时请开启此选项。当开启后程序又并不
  在开发主机上运行，它会使用默认的Delphi内存管理器（在Delphi2006以后是不开启FullDebugMode
  的FastMM）}
-{.$InstallOnlyIfRunningInIDE}
+{.$define InstallOnlyIfRunningInIDE}
 
 {由于QC#14070（Delphi尝试在borlandmm.dll的关闭指令执行后释放内存），当使用了FastMM
  为核心的borlandmm.dll的替代品，FastMM不能被正常卸载。开启此选项会不卸载内存管理器
@@ -104,6 +95,23 @@ FastMM 4.84
  注意你必须确保在所有指针都释放后FastMM被卸载。如果不这么做会产生一个有很多A/V的巨
  大的内存泄露报告。（参考常见问题）你必须同时启动此选项和NeverUninstall选项。}
 {.$define UseRuntimePackages}
+
+{-----------------------Concurrency Management Options------------------------}
+
+{开启后将默认程序是多线程的，但会导致单线程程序速度明显下降。在使用可能未正确设
+ 置IsMultiThread变量的多线程的第三方工具时请开启此选项。在单线程主程序和多线程Dll
+ 间共享内存管理器时也需开启。}
+{.$define AssumeMultiThreaded}
+
+{开启此选项将不会在线程冲突时让一个线程暂停，在活动进程与CPU核心数目比低（小于2）时
+ 将会提升速度。开启后，冲突时一个线程将会进入“等待”循环而不是交出时间片。}
+{.$define NeverSleepOnThreadContention}
+
+  {开启后，当线程冲突时会调用SwitchToThread而不是一直停留在“等待”循环中。这个选项需要
+   配合NeverSleepOnThreadContention一起使用，并且必须在前者开启时才有效。当系统有多个
+   CPU核心或线程有不同的优先级时，开启此选项可提高效率。SwitchToThread调用只在Windows2000
+   及以后版本有效。}
+  {.$define UseSwitchToThread}
 
 {----------------------------- 调试选项 -------------------------------}
 
@@ -163,11 +171,23 @@ FastMM 4.84
    当共享内存管理器时由于Dll卸载顺序改变，可能会发生错误。}
   {.$define LoadDebugDLLDynamically}
 
+    {.$define DoNotInstallIfDLLMissing}
+    {开启此选项后，并且开启FullDebugMode和LoadDebugDLLDynamically时，如果
+     FastMM_FullDebugMode.dll文件丢失，那么FastMM将不会加载。}
+
   {FastMM通常会使用最顶端的可用地址来分配大的内存块，而在最低端的可用地址上分配
    中、小内存块（这在一定程度上减少碎片）。开启此选项会使内存分配总优先使用最顶
    端的可用地址。如果过程使用了大于2GB的内存并且算法存在糟糕的指针分配 ，这个选
    项会帮助尽早发现错误}
   {$define AlwaysAllocateTopDown}
+
+  {开启后将不会对内存转储进行日志记录，其它记录正常。}
+  {.$define DisableLoggingOfMemoryDumps}
+
+  {FullDebugMode模式下，当FreeMem调用失败时通常会返回一个“指针操作无效”的
+   错误。如果此时另一个异常正在被处理（比如在“try..finally”中），那原先的异常就会丢失。
+   开启此选项后，如果此时正有别的异常被处理，那么FastMM将忽略FreeMem中发生错误。}
+  {$define SuppressFreeMemErrorsInsideException}
 
 {--------------------------- 内存泄露报告 -----------------------------}
 
@@ -243,6 +263,12 @@ FastMM有效}
  将使用默认内存管理器（Delphi2006版本以后是未开启FullDebugMode的FastMM）。}
 {.$define FullDebugModeInIDE}
 
+{该选项搭配FullDebugMode、LoadDebugDLLDynamically和DoNotInstallIfDLLMissing一起
+ 使用。开启后如果有FastMM_FullDebugMode.dll文件并且开启了FullDebugMode那么将进入全
+ 调试模式。这样用于发布的exe和调试的exe可以是同一个文件，发布时只要去掉FastMM_FullDebugMode.dll
+ 文件就可以了。}
+{.$define FullDebugModeWhenDLLAvailable}
+
 {快速配置发布版本和调试版本}
 {$ifdef Release}
   {发布版本请设置}
@@ -252,7 +278,7 @@ FastMM有效}
   {.$undef EnableMemoryLeakReporting}
   {.$undef UseOutputDebugString}
 {$else}
-  {高度版本请设置}
+  {调试版本请设置}
   {.$define FullDebugMode}
   {.$define EnableMemoryLeakReporting}
   {.$define UseOutputDebugString}
