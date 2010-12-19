@@ -187,6 +187,12 @@ Set the default options for FastMM here.
    propagate.}
   {$define SuppressFreeMemErrorsInsideException}
 
+  {Adds support for notification of memory manager events in FullDebugMode.
+   With this define set, the application may assign the OnDebugGetMemFinish,
+   OnDebugFreeMemStart, etc. callbacks in order to be notified when the
+   particular memory manager event occurs.}
+  {.$define FullDebugModeCallBacks}
+
 {---------------------------Memory Leak Reporting-----------------------------}
 
 {Set this option to enable reporting of memory leaks. Combine it with the two

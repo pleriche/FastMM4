@@ -806,6 +806,10 @@ Change log:
     defined. This option may improve performance with many CPU cores and/or
     threads of different priorities. Note that the SwitchToThread API call is
     only available on Windows 2000 and later. (Thanks to Zach Saw.)
+  - Added the FullDebugModeCallBacks define which adds support for memory
+    manager event callbacks. This allows the application to be notified of
+    memory allocations, frees and reallocations as they occur. (Thanks to
+    Jeroen Pluimers.)
 
 *)
 
@@ -1229,6 +1233,103 @@ function DetectClassInstance(APointer: Pointer): TClass;
 function DetectStringData(APMemoryBlock: Pointer;
   AAvailableSpaceInBlock: Integer): TStringDataType;
 
+{$ifdef FullDebugMode}
+{-------------FullDebugMode constants---------------}
+const
+  {The stack trace depth. (Must be an *uneven* number to ensure that the
+   Align16Bytes option works in FullDebugMode.)}
+  StackTraceDepth = 11;
+  {The number of entries in the allocation group stack}
+  AllocationGroupStackSize = 1000;
+  {The number of fake VMT entries - used to track virtual method calls on
+   freed objects. Do not change this value without also updating TFreedObject.GetVirtualMethodIndex}
+  MaxFakeVMTEntries = 200;
+  {The pattern used to fill unused memory}
+  DebugFillByte = $80;
+  DebugFillDWord = $01010101 * Cardinal(DebugFillByte);
+  {The address that is reserved so that accesses to the address of the fill
+   pattern will result in an A/V}
+  DebugReservedAddress = $01010000 * Cardinal(DebugFillByte);
+
+{-------------------------FullDebugMode structures--------------------}
+type
+  PStackTrace = ^TStackTrace;
+  TStackTrace = array[0..StackTraceDepth - 1] of Cardinal;
+
+  TBlockOperation = (boBlockCheck, boGetMem, boFreeMem, boReallocMem);
+
+  {The header placed in front blocks in FullDebugMode (just after the standard
+   header). Must be a multiple of 16 bytes in size otherwise the Align16Bytes
+   option will not work. Current size = 128 bytes.}
+  PFullDebugBlockHeader = ^TFullDebugBlockHeader;
+  TFullDebugBlockHeader = packed record
+    {Space used by the medium block manager for previous/next block management.
+     If a medium block is binned then these two dwords will be modified.}
+    Reserved1: Cardinal;
+    Reserved2: Cardinal;
+    {Is the block currently allocated? If it is allocated this will be the address of the getmem routine
+     through which it was allocated, otherwise it will be nil.}
+    AllocatedByRoutine: Pointer;
+    {The allocation group: Can be used in the debugging process to group
+     related memory leaks together}
+    AllocationGroup: Cardinal;
+    {The allocation number: All new allocations are numbered sequentially. This
+     number may be useful in memory leak analysis. If it reaches 4G it wraps
+     back to 0.}
+    AllocationNumber: Cardinal;
+    {The call stack when the block was allocated}
+    AllocationStackTrace: TStackTrace;
+    {The thread that allocated the block}
+    AllocatedByThread: Cardinal;
+    {The call stack when the block was freed}
+    FreeStackTrace: TStackTrace;
+    {The thread that freed the block}
+    FreedByThread: Cardinal;
+    {The user requested size for the block. 0 if this is the first time the
+     block is used.}
+    UserSize: Cardinal;
+    {The object class this block was used for the previous time it was
+     allocated. When a block is freed, the dword that would normally be in the
+     space of the class pointer is copied here, so if it is detected that
+     the block was used after being freed we have an idea what class it is.}
+    PreviouslyUsedByClass: Cardinal;
+    {The sum of all the dwords excluding reserved dwords.}
+    HeaderCheckSum: Cardinal;
+  end;
+  {The last four bytes of the actual allocated block is the inverse of the
+   header checksum}
+
+  {The class used to catch attempts to execute a virtual method of a freed
+   object}
+  TFreedObject = class
+  public
+    procedure GetVirtualMethodIndex;
+    procedure VirtualMethodError;
+{$ifdef CatchUseOfFreedInterfaces}
+    procedure InterfaceError;
+{$endif}
+  end;
+
+{$ifdef FullDebugModeCallBacks}
+  {FullDebugMode memory manager event callbacks. Note that APHeaderFreedBlock in the TOnDebugFreeMemFinish
+   will not be valid for large (>260K) blocks.}
+  TOnDebugGetMemFinish = procedure(APHeaderNewBlock: PFullDebugBlockHeader; ASize: Integer);
+  TOnDebugFreeMemStart = procedure(APHeaderBlockToFree: PFullDebugBlockHeader);
+  TOnDebugFreeMemFinish = procedure(APHeaderFreedBlock: PFullDebugBlockHeader; AResult: Integer);
+  TOnDebugReallocMemStart = procedure(APHeaderBlockToReallocate: PFullDebugBlockHeader; ANewSize: Integer);
+  TOnDebugReallocMemFinish = procedure(APHeaderReallocatedBlock: PFullDebugBlockHeader; ANewSize: Integer);
+
+var
+  {Note: FastMM will not catch exceptions inside these hooks, so make sure your hook code runs without
+   exceptions.}
+  OnDebugGetMemFinish: TOnDebugGetMemFinish = nil;
+  OnDebugFreeMemStart: TOnDebugFreeMemStart = nil;
+  OnDebugFreeMemFinish: TOnDebugFreeMemFinish = nil;
+  OnDebugReallocMemStart: TOnDebugReallocMemStart = nil;
+  OnDebugReallocMemFinish: TOnDebugReallocMemFinish = nil;
+{$endif}
+{$endif}
+
 implementation
 
 uses
@@ -1351,23 +1452,6 @@ const
   MediumInPlaceDownsizeLimit = MinimumMediumBlockSize div 4;
   {-------------Memory leak reporting constants---------------}
   ExpectedMemoryLeaksListSize = 64 * 1024;
-  {-------------FullDebugMode constants---------------}
-{$ifdef FullDebugMode}
-  {The stack trace depth. (Must be an *uneven* number to ensure that the
-   Align16Bytes option works in FullDebugMode.)}
-  StackTraceDepth = 11;
-  {The number of entries in the allocation group stack}
-  AllocationGroupStackSize = 1000;
-  {The number of fake VMT entries - used to track virtual method calls on
-   freed objects. Do not change this value without also updating TFreedObject.GetVirtualMethodIndex}
-  MaxFakeVMTEntries = 200;
-  {The pattern used to fill unused memory}
-  DebugFillByte = $80;
-  DebugFillDWord = $01010101 * Cardinal(DebugFillByte);
-  {The address that is reserved so that accesses to the address of the fill
-   pattern will result in an A/V}
-  DebugReservedAddress = $01010000 * Cardinal(DebugFillByte);
-{$endif}
   {-------------Other constants---------------}
 {$ifndef NeverSleepOnThreadContention}
   {Sleep time when a resource (small/medium/large block manager) is in use}
@@ -1595,68 +1679,6 @@ type
     ExpectedLeaks: packed array[0..(ExpectedMemoryLeaksListSize - 20) div SizeOf(TExpectedMemoryLeak) - 1] of TExpectedMemoryLeak;
   end;
   PExpectedMemoryLeaks = ^TExpectedMemoryLeaks;
-
-{$endif}
-
-  {-------------------------Full Debug Mode Structures--------------------}
-{$ifdef FullDebugMode}
-
-  PStackTrace = ^TStackTrace;
-  TStackTrace = array[0..StackTraceDepth - 1] of Cardinal;
-
-  TBlockOperation = (boBlockCheck, boGetMem, boFreeMem, boReallocMem);
-
-  {The header placed in front blocks in FullDebugMode (just after the standard
-   header). Must be a multiple of 16 bytes in size otherwise the Align16Bytes
-   option will not work. Current size = 128 bytes.}
-  PFullDebugBlockHeader = ^TFullDebugBlockHeader;
-  TFullDebugBlockHeader = packed record
-    {Space used by the medium block manager for previous/next block management.
-     If a medium block is binned then these two dwords will be modified.}
-    Reserved1: Cardinal;
-    Reserved2: Cardinal;
-    {Is the block currently allocated? If it is allocated this will be the address of the getmem routine
-     through which it was allocated, otherwise it will be nil.}
-    AllocatedByRoutine: Pointer;
-    {The allocation group: Can be used in the debugging process to group
-     related memory leaks together}
-    AllocationGroup: Cardinal;
-    {The allocation number: All new allocations are numbered sequentially. This
-     number may be useful in memory leak analysis. If it reaches 4G it wraps
-     back to 0.}
-    AllocationNumber: Cardinal;
-    {The call stack when the block was allocated}
-    AllocationStackTrace: TStackTrace;
-    {The thread that allocated the block}
-    AllocatedByThread: Cardinal;
-    {The call stack when the block was freed}
-    FreeStackTrace: TStackTrace;
-    {The thread that freed the block}
-    FreedByThread: Cardinal;
-    {The user requested size for the block. 0 if this is the first time the
-     block is used.}
-    UserSize: Cardinal;
-    {The object class this block was used for the previous time it was
-     allocated. When a block is freed, the dword that would normally be in the
-     space of the class pointer is copied here, so if it is detected that
-     the block was used after being freed we have an idea what class it is.}
-    PreviouslyUsedByClass: Cardinal;
-    {The sum of all the dwords excluding reserved dwords.}
-    HeaderCheckSum: Cardinal;
-  end;
-  {The last four bytes of the actual allocated block is the inverse of the
-   header checksum}
-
-  {The class used to catch attempts to execute a virtual method of a freed
-   object}
-  TFreedObject = class
-  public
-    procedure GetVirtualMethodIndex;
-    procedure VirtualMethodError;
-{$ifdef CatchUseOfFreedInterfaces}
-    procedure InterfaceError;
-{$endif}
-  end;
 
 {$endif}
 
@@ -6873,6 +6895,10 @@ begin
         PFullDebugBlockHeader(Result).UserSize := ASize;
         {Set the checksums}
         UpdateHeaderAndFooterCheckSums(Result);
+        {$ifdef FullDebugModeCallBacks}
+        if Assigned(OnDebugGetMemFinish) then
+          OnDebugGetMemFinish(PFullDebugBlockHeader(Result), ASize);
+        {$endif}
         {Return the start of the actual block}
         Result := Pointer(Cardinal(Result) + SizeOf(TFullDebugBlockHeader));
         {Should this block be marked as an expected leak automatically?}
@@ -6930,6 +6956,10 @@ begin
     {Enter the memory manager: block scans may not be performed now}
     StartChangingFullDebugModeBlock;
     try
+      {$ifdef FullDebugModeCallBacks}
+      if Assigned(OnDebugFreeMemStart) then
+        OnDebugFreeMemStart(LActualBlock);
+      {$endif}
       {Large blocks are never reused, so there is no point in updating their
        headers and fill pattern.}
       LBlockHeader := PCardinal(Cardinal(LActualBlock) - BlockHeaderSize)^;
@@ -6956,6 +6986,10 @@ begin
         UnregisterExpectedMemoryLeak(APointer);
       {Free the actual block}
       Result := FastFreeMem(LActualBlock);
+      {$ifdef FullDebugModeCallBacks}
+      if Assigned(OnDebugFreeMemFinish) then
+        OnDebugFreeMemFinish(LActualBlock, Result);
+      {$endif}
     finally
       {Leaving the memory manager routine: Block scans may be performed again.}
       DoneChangingFullDebugModeBlock;
@@ -7001,6 +7035,10 @@ begin
         {Block scans may not be performed now}
         StartChangingFullDebugModeBlock;
         try
+          {$ifdef FullDebugModeCallBacks}
+          if Assigned(OnDebugReallocMemStart) then
+            OnDebugReallocMemStart(LActualBlock, ANewSize);
+          {$endif}
           {We reuse the old allocation number. Since DebugGetMem always bumps
            CurrentAllocationGroup, there may be gaps in the sequence of
            allocation numbers.}
@@ -7010,6 +7048,10 @@ begin
           LNewActualBlock.AllocationNumber := LActualBlock.AllocationNumber;
           {Recalculate the header and footer checksums}
           UpdateHeaderAndFooterCheckSums(LNewActualBlock);
+          {$ifdef FullDebugModeCallBacks}
+          if Assigned(OnDebugReallocMemFinish) then
+            OnDebugReallocMemFinish(LNewActualBlock, ANewSize);
+          {$endif}
         finally
           {Block scans can again be performed safely}
           DoneChangingFullDebugModeBlock;
@@ -7033,6 +7075,10 @@ begin
       {Block scans may not be performed now}
       StartChangingFullDebugModeBlock;
       try
+        {$ifdef FullDebugModeCallBacks}
+        if Assigned(OnDebugReallocMemStart) then
+          OnDebugReallocMemStart(LActualBlock, ANewSize);
+        {$endif}
         {Clear all data after the new end of the block up to the old end of the
          block, including the trailer.}
         FillDWord(Pointer(Cardinal(APointer) + Cardinal(ANewSize) + 4)^,
@@ -7046,6 +7092,10 @@ begin
         LActualBlock.UserSize := ANewSize;
         {Set the new checksums}
         UpdateHeaderAndFooterCheckSums(LActualBlock);
+        {$ifdef FullDebugModeCallBacks}
+        if Assigned(OnDebugReallocMemFinish) then
+          OnDebugReallocMemFinish(LActualBlock, ANewSize);
+        {$endif}
       finally
         {Block scans can again be performed safely}
         DoneChangingFullDebugModeBlock;
