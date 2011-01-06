@@ -76,7 +76,7 @@ Set the default options for FastMM here.
    NeverSleepOnThreadContention option, and has no effect unless
    NeverSleepOnThreadContention is also defined. This option may improve
    performance with many CPU cores and/or threads of different priorities. Note
-   that the SwitchToThread API call is only available on Windows 2000 and later.
+   that the SwitchToThread API call is only available on Windows 2000 and later.}
   {.$define UseSwitchToThread}
 
 {-----------------------------Debugging Options-------------------------------}
