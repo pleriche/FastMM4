@@ -288,6 +288,22 @@ Set the default options for FastMM here.
  mechanism used by Delphi 2006 and 2007, as well as older FastMM versions.}
 {$define EnableBackwardCompatibleMMSharing}
 
+{-----------------------Security Options------------------------}
+
+{Windows clears physical memory before reusing it in another process. However,
+ it is not known how quickly this clearing is performed, so it is conceivable
+ that confidential data may linger in physical memory longer than absolutely
+ necessary. If you're paranoid about this kind of thing, enable this option to
+ clear all freed memory before returning it to the operating system. Note that
+ this incurs a noticeable performance hit.}
+{.$define ClearMemoryBeforeReturningToOS}
+
+{With this option enabled freed memory will immediately be cleared inside the
+ FreeMem routine. This incurs a big performance hit, but may be worthwhile for
+ additional peace of mind when working with highly sensitive data. This option
+ supersedes the ClearMemoryBeforeReturningToOS option.}
+{.$define AlwaysClearFreedMemory}
+
 {--------------------------------Option Grouping------------------------------}
 
 {Enabling this option enables FullDebugMode, InstallOnlyIfRunningInIDE and

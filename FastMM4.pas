@@ -806,10 +806,15 @@ Change log:
     defined. This option may improve performance with many CPU cores and/or
     threads of different priorities. Note that the SwitchToThread API call is
     only available on Windows 2000 and later. (Thanks to Zach Saw.)
+  Version 4.9? (?? ??? 2011)
   - Added the FullDebugModeCallBacks define which adds support for memory
     manager event callbacks. This allows the application to be notified of
     memory allocations, frees and reallocations as they occur. (Thanks to
     Jeroen Pluimers.)
+  - Added security options ClearMemoryBeforeReturningToOS and
+    AlwaysClearFreedMemory to force the clearing of memory blocks after being
+    freed. This could possibly provide some protection against information 
+    theft, but at a significant performance penalty.
 
 *)
 
@@ -875,6 +880,30 @@ interface
   {$undef CatchUseOfFreedInterfaces}
   {$undef RawStackTraces}
   {$undef AlwaysAllocateTopDown}
+{$endif}
+
+{Set defines for security options}
+{$ifdef FullDebugMode}
+  {In FullDebugMode small and medium blocks are always cleared when calling
+   FreeMem. Large blocks are always returned to the OS immediately.}
+  {$ifdef ClearMemoryBeforeReturningToOS}
+    {$define ClearLargeBlocksBeforeReturningToOS}
+  {$endif}
+  {$ifdef AlwaysClearFreedMemory}
+    {$define ClearLargeBlocksBeforeReturningToOS}
+  {$endif}
+{$else}
+  {If memory blocks are cleared in FreeMem then they do not need to be cleared
+   before returning the memory to the OS.}
+  {$ifdef AlwaysClearFreedMemory}
+    {$define ClearSmallAndMediumBlocksInFreeMem}
+    {$define ClearLargeBlocksBeforeReturningToOS}
+  {$else}
+    {$ifdef ClearMemoryBeforeReturningToOS}
+      {$define ClearMediumBlockPoolsBeforeReturningToOS}
+      {$define ClearLargeBlocksBeforeReturningToOS}
+    {$endif}
+  {$endif}
 {$endif}
 
 {Only the Pascal version supports extended heap corruption checking.}
@@ -1463,7 +1492,7 @@ const
   HexTable: array[0..15] of AnsiChar = ('0', '1', '2', '3', '4', '5', '6', '7',
     '8', '9', 'A', 'B', 'C', 'D', 'E', 'F');
   {Copyright message - not used anywhere in the code}
-  Copyright: AnsiString = 'FastMM4 (c) 2004 - 2010 Pierre le Riche / Professional Software Development';
+  Copyright: AnsiString = 'FastMM4 (c) 2004 - 2011 Pierre le Riche / Professional Software Development';
 {$ifdef FullDebugMode}
   {Virtual Method Called On Freed Object Errors}
   StandardVirtualMethodNames: array[1 + vmtParent div 4 .. -1] of PAnsiChar = (
@@ -3316,20 +3345,6 @@ begin
   end;
 end;
 
-{Frees a medium block pool. Medium blocks must be locked on entry.}
-procedure FreeMediumBlockPool(AMediumBlockPool: PMediumBlockPoolHeader);
-var
-  LPPreviousMediumBlockPoolHeader, LPNextMediumBlockPoolHeader: PMediumBlockPoolHeader;
-begin
-  {Remove this medium block pool from the linked list}
-  LPPreviousMediumBlockPoolHeader := AMediumBlockPool.PreviousMediumBlockPoolHeader;
-  LPNextMediumBlockPoolHeader := AMediumBlockPool.NextMediumBlockPoolHeader;
-  LPPreviousMediumBlockPoolHeader.NextMediumBlockPoolHeader := LPNextMediumBlockPoolHeader;
-  LPNextMediumBlockPoolHeader.PreviousMediumBlockPoolHeader := LPPreviousMediumBlockPoolHeader;
-  {Free the medium block pool}
-  VirtualFree(AMediumBlockPool, 0, MEM_RELEASE);
-end;
-
 {-----------------Large Block Management------------------}
 
 {Locks the large blocks}
@@ -3408,6 +3423,11 @@ var
   LMemInfo: TMemoryBasicInformation;
 {$endif}
 begin
+{$ifdef ClearLargeBlocksBeforeReturningToOS}
+  FillChar(APointer^,
+    (PLargeBlockHeader(Cardinal(APointer) - LargeBlockHeaderSize).BlockSizeAndFlags
+      and DropMediumAndLargeFlagsMask) - LargeBlockHeaderSize, 0);
+{$endif}
   {Point to the start of the large block}
   APointer := Pointer(Cardinal(APointer) - LargeBlockHeaderSize);
   {Get the previous and next large blocks}
@@ -4603,6 +4623,9 @@ begin
       LPNextMediumBlockPoolHeader.PreviousMediumBlockPoolHeader := LPPreviousMediumBlockPoolHeader;
       {Unlock medium blocks}
       MediumBlocksLocked := False;
+{$ifdef ClearMediumBlockPoolsBeforeReturningToOS}
+      FillChar(APointer^, MediumBlockPoolSize, 0);
+{$endif}
       {Free the medium block pool}
       if VirtualFree(APointer, 0, MEM_RELEASE) then
         Result := 0
@@ -4631,6 +4654,9 @@ begin
     LPSmallBlockPool := PSmallBlockPoolHeader(LBlockHeader);
     {Get the block type}
     LPSmallBlockType := LPSmallBlockPool.BlockType;
+{$ifdef ClearSmallAndMediumBlocksInFreeMem}
+    FillChar(APointer^, LPSmallBlockType.BlockSize - BlockHeaderSize, 0);
+{$endif}
     {Lock the block type}
 {$ifndef AssumeMultiThreaded}
     if IsMultiThread then
@@ -4705,6 +4731,12 @@ begin
     {Is this a medium block or a large block?}
     if LBlockHeader and (IsFreeBlockFlag or IsLargeBlockFlag) = 0 then
     begin
+{$ifdef ClearSmallAndMediumBlocksInFreeMem}
+      {Get the block header, extract the block size and clear the block it.}
+      LBlockHeader := PCardinal(Cardinal(APointer) - BlockHeaderSize)^;
+      FillChar(APointer^,
+        (LBlockHeader and DropMediumAndLargeFlagsMask) - BlockHeaderSize, 0);
+{$endif}
       Result := FreeMediumBlock(APointer);
     end
     else
@@ -4736,6 +4768,17 @@ asm
 {$endif}
   {Is it a small block that is in use?}
   jnz @NotSmallBlockInUse
+{$ifdef ClearSmallAndMediumBlocksInFreeMem}
+  push edx
+  push ecx
+  mov edx, TSmallBlockPoolHeader[edx].BlockType
+  movzx edx, TSmallBlockType(edx).BlockSize
+  sub edx, BlockHeaderSize
+  xor ecx, ecx
+  call System.@FillChar
+  pop ecx
+  pop edx
+{$endif}
   {Do we need to lock the block type?}
 {$ifndef AssumeMultiThreaded}
   test bl, bl
@@ -4885,10 +4928,20 @@ asm
   {Not a small block in use: is it a medium or large block?}
   test dl, IsFreeBlockFlag + IsLargeBlockFlag
   jnz @NotASmallOrMediumBlock
+{$ifdef ClearSmallAndMediumBlocksInFreeMem}
+  push eax
+  push edx
+  and edx, DropMediumAndLargeFlagsMask
+  sub edx, BlockHeaderSize
+  xor ecx, ecx
+  call System.@FillChar
+  pop edx
+  pop eax
+{$endif}
 @FreeMediumBlock:
   {Drop the flags}
   and edx, DropMediumAndLargeFlagsMask
-  {Free the large block pointed to by eax, header in edx, bl = IsMultiThread}
+  {Free the medium block pointed to by eax, header in edx, bl = IsMultiThread}
 {$ifndef AssumeMultiThreaded}
   {Do we need to lock the medium blocks?}
   test bl, bl
@@ -4989,6 +5042,12 @@ asm
   mov TMediumBlockPoolHeader[edx].PreviousMediumBlockPoolHeader, eax
   {Unlock medium blocks}
   mov MediumBlocksLocked, False;
+{$ifdef ClearMediumBlockPoolsBeforeReturningToOS}
+  mov eax, esi
+  mov edx, MediumBlockPoolSize
+  xor ecx, ecx
+  call System.@FillChar
+{$endif}
   {Free the medium block pool}
   push MEM_RELEASE
   push 0
@@ -8726,7 +8785,7 @@ begin
   Result.TotalFree := Result.FreeSmall + Result.FreeBig + Result.Unused;
 end;
 
-{Frees all allocated memory.}
+{Frees all allocated memory. Does not support segmented large blocks (yet).}
 procedure FreeAllMemory;
 var
   LPMediumBlockPoolHeader, LPNextMediumBlockPoolHeader: PMediumBlockPoolHeader;
@@ -8740,6 +8799,13 @@ begin
   begin
     {Get the next medium block pool so long}
     LPNextMediumBlockPoolHeader := LPMediumBlockPoolHeader.NextMediumBlockPoolHeader;
+{$ifdef ClearMediumBlockPoolsBeforeReturningToOS}
+    FillChar(LPMediumBlockPoolHeader^, MediumBlockPoolSize, 0);
+{$else}
+    {$ifdef ClearSmallAndMediumBlocksInFreeMem}
+    FillChar(LPMediumBlockPoolHeader^, MediumBlockPoolSize, 0);
+    {$endif}
+{$endif}
     {Free this pool}
     VirtualFree(LPMediumBlockPoolHeader, 0, MEM_RELEASE);
     {Next pool}
@@ -8769,6 +8835,10 @@ begin
   begin
     {Get the next large block}
     LPNextLargeBlock := LPLargeBlock.NextLargeBlockHeader;
+{$ifdef ClearLargeBlocksBeforeReturningToOS}
+    FillChar(LPLargeBlock^,
+      LPLargeBlock.BlockSizeAndFlags and DropMediumAndLargeFlagsMask, 0);
+{$endif}
     {Free this large block}
     VirtualFree(LPLargeBlock, 0, MEM_RELEASE);
     {Next large block}
