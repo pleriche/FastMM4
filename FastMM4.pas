@@ -814,7 +814,11 @@ Change log:
   - Added security options ClearMemoryBeforeReturningToOS and
     AlwaysClearFreedMemory to force the clearing of memory blocks after being
     freed. This could possibly provide some protection against information 
-    theft, but at a significant performance penalty.
+    theft, but at a significant performance penalty. (Thanks to Andrey
+    Sozonov.)
+  - Shifted the code in the initialization section to a procedure
+    RunInitializationCode. This allows the startup code to be called before
+    InitUnits, which is required by some software protection tools.
 
 *)
 
@@ -1106,6 +1110,9 @@ var
   SuppressMessageBoxes: Boolean;
 
 {-------------------------Public procedures----------------------------}
+{Executes the code normally run in the initialization section. Running it
+ earlier may be required with e.g. some software protection tools.}
+procedure RunInitializationCode;
 {Installation procedures must be exposed for the BCB helper unit FastMM4BCB.cpp}
 {$ifdef BCB}
 procedure InitializeMemoryManager;
@@ -1950,6 +1957,8 @@ var
 {$endif}
   {Is a MessageBox currently showing? If so, do not show another one.}
   ShowingMessageBox: Boolean;
+  {True if RunInitializationCode has been called already.}
+  InitializationCodeHasRun: Boolean = False;
 
 {----------------Utility Functions------------------}
 
@@ -9367,7 +9376,12 @@ begin
   end;
 end;
 
-initialization
+procedure RunInitializationCode;
+begin
+  {Only run this code once during startup.}
+  if InitializationCodeHasRun then
+    Exit;
+  InitializationCodeHasRun := True;
 {$ifndef BCB}
   {$ifdef InstallOnlyIfRunningInIDE}
   if (DebugHook <> 0) and DelphiIsRunning then
@@ -9387,6 +9401,10 @@ initialization
     end;
   end;
 {$endif}
+end;
+
+initialization
+  RunInitializationCode;
 
 finalization
 {$ifndef PatchBCBTerminate}
