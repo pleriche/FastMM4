@@ -958,6 +958,7 @@ interface
 {$endif}
 
 {$ifndef Delphi4or5}
+  {$define BCB6OrDelphi6AndUp}
   {$ifndef BCB}
     {$define Delphi6AndUp}
   {$endif}
@@ -976,7 +977,7 @@ interface
   {$endif}
 {$endif}
 
-{$ifdef Delphi6AndUp}
+{$ifdef BCB6OrDelphi6AndUp}
   {$WARN SYMBOL_PLATFORM OFF}
   {$WARN SYMBOL_DEPRECATED OFF}
 {$endif}
@@ -1503,7 +1504,7 @@ const
 {$ifdef FullDebugMode}
   {Virtual Method Called On Freed Object Errors}
   StandardVirtualMethodNames: array[1 + vmtParent div 4 .. -1] of PAnsiChar = (
-{$ifdef Delphi6AndUp}
+{$ifdef BCB6OrDelphi6AndUp}
   {$if RTLVersion >= 20}
     'Equals',
     'GetHashCode',
@@ -1544,7 +1545,7 @@ type
   {The layout of a string allocation. Used to detect string leaks.}
   PStrRec = ^StrRec;
   StrRec = packed record
-{$ifdef Delphi6AndUp}
+{$ifdef BCB6OrDelphi6AndUp}
   {$if RTLVersion >= 20}
     codePage: Word;
     elemSize: Word;
@@ -7900,7 +7901,7 @@ begin
     Result := stUnknown;
     Exit;
   end;
-{$ifdef Delphi6AndUp}
+{$ifdef BCB6OrDelphi6AndUp}
   {$if RTLVersion >= 20}
   LElemSize := PStrRec(APMemoryBlock).elemSize;
   {Element size must be either 1 (Ansi) or 2 (Unicode)}

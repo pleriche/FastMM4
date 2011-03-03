@@ -7,11 +7,17 @@ Description:
  C++ Builder application or DLL.
 
 Usage:
- 1) Under the Project -> Options -> Linker menu uncheck "Use Dynamic RTL"
+ 1) Copy FastMM4BCB.cpp, FastMM4.pas, FastMM4Message.pas, FastMM4Options.inc,
+    and FastMM_FullDebugMode.lib to your source folder.
+ 2) Copy FastMM_FullDebugMode.dll to your application's .exe directory (if you
+    intend to use FullDebugMode).
+ 3) To your project, add FastMM4Messages.pas first, then FastMM4.pas, then
+    FastMM4BCB.cpp. On compiling the .pas files, .hpp files are created and
+    imported by the subsequent files.
+ 4) Add USEOBJ("FastMM4BCB.cpp") to your project file, BEFORE any other
+    USEFORM directives.
+ 5) Under the Project -> Options -> Linker menu uncheck "Use Dynamic RTL"
     (sorry, won't work with the RTL DLL).
- 2) Add FastMM4.pas to your project and build it so that FastMM4.hpp is
-    created.
- 3) Add FastMM4BCB.cpp to your project.
  FastMM will now install itself on startup and replace the RTL memory manager.
 
 Acknowledgements:
@@ -20,6 +26,8 @@ Acknowledgements:
  - JiYuan Xie for doing an entire rewrite of this unit to allow leak reporting,
    etc. under BCB.
  - Remy Lebeau for some bugfixes.
+ - James Nachbar and Albert Wiersch for improved usage instructions and
+   bugfixes.
 
 Change log:
  Version 1.00 (15 June 2005):
