@@ -7891,7 +7891,7 @@ const
    string. #9 = Tab.}
   MinCharCode = #9;
 var
-  LStringLength, LElemSize, LStringMemReq, LCharInd: Integer;
+  LStringLength, LElemSize, LCharInd: Integer;
   LPAnsiStr: PAnsiChar;
   LPUniStr: PWideChar;
 begin
@@ -7919,10 +7919,9 @@ begin
 {$endif}
   {Get the string length}
   LStringLength := PStrRec(APMemoryBlock).length;
-  {Calculate the amount of memory required for the string}
-  LStringMemReq := (LStringLength + 1) * LElemSize + SizeOf(StrRec);
   {Does the string fit?}
-  if (LStringLength <= 0) or (LStringMemReq > AAvailableSpaceInBlock) then
+  if (LStringLength <= 0)
+    or (LStringLength >= (AAvailableSpaceInBlock - SizeOf(StrRec)) div LElemSize) then
   begin
     Result := stUnknown;
     Exit;
@@ -8839,6 +8838,9 @@ begin
     LPMediumFreeBlock.PreviousFreeBlock := LPMediumFreeBlock;
     LPMediumFreeBlock.NextFreeBlock := LPMediumFreeBlock;
   end;
+  MediumBlockBinGroupBitmap := 0;
+  FillChar(MediumBlockBinBitmaps, SizeOf(MediumBlockBinBitmaps), 0);
+  MediumSequentialFeedBytesLeft := 0;
   {Free all large blocks}
   LPLargeBlock := LargeBlocksCircularList.NextLargeBlockHeader;
   while LPLargeBlock <> @LargeBlocksCircularList do
