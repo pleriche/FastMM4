@@ -6985,24 +6985,65 @@ begin
   end;
 end;
 
-function CheckBlockBeforeFreeOrRealloc(APointer: PFullDebugBlockHeader; AOperation: TBlockOperation): Boolean;
+function CheckBlockBeforeFreeOrRealloc(APBlock: PFullDebugBlockHeader;
+  AOperation: TBlockOperation): Boolean;
 var
   LHeaderValid, LFooterValid: Boolean;
+  LPFooter: PCardinal;
+{$ifndef CatchUseOfFreedInterfaces}
+  LBlockSize: Cardinal;
+  LPTrailingByte, LPFillPatternEnd: PByte;
+{$endif}
 begin
-  {Is the debug info surrounding the block valid?}
-  LHeaderValid := CalculateHeaderCheckSum(APointer) = APointer.HeaderCheckSum;
-  LFooterValid := LHeaderValid
-    and (APointer.HeaderCheckSum = (not PCardinal(Cardinal(APointer) + SizeOf(TFullDebugBlockHeader) + PFullDebugBlockHeader(APointer).UserSize)^));
-  {The header and footer must be valid and the block must have been allocated by this memory manager
-   instance.}
-  if LHeaderValid and LFooterValid and (APointer.AllocatedByRoutine = @DebugGetMem) then
+  {Is the checksum for the block header valid?}
+  LHeaderValid := CalculateHeaderCheckSum(APBlock) = APBlock.HeaderCheckSum;
+  {If the header is corrupted then the footer is assumed to be corrupt too.}
+  if LHeaderValid then
+  begin
+    {Check the footer checksum: The footer checksum should equal the header
+     checksum with all bits inverted.}
+    LPFooter := PCardinal(Cardinal(APBlock) + SizeOf(TFullDebugBlockHeader) + PFullDebugBlockHeader(APBlock).UserSize);
+    if APBlock.HeaderCheckSum = (not (LPFooter^)) then
+    begin
+      LFooterValid := True;
+{$ifndef CatchUseOfFreedInterfaces}
+      {Large blocks do not have the debug fill pattern, since they are never reused.}
+      if PCardinal(Cardinal(APBlock) - 4)^ and (IsMediumBlockFlag or IsLargeBlockFlag) <> IsLargeBlockFlag then
+      begin
+        {Check that the application has not modified bytes beyond the block
+         footer. The $80 fill pattern should extend up to 2 dwords before the
+         start of the next block (leaving space for the free block size and next
+         block header.)}
+        LBlockSize := GetAvailableSpaceInBlock(APBlock);
+        LPFillPatternEnd := PByte(Cardinal(APBlock) + LBlockSize - SizeOf(Pointer));
+        LPTrailingByte := PByte(Cardinal(LPFooter) + SizeOf(Cardinal));
+        while Cardinal(LPTrailingByte) < Cardinal(LPFillPatternEnd) do
+        begin
+          if LPTrailingByte^ <> $80 then
+          begin
+            LFooterValid := False;
+            Break;
+          end;
+          Inc(LPTrailingByte);
+        end;
+      end;
+{$endif}
+    end
+    else
+      LFooterValid := False;
+  end
+  else
+    LFooterValid := False;
+  {The header and footer must be intact and the block must have been allocated
+   by this memory manager instance.}
+  if LFooterValid and (APBlock.AllocatedByRoutine = @DebugGetMem) then
   begin
     Result := True;
   end
   else
   begin
     {Log the error}
-    LogBlockError(APointer, AOperation, LHeaderValid, LFooterValid);
+    LogBlockError(APBlock, AOperation, LHeaderValid, LFooterValid);
     {Return an error}
     Result := False;
   end;
