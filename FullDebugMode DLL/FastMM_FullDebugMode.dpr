@@ -95,6 +95,21 @@ end;
 
 {--------------------------Frame Based Stack Tracing--------------------------}
 
+{$if SizeOf(Pointer) = 8}
+
+function CaptureStackBackTrace(FramesToSkip, FramesToCapture: DWORD;
+  BackTrace: Pointer; BackTraceHash: PDWORD): Word;
+  external kernel32 name 'RtlCaptureStackBackTrace';
+
+{We use the Windows API to do frame based stack tracing under 64-bit.}
+procedure GetFrameBasedStackTrace(AReturnAddresses: PNativeUInt;
+  AMaxDepth, ASkipFrames: Cardinal);
+begin
+  CaptureStackBackTrace(ASkipFrames, AMaxDepth, AReturnAddresses, nil);
+end;
+
+{$else}
+
 {Dumps the call stack trace to the given address. Fills the list with the
  addresses where the called addresses can be found. This is the fast stack
  frame based tracing routine.}
@@ -133,6 +148,7 @@ begin
     Dec(AMaxDepth);
   end;
 end;
+{$ifend}
 
 {-----------------------------Raw Stack Tracing-----------------------------}
 
