@@ -549,7 +549,7 @@ Change log:
    MM sharing has to be enabled otherwise it has no effect (refer to the
    documentation for the "ShareMM" and "AttemptToUseSharedMM" options).
  Version 4.62 (22 February 2006):
- - Fixed a possible read access violation in the MoveX16L4 routine when the
+ - Fixed a possible read access violation in the MoveX16LP routine when the
    UseCustomVariableSizeMoveRoutines option is enabled. (Thanks to Jud Cole for
    some great detective work in finding this bug.)
  - Improved the downsizing behaviour of medium blocks to better correlate with
@@ -899,11 +899,14 @@ interface
 {$ifdef 64Bit}
   {Under 64 bit memory blocks must always be 16-byte aligned}
   {$define Align16Bytes}
-  {64-bit asm code is not implemented yet.}
-  {$undef ASMVersion}
-  {$undef UseCustomFixedSizeMoveRoutines}
-  {$undef UseCustomVariableSizeMoveRoutines}
+  {No need for MMX under 64-bit, since SSE2 is available}
   {$undef EnableMMX}
+  {There is little need for raw stack traces under 64-bit, since frame based
+   stack traces are much more accurate than under 32-bit. (And frame based
+   stack tracing is much faster.)}
+  {$undef RawStackTraces}
+  {The 64-bit asm code for the core routines is not implemented yet.}
+  {$undef ASMVersion}
 {$endif}
 
 {IDE debug mode always enables FullDebugMode and dynamic loading of the FullDebugMode DLL.}
@@ -1459,7 +1462,7 @@ const
    is used to serve medium blocks. The size must be a multiple of 16 and at
    least 4 bytes less than a multiple of 4K (the page size) to prevent a
    possible read access violation when reading past the end of a memory block
-   in the optimized move routine (MoveX16L4). In Full Debug mode we leave a
+   in the optimized move routine (MoveX16LP). In Full Debug mode we leave a
    trailing 256 bytes to be able to safely do a memory dump.}
   MediumBlockPoolSize = 20 * 64 * 1024{$ifndef FullDebugMode} - 16{$else} - 256{$endif};
   {The granularity of small blocks}
@@ -2459,10 +2462,11 @@ asm
 {$endif}
 end;
 
-{Variable size move procedure: Assumes ACount is 4 less than a multiple of 16.
- Important note: Always moves at least 12 bytes (the minimum small block size
- with 16 byte alignment), irrespective of ACount.}
-procedure MoveX16L4(const ASource; var ADest; ACount: NativeInt);
+{Variable size move procedure: Rounds ACount up to the next multiple of 16 less
+ SizeOf(Pointer). Important note: Always moves at least 16 - SizeOf(Pointer)
+ bytes (the minimum small block size with 16 byte alignment), irrespective of
+ ACount.}
+procedure MoveX16LP(const ASource; var ADest; ACount: NativeInt);
 asm
 {$ifdef 32Bit}
   {Make the counter negative based: The last 12 bytes are moved separately}
@@ -2543,8 +2547,9 @@ asm
   mov [edx + ecx + 8], eax
 {$endif}
 {$else}
-  {Make the counter negative based: The last 12 bytes are moved separately}
-  sub r8, 12
+.noframe
+  {Make the counter negative based: The last 8 bytes are moved separately}
+  sub r8, 8
   add rcx, r8
   add rdx, r8
   neg r8
@@ -2557,18 +2562,17 @@ asm
   add r8, 16
   js @MoveLoop
 @MoveLast12:
-  {Do the last 12 bytes}
+  {Do the last 8 bytes}
   mov r9, [rcx + r8]
-  mov ecx, [rcx + r8 + 8]
   mov [rdx + r8], r9
-  mov [rdx + r8 + 8], ecx
 {$endif}
 end;
 
-{Variable size move procedure: Assumes ACount is 4 less than a multiple of 8.
- Important note: Always moves at least 4 bytes (the smallest block size with
- 8 byte alignment), irrespective of ACount.}
-procedure MoveX8L4(const ASource; var ADest; ACount: NativeInt);
+{Variable size move procedure: Rounds ACount up to the next multiple of 8 less
+ SizeOf(Pointer). Important note: Always moves at least 8 - SizeOf(Pointer)
+ bytes (the minimum small block size with 8 byte alignment), irrespective of
+ ACount.}
+procedure MoveX8LP(const ASource; var ADest; ACount: NativeInt);
 asm
 {$ifdef 32Bit}
   {Make the counter negative based: The last 4 bytes are moved separately}
@@ -2628,10 +2632,7 @@ asm
   mov [edx], eax
 {$else}
 .noframe
-  {Make the counter negative based: The last 4 bytes are moved separately}
-  sub r8, 4
-  {4 bytes or less? -> Use the Move4 routine.}
-  jle @FourBytesOrLess
+  {Make the counter negative based}
   add rcx, r8
   add rdx, r8
   neg r8
@@ -2642,15 +2643,6 @@ asm
   {Are there another 8 bytes to move?}
   add r8, 8
   js @MoveLoop
-  {Do the last 4 bytes}
-  mov eax, [rcx + r8]
-  mov [rdx + r8], eax
-  jmp @Done
-@FourBytesOrLess:
-  {Four or less bytes to move}
-  mov eax, [rcx]
-  mov [rdx], eax
-@Done:
 {$endif}
 end;
 
@@ -3863,7 +3855,7 @@ begin
       LOldUserSize := PLargeBlockHeader(PByte(APointer) - LargeBlockHeaderSize).UserAllocatedSize;
       {The number of bytes to move is the old user size.}
 {$ifdef UseCustomVariableSizeMoveRoutines}
-      MoveX16L4(APointer^, Result^, LOldUserSize);
+      MoveX16LP(APointer^, Result^, LOldUserSize);
 {$else}
       System.Move(APointer^, Result^, LOldUserSize);
 {$endif}
@@ -3895,9 +3887,9 @@ begin
         {Move the data across}
 {$ifdef UseCustomVariableSizeMoveRoutines}
 {$ifdef Align16Bytes}
-        MoveX16L4(APointer^, Result^, ANewSize);
+        MoveX16LP(APointer^, Result^, ANewSize);
 {$else}
-        MoveX8L4(APointer^, Result^, ANewSize);
+        MoveX8LP(APointer^, Result^, ANewSize);
 {$endif}
 {$else}
         System.Move(APointer^, Result^, ANewSize);
@@ -5538,9 +5530,9 @@ begin
           {Move the data across}
 {$ifdef UseCustomVariableSizeMoveRoutines}
   {$ifdef Align16Bytes}
-          MoveX16L4(APointer^, Result^, ANewSize);
+          MoveX16LP(APointer^, Result^, ANewSize);
   {$else}
-          MoveX8L4(APointer^, Result^, ANewSize);
+          MoveX8LP(APointer^, Result^, ANewSize);
   {$endif}
 {$else}
           System.Move(APointer^, Result^, ANewSize);
@@ -5672,7 +5664,7 @@ begin
             PLargeBlockHeader(PByte(Result) - LargeBlockHeaderSize).UserAllocatedSize := ANewSize;
           {Move the data across}
 {$ifdef UseCustomVariableSizeMoveRoutines}
-          MoveX16L4(APointer^, Result^, LOldAvailableSize);
+          MoveX16LP(APointer^, Result^, LOldAvailableSize);
 {$else}
           System.Move(APointer^, Result^, LOldAvailableSize);
 {$endif}
@@ -5724,9 +5716,9 @@ begin
                 {Move the data across}
 {$ifdef UseCustomVariableSizeMoveRoutines}
   {$ifdef Align16Bytes}
-                MoveX16L4(APointer^, Result^, ANewSize);
+                MoveX16LP(APointer^, Result^, ANewSize);
   {$else}
-                MoveX8L4(APointer^, Result^, ANewSize);
+                MoveX8LP(APointer^, Result^, ANewSize);
   {$endif}
 {$else}
                 System.Move(APointer^, Result^, ANewSize);
@@ -5812,9 +5804,9 @@ asm
   {Move the data across}
 {$ifdef UseCustomVariableSizeMoveRoutines}
   {$ifdef Align16Bytes}
-  call MoveX16L4
+  call MoveX16LP
   {$else}
-  call MoveX8L4
+  call MoveX8LP
   {$endif}
 {$else}
   call System.Move
@@ -6040,9 +6032,9 @@ asm
   {Move the data across}
 {$ifdef UseCustomVariableSizeMoveRoutines}
   {$ifdef Align16Bytes}
-  call MoveX16L4
+  call MoveX16LP
   {$else}
-  call MoveX8L4
+  call MoveX8LP
   {$endif}
 {$else}
   call System.Move
@@ -6208,7 +6200,7 @@ asm
   mov eax, esi
   mov ecx, edi
 {$ifdef UseCustomVariableSizeMoveRoutines}
-  call MoveX16L4
+  call MoveX16LP
 {$else}
   call System.Move
 {$endif}
@@ -9368,7 +9360,7 @@ begin
     the old size.}
     if not Assigned(SmallBlockTypes[LInd].UpsizeMoveProcedure) then
   {$ifdef UseCustomVariableSizeMoveRoutines}
-      SmallBlockTypes[LInd].UpsizeMoveProcedure := MoveX16L4;
+      SmallBlockTypes[LInd].UpsizeMoveProcedure := MoveX16LP;
   {$else}
       SmallBlockTypes[LInd].UpsizeMoveProcedure := @System.Move;
   {$endif}
