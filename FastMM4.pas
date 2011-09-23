@@ -905,8 +905,6 @@ interface
    stack traces are much more accurate than under 32-bit. (And frame based
    stack tracing is much faster.)}
   {$undef RawStackTraces}
-  {The 64-bit asm code for the core routines is not implemented yet.}
-  {$undef ASMVersion}
 {$endif}
 
 {IDE debug mode always enables FullDebugMode and dynamic loading of the FullDebugMode DLL.}
@@ -987,6 +985,13 @@ interface
 {Only the Pascal version supports extended heap corruption checking.}
 {$ifdef CheckHeapForCorruption}
   {$undef ASMVersion}
+{$endif}
+
+{For BASM bits that are not implemented in 64-bit.}
+{$ifdef 32Bit}
+  {$ifdef ASMVersion}
+    {$define Use32BitAsm}
+  {$endif}
 {$endif}
 
 {$ifdef UseRuntimePackages}
@@ -2031,7 +2036,7 @@ var
 {A copy of StrLen in order to avoid the SysUtils unit, which would have
  introduced overhead like exception handling code.}
 function StrLen(const AStr: PAnsiChar): NativeUInt;
-{$ifndef AsmVersion}
+{$ifndef Use32BitAsm}
 begin
   Result := 0;
   while AStr[Result] <> #0 do
@@ -2150,7 +2155,7 @@ asm
 {$endif}
 end;
 
-{$ifndef AsmVersion}
+{$ifndef ASMVersion}
 {Gets the first set bit in the 32-bit number, returning the bit index}
 function FindFirstSetBit(ACardinal: Cardinal): Cardinal;
 asm
@@ -2792,7 +2797,7 @@ end;
  new buffer position. Note: The 32-bit asm version only supports numbers up to
  2^31 - 1.}
 function NativeUIntToStrBuf(ANum: NativeUInt; APBuffer: PAnsiChar): PAnsiChar;
-{$ifndef AsmVersion}
+{$ifndef Use32BitAsm}
 const
   MaxDigits = 20;
 var
@@ -2927,7 +2932,7 @@ end;
 {Converts an unsigned integer to a hexadecimal string at the buffer location,
  returning the new buffer position.}
 function NativeUIntToHexBuf(ANum: NativeUInt; APBuffer: PAnsiChar): PAnsiChar;
-{$ifndef AsmVersion}
+{$ifndef Use32BitAsm}
 const
   MaxDigits = 16;
 var
@@ -3255,9 +3260,9 @@ begin
   end;
 end;
 
-{Locks the medium blocks. Note that if AsmVersion is defined that the routine
- is assumed to preserve all registers except eax.}
-{$ifndef AsmVersion}
+{Locks the medium blocks. Note that the 32-bit asm version is assumed to
+ preserve all registers except eax.}
+{$ifndef Use32BitAsm}
 procedure LockMediumBlocks;
 begin
   {Lock the medium blocks}
@@ -3328,11 +3333,11 @@ asm
 end;
 {$endif}
 
-{$ifndef AsmVersion}
 {Removes a medium block from the circular linked list of free blocks.
  Does not change any header flags. Medium blocks should be locked
  before calling this procedure.}
 procedure RemoveMediumFreeBlock(APMediumFreeBlock: PMediumFreeBlock);
+{$ifndef ASMVersion}
 var
   LPreviousFreeBlock, LNextFreeBlock: PMediumFreeBlock;
   LBinNumber, LBinGroupNumber: Cardinal;
@@ -3363,10 +3368,7 @@ begin
   end;
 end;
 {$else}
-{Removes a medium block from the circular linked list of free blocks.
- Does not change any header flags. Medium blocks should be locked
- before calling this procedure.}
-procedure RemoveMediumFreeBlock(APMediumFreeBlock: PMediumFreeBlock);
+{$ifdef 32Bit}
 asm
   {On entry: eax = APMediumFreeBlock}
   {Get the current previous and next blocks}
@@ -3403,11 +3405,48 @@ asm
   rol eax, cl
   and MediumBlockBinGroupBitmap, eax
 end;
+{$else}
+asm
+  {On entry: rcx = APMediumFreeBlock}
+  mov rax, rcx
+  {Get the current previous and next blocks}
+  mov rcx, TMediumFreeBlock[rax].NextFreeBlock
+  mov rdx, TMediumFreeBlock[rax].PreviousFreeBlock
+  {Is this bin now empty? If the previous and next free block pointers are
+   equal, they must point to the bin.}
+  cmp rcx, rdx
+  {Remove this block from the linked list}
+  mov TMediumFreeBlock[rcx].PreviousFreeBlock, rdx
+  mov TMediumFreeBlock[rdx].NextFreeBlock, rcx
+  {Is this bin now empty? If the previous and next free block pointers are
+   equal, they must point to the bin.}
+  jne @Done
+  {Get the bin number for this block size in rcx}
+  lea r8, MediumBlockBins
+  sub rcx, r8
+  mov edx, ecx
+  shr ecx, 4
+  {Get the group number in edx}
+  shr edx, 9
+  {Flag this bin as empty}
+  mov eax, -2
+  rol eax, cl
+  lea r8, MediumBlockBinBitmaps
+  and dword ptr [r8 + rdx * 4], eax
+  jnz @Done
+  {Flag this group as empty}
+  mov eax, -2
+  mov ecx, edx
+  rol eax, cl
+  and MediumBlockBinGroupBitmap, eax
+@Done:
+end;
+{$endif}
 {$endif}
 
 {Inserts a medium block into the appropriate medium block bin.}
 procedure InsertMediumBlockIntoBin(APMediumFreeBlock: PMediumFreeBlock; AMediumBlockSize: Cardinal);
-{$ifndef AsmVersion}
+{$ifndef ASMVersion}
 var
   LBinNumber, LBinGroupNumber: Cardinal;
   LPBin, LPFirstFreeBlock: PMediumFreeBlock;
@@ -3439,6 +3478,7 @@ begin
   end;
 end;
 {$else}
+{$ifdef 32Bit}
 asm
   {On entry: eax = APMediumFreeBlock, edx = AMediumBlockSize}
   {Get the bin number for this block size. Get the bin that holds blocks of at
@@ -3483,12 +3523,58 @@ asm
   shl eax, cl
   or MediumBlockBinGroupBitmap, eax
 end;
+{$else}
+asm
+  {On entry: rax = APMediumFreeBlock, edx = AMediumBlockSize}
+  mov rax, rcx
+  {Get the bin number for this block size. Get the bin that holds blocks of at
+   least this size.}
+  sub edx, MinimumMediumBlockSize
+  shr edx, 8
+  {Validate the bin number}
+  sub edx, MediumBlockBinCount - 1
+  sbb ecx, ecx
+  and edx, ecx
+  add edx, MediumBlockBinCount - 1
+  mov r9, rdx
+  {Get the bin address in rcx}
+  lea rcx, MediumBlockBins
+  shl edx, 4
+  add rcx, rdx
+  {Bins are LIFO, se we insert this block as the first free block in the bin}
+  mov rdx, TMediumFreeBlock[rcx].NextFreeBlock
+  {Was this bin empty?}
+  cmp rdx, rcx
+  mov TMediumFreeBlock[rax].PreviousFreeBlock, rcx
+  mov TMediumFreeBlock[rax].NextFreeBlock, rdx
+  mov TMediumFreeBlock[rdx].PreviousFreeBlock, rax
+  mov TMediumFreeBlock[rcx].NextFreeBlock, rax
+  {Was this bin empty?}
+  jne @Done
+  {Get the bin number in ecx}
+  mov rcx, r9
+  {Get the group number in edx}
+  mov rdx, r9
+  shr edx, 5
+  {Flag this bin as not empty}
+  mov eax, 1
+  shl eax, cl
+  lea r8, MediumBlockBinBitmaps
+  or dword ptr [r8 + rdx * 4], eax
+  {Flag the group as not empty}
+  mov eax, 1
+  mov ecx, edx
+  shl eax, cl
+  or MediumBlockBinGroupBitmap, eax
+@Done:
+end;
+{$endif}
 {$endif}
 
-{$ifndef AsmVersion}
 {Bins what remains in the current sequential feed medium block pool. Medium
  blocks must be locked.}
 procedure BinMediumSequentialFeedRemainder;
+{$ifndef Use32BitAsm}
 var
   LSequentialFeedFreeSize, LNextBlockSizeAndFlags: NativeUInt;
   LPRemainderBlock, LNextMediumBlock: Pointer;
@@ -3540,9 +3626,6 @@ begin
   end;
 end;
 {$else}
-{Bins what remains in the current sequential feed medium block pool. Medium
- blocks must be locked.}
-procedure BinMediumSequentialFeedRemainder;
 asm
   cmp MediumSequentialFeedBytesLeft, 0
   jne @MustBinMedium
@@ -3598,6 +3681,7 @@ asm
   {edx = total size of the remainder}
   add edx, ecx
   jmp @BinTheRemainder
+@Done:
 end;
 {$endif}
 
@@ -5442,6 +5526,7 @@ begin
   end;
 end;
 {$else}
+{$ifdef 32Bit}
 asm
   {Get the block header in edx}
   mov edx, [eax - 4]
@@ -5617,6 +5702,7 @@ asm
   {Not a small block in use: is it a medium or large block?}
   test dl, IsFreeBlockFlag + IsLargeBlockFlag
   jnz @NotASmallOrMediumBlock
+@FreeMediumBlock:
 {$ifdef ClearSmallAndMediumBlocksInFreeMem}
   push eax
   push edx
@@ -5627,7 +5713,6 @@ asm
   pop edx
   pop eax
 {$endif}
-@FreeMediumBlock:
   {Drop the flags}
   and edx, DropMediumAndLargeFlagsMask
   {Free the medium block pointed to by eax, header in edx, bl = IsMultiThread}
@@ -5786,6 +5871,301 @@ asm
   {Attempt to free an already free block}
   mov eax, -1
 end;
+
+{$else}
+
+{---------------64-bit BASM FastFreeMem---------------}
+asm
+  .params 3
+  .pushnv rbx
+  .pushnv rsi
+  {Get the block header in rdx}
+  mov rdx, [rcx - BlockHeaderSize]
+  {Is it a small block in use?}
+  test dl, IsFreeBlockFlag + IsMediumBlockFlag + IsLargeBlockFlag
+  {Get the IsMultiThread variable in bl}
+{$ifndef AssumeMultiThreaded}
+  mov bl, IsMultiThread
+{$endif}
+  {Is it a small block that is in use?}
+  jnz @NotSmallBlockInUse
+{$ifdef ClearSmallAndMediumBlocksInFreeMem}
+  mov rsi, rcx
+  mov rdx, TSmallBlockPoolHeader[rdx].BlockType
+  movzx edx, TSmallBlockType(rdx).BlockSize
+  sub edx, BlockHeaderSize
+  xor r8, r8
+  call System.@FillChar
+  mov rcx, rsi
+  mov rdx, [rcx - BlockHeaderSize]
+{$endif}
+  {Do we need to lock the block type?}
+{$ifndef AssumeMultiThreaded}
+  test bl, bl
+{$endif}
+  {Get the small block type in rbx}
+  mov rbx, TSmallBlockPoolHeader[rdx].BlockType
+  {Do we need to lock the block type?}
+{$ifndef AssumeMultiThreaded}
+  jnz @LockBlockTypeLoop
+{$else}
+  jmp @LockBlockTypeLoop
+{$endif}
+@GotLockOnSmallBlockType:
+  {Current state: rdx = @SmallBlockPoolHeader, rcx = APointer, rbx = @SmallBlockType}
+  {Decrement the number of blocks in use}
+  sub TSmallBlockPoolHeader[rdx].BlocksInUse, 1
+  {Get the old first free block}
+  mov rax, TSmallBlockPoolHeader[rdx].FirstFreeBlock
+  {Is the pool now empty?}
+  jz @PoolIsNowEmpty
+  {Was the pool full?}
+  test rax, rax
+  {Store this as the new first free block}
+  mov TSmallBlockPoolHeader[rdx].FirstFreeBlock, rcx
+  {Store the previous first free block as the block header}
+  lea rax, [rax + IsFreeBlockFlag]
+  mov [rcx - BlockHeaderSize], rax
+  {Insert the pool back into the linked list if it was full}
+  jz @SmallPoolWasFull
+  {All ok}
+  xor eax, eax
+  {Unlock the block type}
+  mov TSmallBlockType[rbx].BlockTypeLocked, al
+  jmp @Done
+@SmallPoolWasFull:
+  {Insert this as the first partially free pool for the block size}
+  mov rcx, TSmallBlockType[rbx].NextPartiallyFreePool
+  mov TSmallBlockPoolHeader[rdx].PreviousPartiallyFreePool, rbx
+  mov TSmallBlockPoolHeader[rdx].NextPartiallyFreePool, rcx
+  mov TSmallBlockPoolHeader[rcx].PreviousPartiallyFreePool, rdx
+  mov TSmallBlockType[rbx].NextPartiallyFreePool, rdx
+  {Unlock the block type}
+  mov TSmallBlockType[rbx].BlockTypeLocked, False
+  {All ok}
+  xor eax, eax
+  jmp @Done
+@PoolIsNowEmpty:
+  {Was this pool actually in the linked list of pools with space? If not, it
+   can only be the sequential feed pool (it is the only pool that may contain
+   only one block, i.e. other blocks have not been split off yet)}
+  test rax, rax
+  jz @IsSequentialFeedPool
+  {Pool is now empty: Remove it from the linked list and free it}
+  mov rax, TSmallBlockPoolHeader[rdx].PreviousPartiallyFreePool
+  mov rcx, TSmallBlockPoolHeader[rdx].NextPartiallyFreePool
+  {Remove this manager}
+  mov TSmallBlockPoolHeader[rax].NextPartiallyFreePool, rcx
+  mov TSmallBlockPoolHeader[rcx].PreviousPartiallyFreePool, rax
+  {Zero out eax}
+  xor rax, rax
+  {Is this the sequential feed pool? If so, stop sequential feeding}
+  cmp TSmallBlockType[rbx].CurrentSequentialFeedPool, rdx
+  jne @NotSequentialFeedPool
+@IsSequentialFeedPool:
+  mov TSmallBlockType[rbx].MaxSequentialFeedBlockAddress, rax
+@NotSequentialFeedPool:
+  {Unlock the block type}
+  mov TSmallBlockType[rbx].BlockTypeLocked, al
+  {Release this pool}
+  mov rcx, rdx
+  mov rdx, [rdx - BlockHeaderSize]
+{$ifndef AssumeMultiThreaded}
+  mov bl, IsMultiThread
+{$endif}
+  jmp @FreeMediumBlock
+@LockBlockTypeLoop:
+  mov eax, $100
+  {Attempt to grab the block type}
+  lock cmpxchg TSmallBlockType([rbx]).BlockTypeLocked, ah
+  je @GotLockOnSmallBlockType
+{$ifdef NeverSleepOnThreadContention}
+  {Pause instruction (improves performance on P4)}
+  pause
+  {$ifdef UseSwitchToThread}
+  mov rsi, rcx
+  call SwitchToThread
+  mov rcx, rsi
+  mov rdx, [rcx - BlockHeaderSize]
+  {$endif}
+  {Try again}
+  jmp @LockBlockTypeLoop
+{$else}
+  {Couldn't grab the block type - sleep and try again}
+  mov rsi, rcx
+  mov ecx, InitialSleepTime
+  call Sleep
+  mov rcx, rsi
+  mov rdx, [rcx - BlockHeaderSize]
+  {Try again}
+  mov eax, $100
+  {Attempt to grab the block type}
+  lock cmpxchg TSmallBlockType([rbx]).BlockTypeLocked, ah
+  je @GotLockOnSmallBlockType
+  {Couldn't grab the block type - sleep and try again}
+  mov rsi, rcx
+  mov ecx, AdditionalSleepTime
+  call Sleep
+  mov rcx, rsi
+  mov rdx, [rcx - BlockHeaderSize]
+  {Try again}
+  jmp @LockBlockTypeLoop
+{$endif}
+  {---------------------Medium blocks------------------------------}
+@NotSmallBlockInUse:
+  {Not a small block in use: is it a medium or large block?}
+  test dl, IsFreeBlockFlag + IsLargeBlockFlag
+  jnz @NotASmallOrMediumBlock
+@FreeMediumBlock:
+{$ifdef ClearSmallAndMediumBlocksInFreeMem}
+  mov rsi, rcx
+  and rdx, DropMediumAndLargeFlagsMask
+  sub rdx, BlockHeaderSize
+  xor r8, r8
+  call System.@FillChar
+  mov rcx, rsi
+  mov rdx, [rcx - BlockHeaderSize]
+{$endif}
+  {Drop the flags}
+  and rdx, DropMediumAndLargeFlagsMask
+  {Free the medium block pointed to by eax, header in edx, bl = IsMultiThread}
+{$ifndef AssumeMultiThreaded}
+  {Do we need to lock the medium blocks?}
+  test bl, bl
+{$endif}
+  {Block size in rbx}
+  mov rbx, rdx
+  {Pointer in rsi}
+  mov rsi, rcx
+  {Do we need to lock the medium blocks?}
+{$ifndef AssumeMultiThreaded}
+  jz @MediumBlocksLocked
+{$endif}
+  call LockMediumBlocks
+@MediumBlocksLocked:
+  {Can we combine this block with the next free block?}
+  test qword ptr [rsi + rbx - BlockHeaderSize], IsFreeBlockFlag
+  {Get the next block size and flags in rcx}
+  mov rcx, [rsi + rbx - BlockHeaderSize]
+  jnz @NextBlockIsFree
+  {Set the "PreviousIsFree" flag in the next block}
+  or rcx, PreviousMediumBlockIsFreeFlag
+  mov [rsi + rbx - BlockHeaderSize], rcx
+@NextBlockChecked:
+  {Can we combine this block with the previous free block? We need to
+   re-read the flags since it could have changed before we could lock the
+   medium blocks.}
+  test byte ptr [esi - BlockHeaderSize], PreviousMediumBlockIsFreeFlag
+  jnz @PreviousBlockIsFree
+@PreviousBlockChecked:
+  {Is the entire medium block pool free, and there are other free blocks
+   that can fit the largest possible medium block -> free it.}
+  cmp ebx, (MediumBlockPoolSize - MediumBlockPoolHeaderSize)
+  je @EntireMediumPoolFree
+@BinFreeMediumBlock:
+  {Store the size of the block as well as the flags}
+  lea rax, [rbx + IsMediumBlockFlag + IsFreeBlockFlag]
+  mov [rsi - BlockHeaderSize], rax
+  {Store the trailing size marker}
+  mov [rsi + rbx - 2 * BlockHeaderSize], rbx
+  {Insert this block back into the bins: Size check not required here,
+   since medium blocks that are in use are not allowed to be
+   shrunk smaller than MinimumMediumBlockSize}
+  mov rcx, rsi
+  mov rdx, rbx
+  {Insert into bin}
+  call InsertMediumBlockIntoBin
+  {All OK}
+  xor eax, eax
+  {Unlock medium blocks}
+  mov MediumBlocksLocked, al
+  jmp @Done
+@NextBlockIsFree:
+  {Get the next block address in rax}
+  lea rax, [rsi + rbx]
+  {Increase the size of this block}
+  and rcx, DropMediumAndLargeFlagsMask
+  add rbx, rcx
+  {Was the block binned?}
+  cmp rcx, MinimumMediumBlockSize
+  jb @NextBlockChecked
+  mov rcx, rax
+  call RemoveMediumFreeBlock
+  jmp @NextBlockChecked
+@PreviousBlockIsFree:
+  {Get the size of the free block just before this one}
+  mov rcx, [rsi - 2 * BlockHeaderSize]
+  {Include the previous block}
+  sub rsi, rcx
+  {Set the new block size}
+  add rbx, rcx
+  {Remove the previous block from the linked list}
+  cmp ecx, MinimumMediumBlockSize
+  jb @PreviousBlockChecked
+  mov rcx, rsi
+  call RemoveMediumFreeBlock
+  jmp @PreviousBlockChecked
+@EntireMediumPoolFree:
+  {Should we make this the new sequential feed medium block pool? If the
+   current sequential feed pool is not entirely free, we make this the new
+   sequential feed pool.}
+  lea r8, MediumSequentialFeedBytesLeft
+  cmp dword ptr [r8], MediumBlockPoolSize - MediumBlockPoolHeaderSize //workaround for QC99023
+  jne @MakeEmptyMediumPoolSequentialFeed
+  {Point esi to the medium block pool header}
+  sub rsi, MediumBlockPoolHeaderSize
+  {Remove this medium block pool from the linked list}
+  mov rax, TMediumBlockPoolHeader[rsi].PreviousMediumBlockPoolHeader
+  mov rdx, TMediumBlockPoolHeader[rsi].NextMediumBlockPoolHeader
+  mov TMediumBlockPoolHeader[rax].NextMediumBlockPoolHeader, rdx
+  mov TMediumBlockPoolHeader[rdx].PreviousMediumBlockPoolHeader, rax
+  {Unlock medium blocks}
+  xor eax, eax
+  mov MediumBlocksLocked, al
+{$ifdef ClearMediumBlockPoolsBeforeReturningToOS}
+  mov rcx, rsi
+  mov edx, MediumBlockPoolSize
+  xor r8, r8
+  call System.@FillChar
+{$endif}
+  {Free the medium block pool}
+  mov rcx, rsi
+  xor edx, edx
+  mov r8d, MEM_RELEASE
+  call VirtualFree
+  {VirtualFree returns >0 if all is ok}
+  cmp eax, 1
+  {Return 0 on all ok}
+  sbb eax, eax
+  jmp @Done
+@MakeEmptyMediumPoolSequentialFeed:
+  {Get a pointer to the end-marker block}
+  lea rbx, [rsi + MediumBlockPoolSize - MediumBlockPoolHeaderSize]
+  {Bin the current sequential feed pool}
+  call BinMediumSequentialFeedRemainder
+  {Set this medium pool up as the new sequential feed pool:
+   Store the sequential feed pool trailer}
+  mov qword ptr [rbx - BlockHeaderSize], IsMediumBlockFlag
+  {Store the number of bytes available in the sequential feed chunk}
+  lea rax, MediumSequentialFeedBytesLeft
+  mov dword ptr [rax], MediumBlockPoolSize - MediumBlockPoolHeaderSize //QC99023 workaround
+  {Set the last sequentially fed block}
+  mov LastSequentiallyFedMediumBlock, rbx
+  {Success}
+  xor eax, eax
+  {Unlock medium blocks}
+  mov MediumBlocksLocked, al
+  jmp @Done
+@NotASmallOrMediumBlock:
+  {Attempt to free an already free block?}
+  mov eax, -1
+  {Is it in fact a large block?}
+  test dl, IsFreeBlockFlag + IsMediumBlockFlag
+  jnz @Done
+  call FreeLargeBlock
+@Done:
+end;
+{$endif}
 {$endif}
 
 {$ifndef FullDebugMode}
@@ -6142,6 +6522,7 @@ begin
   end;
 end;
 {$else}
+{$ifdef 32Bit}
 asm
   {On entry: eax = APointer; edx = ANewSize}
   {Get the block header: Is it actually a small block?}
@@ -6622,6 +7003,433 @@ asm
   {-----------------------Invalid block------------------------------}
   xor eax, eax
 end;
+
+{$else}
+
+{-----------------64-bit BASM FastReallocMem-----------------}
+asm
+  .params 3
+  .pushnv rbx
+  .pushnv rsi
+  .pushnv rdi
+  .pushnv r14
+  .pushnv r15
+  {On entry: rcx = APointer; rdx = ANewSize}
+  {Save the original pointer in rsi}
+  mov rsi, rcx
+  {Get the block header}
+  mov rcx, [rcx - BlockHeaderSize]
+  {Is it a small block?}
+  test cl, IsFreeBlockFlag + IsMediumBlockFlag + IsLargeBlockFlag
+  jnz @NotASmallBlock
+  {-----------------------------------Small block-------------------------------------}
+  {Get the block type in rbx}
+  mov rbx, TSmallBlockPoolHeader[rcx].BlockType
+  {Get the available size inside blocks of this type.}
+  movzx ecx, TSmallBlockType[rbx].BlockSize
+  sub ecx, BlockHeaderSize
+  {Is it an upsize or a downsize?}
+  cmp rcx, rdx
+  jb @SmallUpsize
+  {It's a downsize. Do we need to allocate a smaller block? Only if the new
+   size is less than a quarter of the available size less
+   SmallBlockDownsizeCheckAdder bytes}
+  lea ebx, [edx * 4 + SmallBlockDownsizeCheckAdder]
+  cmp ebx, ecx
+  jb @NotSmallInPlaceDownsize
+  {In-place downsize - return the original pointer}
+  mov rax, rsi
+  jmp @Done
+@NotSmallInPlaceDownsize:
+  {Save the requested size}
+  mov rbx, rdx
+  {Allocate a smaller block}
+  mov rcx, rdx
+  call FastGetMem
+  {Allocated OK?}
+  test rax, rax
+  jz @Done
+  {Move data across: count in r8}
+  mov r8, rbx
+  {Destination in edx}
+  mov rdx, rax
+  {Save the result in ebx}
+  mov rbx, rax
+  {Original pointer in ecx}
+  mov rcx, rsi
+  {Move the data across}
+{$ifdef UseCustomVariableSizeMoveRoutines}
+  {$ifdef Align16Bytes}
+  call MoveX16LP
+  {$else}
+  call MoveX8LP
+  {$endif}
+{$else}
+  call System.Move
+{$endif}
+  {Free the original pointer}
+  mov rcx, rsi
+  call FastFreeMem
+  {Return the pointer}
+  mov rax, rbx
+  jmp @Done
+@SmallUpsize:
+  {State: rsi = APointer, rdx = ANewSize, rcx = Current Block Size, rbx = Current Block Type}
+  {This pointer is being reallocated to a larger block and therefore it is
+   logical to assume that it may be enlarged again. Since reallocations are
+   expensive, there is a minimum upsize percentage to avoid unnecessary
+   future move operations.}
+  {Small blocks always grow with at least 100% + SmallBlockUpsizeAdder bytes}
+  lea ecx, [ecx + ecx + SmallBlockUpsizeAdder]
+  {Save the requested size in rdi}
+  mov rdi, rdx
+  {New allocated size is the maximum of the requested size and the minimum
+   upsize}
+  xor rax, rax
+  sub rcx, rdx
+  adc rax, -1
+  and rcx, rax
+  add rcx, rdx
+  {Allocate the new block}
+  call FastGetMem
+  {Allocated OK?}
+  test rax, rax
+  jz @Done
+  {Do we need to store the requested size? Only large blocks store the
+   requested size.}
+  cmp rdi, MaximumMediumBlockSize - BlockHeaderSize
+  jbe @NotSmallUpsizeToLargeBlock
+  {Store the user requested size}
+  mov [rax - 2 * BlockHeaderSize], rdi
+@NotSmallUpsizeToLargeBlock:
+  {Get the size to move across}
+  movzx r8d, TSmallBlockType[rbx].BlockSize
+  sub r8d, BlockHeaderSize
+  {Move to the new block}
+  mov rdx, rax
+  {Save the result in edi}
+  mov rdi, rax
+  {Move from the old block}
+  mov rcx, rsi
+  {Move the data across}
+{$ifdef UseCustomFixedSizeMoveRoutines}
+  call TSmallBlockType[rbx].UpsizeMoveProcedure
+{$else}
+  call System.Move
+{$endif}
+  {Free the old pointer}
+  mov rcx, rsi
+  call FastFreeMem
+  {Done}
+  mov rax, rdi
+  jmp @Done
+@NotASmallBlock:
+  {Is this a medium block or a large block?}
+  test cl, IsFreeBlockFlag + IsLargeBlockFlag
+  jnz @PossibleLargeBlock
+  {-------------------------------Medium block--------------------------------------}
+  {Status: rcx = Current Block Size + Flags, rsi = APointer,
+   rdx = Requested Size}
+  mov rbx, rcx
+  {Drop the flags from the header}
+  and ecx, DropMediumAndLargeFlagsMask
+  {Get a pointer to the next block in rdi}
+  lea rdi, [rsi + rcx]
+  {Subtract the block header size from the old available size}
+  sub ecx, BlockHeaderSize
+  {Get the complete flags in ebx}
+  and ebx, ExtractMediumAndLargeFlagsMask
+  {Is it an upsize or a downsize?}
+  cmp rdx, rcx
+  ja @MediumBlockUpsize
+  {Status: ecx = Current Block Size - BlockHeaderSize, bl = Current Block Flags,
+   rdi = @Next Block, rsi = APointer, rdx = Requested Size}
+  {Must be less than half the current size or we don't bother resizing.}
+  lea r15, [rdx + rdx]
+  cmp r15, rcx
+  jb @MediumMustDownsize
+@MediumNoResize:
+  mov rax, rsi
+  jmp @Done
+@MediumMustDownsize:
+  {In-place downsize? Balance the cost of moving the data vs. the cost of
+   fragmenting the memory pool. Medium blocks in use may never be smaller
+   than MinimumMediumBlockSize.}
+  cmp edx, MinimumMediumBlockSize - BlockHeaderSize
+  jae @MediumBlockInPlaceDownsize
+  {The requested size is less than the minimum medium block size. If the
+  requested size is less than the threshold value (currently a quarter of the
+  minimum medium block size), move the data to a small block, otherwise shrink
+  the medium block to the minimum allowable medium block size.}
+  cmp edx, MediumInPlaceDownsizeLimit
+  jb @MediumDownsizeRealloc
+  {The request is for a size smaller than the minimum medium block size, but
+   not small enough to justify moving data: Reduce the block size to the
+   minimum medium block size}
+  mov edx, MinimumMediumBlockSize - BlockHeaderSize
+  {Is it already at the minimum medium block size?}
+  cmp ecx, edx
+  jna @MediumNoResize
+@MediumBlockInPlaceDownsize:
+  {Round up to the next medium block size}
+  lea r15, [rdx + BlockHeaderSize + MediumBlockGranularity - 1 - MediumBlockSizeOffset]
+  and r15, -MediumBlockGranularity
+  add r15, MediumBlockSizeOffset
+  {Get the size of the second split}
+  add ecx, BlockHeaderSize
+  sub ecx, r15d
+  {Lock the medium blocks}
+{$ifndef AssumeMultiThreaded}
+  lea r8, IsMultiThread
+  cmp byte ptr [r8], False
+  je @DoMediumInPlaceDownsize
+{$endif}
+@DoMediumLockForDownsize:
+  {Lock the medium blocks}
+  mov ebx, ecx
+  call LockMediumBlocks
+  mov ecx, ebx
+  {Reread the flags - they may have changed before medium blocks could be
+   locked.}
+  mov rbx, ExtractMediumAndLargeFlagsMask
+  and rbx, [rsi - BlockHeaderSize]
+@DoMediumInPlaceDownsize:
+  {Set the new size}
+  or rbx, r15
+  mov [rsi - BlockHeaderSize], rbx
+  {Get the second split size in ebx}
+  mov ebx, ecx
+  {Is the next block in use?}
+  mov rdx, [rdi - BlockHeaderSize]
+  test dl, IsFreeBlockFlag
+  jnz @MediumDownsizeNextBlockFree
+  {The next block is in use: flag its previous block as free}
+  or rdx, PreviousMediumBlockIsFreeFlag
+  mov [rdi - BlockHeaderSize], rdx
+  jmp @MediumDownsizeDoSplit
+@MediumDownsizeNextBlockFree:
+  {The next block is free: combine it}
+  mov rcx, rdi
+  and rdx, DropMediumAndLargeFlagsMask
+  add rbx, rdx
+  add rdi, rdx
+  cmp edx, MinimumMediumBlockSize
+  jb @MediumDownsizeDoSplit
+  call RemoveMediumFreeBlock
+@MediumDownsizeDoSplit:
+  {Store the trailing size field}
+  mov [rdi - 2 * BlockHeaderSize], rbx
+  {Store the free part's header}
+  lea rcx, [rbx + IsMediumBlockFlag + IsFreeBlockFlag];
+  mov [rsi + r15 - BlockHeaderSize], rcx
+  {Bin this free block}
+  cmp rbx, MinimumMediumBlockSize
+  jb @MediumBlockDownsizeDone
+  lea rcx, [rsi + r15]
+  mov rdx, rbx
+  call InsertMediumBlockIntoBin
+@MediumBlockDownsizeDone:
+  {Unlock the medium blocks}
+  lea rax, MediumBlocksLocked
+  mov byte ptr [rax], False
+  {Result = old pointer}
+  mov rax, rsi
+  jmp @Done
+@MediumDownsizeRealloc:
+  {Save the requested size}
+  mov rdi, rdx
+  mov rcx, rdx
+  {Allocate the new block}
+  call FastGetMem
+  test rax, rax
+  jz @Done
+  {Save the result}
+  mov r15, rax
+  mov rdx, rax
+  mov rcx, rsi
+  mov r8, rdi
+  {Move the data across}
+{$ifdef UseCustomVariableSizeMoveRoutines}
+  {$ifdef Align16Bytes}
+  call MoveX16LP
+  {$else}
+  call MoveX8LP
+  {$endif}
+{$else}
+  call System.Move
+{$endif}
+  mov rcx, rsi
+  call FastFreeMem
+  {Return the result}
+  mov rax, r15
+  jmp @Done
+@MediumBlockUpsize:
+  {Status: ecx = Current Block Size - BlockHeaderSize, bl = Current Block Flags,
+   rdi = @Next Block, rsi = APointer, rdx = Requested Size}
+  {Can we do an in-place upsize?}
+  mov rax, [rdi - BlockHeaderSize]
+  test al, IsFreeBlockFlag
+  jz @CannotUpsizeMediumBlockInPlace
+  {Get the total available size including the next block}
+  and rax, DropMediumAndLargeFlagsMask
+  {r15 = total available size including the next block (excluding the header)}
+  lea r15, [rax + rcx]
+  {Can the block fit?}
+  cmp rdx, r15
+  ja @CannotUpsizeMediumBlockInPlace
+  {The next block is free and there is enough space to grow this
+   block in place.}
+{$ifndef AssumeMultiThreaded}
+  lea r8, IsMultiThread
+  cmp byte ptr [r8], False
+  je @DoMediumInPlaceUpsize
+{$endif}
+@DoMediumLockForUpsize:
+  {Lock the medium blocks.}
+  mov rbx, rcx
+  mov r15, rdx
+  call LockMediumBlocks
+  mov rcx, rbx
+  mov rdx, r15
+  {Re-read the info for this block (since it may have changed before the medium
+   blocks could be locked)}
+  mov rbx, ExtractMediumAndLargeFlagsMask
+  and rbx, [rsi - BlockHeaderSize]
+  {Re-read the info for the next block}
+  mov rax, [rdi - BlockheaderSize]
+  {Next block still free?}
+  test al, IsFreeBlockFlag
+  jz @NextMediumBlockChanged
+  {Recalculate the next block size}
+  and eax, DropMediumAndLargeFlagsMask
+  {The available size including the next block}
+  lea r15, [rax + rcx]
+  {Can the block still fit?}
+  cmp rdx, r15
+  ja @NextMediumBlockChanged
+@DoMediumInPlaceUpsize:
+  {Is the next block binnable?}
+  cmp eax, MinimumMediumBlockSize
+  {Remove the next block}
+  jb @MediumInPlaceNoNextRemove
+  mov r14, rcx
+  mov rcx, rdi
+  mov rdi, rdx
+  call RemoveMediumFreeBlock
+  mov rcx, r14
+  mov rdx, rdi
+@MediumInPlaceNoNextRemove:
+  {Medium blocks grow a minimum of 25% in in-place upsizes}
+  mov eax, ecx
+  shr eax, 2
+  add eax, ecx
+  {Get the maximum of the requested size and the minimum growth size}
+  xor edi, edi
+  sub eax, edx
+  adc edi, -1
+  and eax, edi
+  {Round up to the nearest block size granularity}
+  lea eax, [eax + edx + BlockHeaderSize + MediumBlockGranularity - 1 - MediumBlockSizeOffset]
+  and eax, -MediumBlockGranularity
+  add eax, MediumBlockSizeOffset
+  {Calculate the size of the second split}
+  lea rdx, [r15 + BlockHeaderSize]
+  sub edx, eax
+  {Does it fit?}
+  ja @MediumInPlaceUpsizeSplit
+  {Grab the whole block: Mark it as used in the block following it}
+  and qword ptr [rsi + r15], not PreviousMediumBlockIsFreeFlag
+  {The block size is the full available size plus header}
+  add r15, BlockHeaderSize
+  {Upsize done}
+  jmp @MediumUpsizeInPlaceDone
+@MediumInPlaceUpsizeSplit:
+  {Store the size of the second split as the second last dword}
+  mov [rsi + r15 - BlockHeaderSize], rdx
+  {Set the second split header}
+  lea edi, [edx + IsMediumBlockFlag + IsFreeBlockFlag]
+  mov [rsi + rax - BlockHeaderSize], rdi
+  mov r15, rax
+  cmp edx, MinimumMediumBlockSize
+  jb @MediumUpsizeInPlaceDone
+  lea rcx, [rsi + rax]
+  call InsertMediumBlockIntoBin
+@MediumUpsizeInPlaceDone:
+  {Set the size and flags for this block}
+  or r15, rbx
+  mov [rsi - BlockHeaderSize], r15
+  {Unlock the medium blocks}
+  lea rax, MediumBlocksLocked
+  mov byte ptr [rax], False
+  {Result = old pointer}
+  mov rax, rsi
+  jmp @Done
+@NextMediumBlockChanged:
+  {The next medium block changed while the medium blocks were being locked}
+  lea rax, MediumBlocksLocked
+  mov byte ptr [rax], False
+@CannotUpsizeMediumBlockInPlace:
+  {Couldn't upsize in place. Grab a new block and move the data across:
+   If we have to reallocate and move medium blocks, we grow by at
+   least 25%}
+  mov eax, ecx
+  shr eax, 2
+  add eax, ecx
+  {Get the maximum of the requested size and the minimum growth size}
+  xor rdi, rdi
+  sub rax, rdx
+  adc rdi, -1
+  and rax, rdi
+  add rax, rdx
+  {Save the size to allocate}
+  mov r15, rax
+  {Save the size to move across}
+  mov edi, ecx
+  {Save the requested size}
+  mov rbx, rdx
+  {Get the block}
+  mov rcx, rax
+  call FastGetMem
+  mov rdx, rbx
+  {Success?}
+  test eax, eax
+  jz @Done
+  {If it's a Large block - store the actual user requested size}
+  cmp r15, MaximumMediumBlockSize - BlockHeaderSize
+  jbe @MediumUpsizeNotLarge
+  mov [rax - 2 * BlockHeaderSize], rdx
+@MediumUpsizeNotLarge:
+  {Save the result}
+  mov r15, rax
+  {Move the data across}
+  mov rdx, rax
+  mov rcx, rsi
+  mov r8, rdi
+{$ifdef UseCustomVariableSizeMoveRoutines}
+  call MoveX16LP
+{$else}
+  call System.Move
+{$endif}
+  {Free the old block}
+  mov rcx, rsi
+  call FastFreeMem
+  {Restore the result}
+  mov rax, r15
+  jmp @Done
+@PossibleLargeBlock:
+  {-----------------------Large block------------------------------}
+  {Is this a valid large block?}
+  test cl, IsFreeBlockFlag + IsMediumBlockFlag
+  jnz @Error
+  mov rcx, rsi
+  call ReallocateLargeBlock
+  jmp @Done
+  {-----------------------Invalid block------------------------------}
+@Error:
+  xor eax, eax
+@Done:
+end;
+{$endif}
 {$endif}
 {$endif}
 
@@ -6635,6 +7443,7 @@ begin
     FillChar(Result^, ASize, 0);
 end;
 {$else}
+{$ifdef 32Bit}
 asm
   push ebx
   {Get the size rounded down to the previous multiple of 4 into ebx}
@@ -6676,6 +7485,50 @@ asm
 @Done:
   pop ebx
 end;
+
+{$else}
+
+{---------------64-bit BASM FastAllocMem---------------}
+asm
+  .params 1
+  .pushnv rbx
+  {Get the size rounded down to the previous multiple of SizeOf(Pointer) into
+   ebx}
+  lea rbx, [rcx - 1]
+  and rbx, -8
+  {Get the block}
+  call FastGetMem
+  {Could a block be allocated? rcx = 0 if yes, -1 if no}
+  cmp rax, 1
+  sbb rcx, rcx
+  {Point rdx to the last dword}
+  lea rdx, [rax + rbx]
+  {rbx = -1 if no block could be allocated, otherwise size rounded down
+   to previous multiple of 8. If rbx = 0 then the block size is 1..8 bytes and
+   the SSE2 based clearing loop should not be used (since it clears 16 bytes per
+   iteration).}
+  or rbx, rcx
+  jz @ClearLastQWord
+  {Large blocks are already zero filled}
+  cmp rbx, MaximumMediumBlockSize - BlockHeaderSize
+  jae @Done
+  {Make the counter negative based}
+  neg rbx
+  {Load zero into st(0)}
+  pxor xmm0, xmm0
+  {Clear groups of 16 bytes. Block sizes are always 8 less than a multiple of
+   16.}
+@FillLoop:
+  movdqa [rdx + rbx], xmm0
+  add rbx, 16
+  js @FillLoop
+  {Clear the last 8 bytes}
+@ClearLastQWord:
+  xor rcx, rcx
+  mov [rdx], rcx
+@Done:
+end;
+{$endif}
 {$endif}
 
 {-----------------Post Uninstall GetMem/FreeMem/ReallocMem-------------------}
