@@ -1,6 +1,6 @@
 (*
 
-Fast Memory Manager 4.97
+Fast Memory Manager 4.98
 
 Description:
  A fast replacement memory manager for Embarcadero Delphi Win32 applications
@@ -806,7 +806,7 @@ Change log:
     defined. This option may improve performance with many CPU cores and/or
     threads of different priorities. Note that the SwitchToThread API call is
     only available on Windows 2000 and later. (Thanks to Zach Saw.)
-  Version 4.9? (?? ??? 2011)
+  Version 4.98 (23 September 2011)
   - Added the FullDebugModeCallBacks define which adds support for memory
     manager event callbacks. This allows the application to be notified of
     memory allocations, frees and reallocations as they occur. (Thanks to
@@ -1049,7 +1049,7 @@ interface
 {-------------------------Public constants-----------------------------}
 const
   {The current version of FastMM}
-  FastMMVersion = '4.97';
+  FastMMVersion = '4.98';
   {The number of small block types}
 {$ifdef Align16Bytes}
   NumSmallBlockTypes = 46;
