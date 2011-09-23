@@ -11,7 +11,8 @@ interface
 
 const
   {Der Name der Debug-Info-DLL}
-  FullDebugModeLibraryName = 'FastMM_FullDebugMode.dll';
+  FullDebugModeLibraryName32Bit = 'FastMM_FullDebugMode.dll';
+  FullDebugModeLibraryName64Bit = 'FastMM_FullDebugMode64.dll';
   {Protokollaufzeichungs Erweiterung}
   LogFileExtension = '_FastMM_Log.txt'#0;  {*** (changed) geaendert 31.01.06 (to long) zu lang *** [uweq] ***}
   CRLF = #13#10;
