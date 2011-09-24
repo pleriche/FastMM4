@@ -707,8 +707,8 @@ var
     LR_GlobalMemoryStatusEx: TMemoryStatusEx;
     LR_ProcessMemoryCounters: TProcessMemoryCounters;
     LR_SysBaseInfo: TSystem_Basic_Information;
-    LU_MinQuota: Cardinal;
-    LU_MaxQuota: Cardinal;
+    LU_MinQuota: {$if CompilerVersion >= 23}NativeUInt{$else}Cardinal{$ifend};
+    LU_MaxQuota: {$if CompilerVersion >= 23}NativeUInt{$else}Cardinal{$ifend};
     LI_I: Integer;
     LI_Max: Integer;
   begin
