@@ -1971,7 +1971,7 @@ var
   {The fake VMT used to catch virtual method calls on freed objects.}
   FreedObjectVMT: packed record
     VMTData: array[vmtSelfPtr .. vmtParent + SizeOf(Pointer) - 1] of byte;
-    VMTMethods: array[vmtParent + SizeOf(Pointer) .. vmtParent + MaxFakeVMTEntries * SizeOf(Pointer) + SizeOf(Pointer) - 1] of Byte;
+    VMTMethods: array[SizeOf(Pointer) + vmtParent .. vmtParent + MaxFakeVMTEntries * SizeOf(Pointer) + SizeOf(Pointer) - 1] of Byte;
   end;
   {$ifdef CatchUseOfFreedInterfaces}
   VMTBadInterface: array[0..MaxFakeVMTEntries - 1] of Pointer;
