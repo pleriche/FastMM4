@@ -1451,6 +1451,13 @@ procedure Move44(const ASource; var ADest; ACount: NativeInt); forward;
 procedure Move52(const ASource; var ADest; ACount: NativeInt); forward;
 procedure Move60(const ASource; var ADest; ACount: NativeInt); forward;
 procedure Move68(const ASource; var ADest; ACount: NativeInt); forward;
+{$ifdef 64Bit}
+{These are not needed and thus unimplemented under 32-bit}
+procedure Move8(const ASource; var ADest; ACount: NativeInt); forward;
+procedure Move24(const ASource; var ADest; ACount: NativeInt); forward;
+procedure Move40(const ASource; var ADest; ACount: NativeInt); forward;
+procedure Move56(const ASource; var ADest; ACount: NativeInt); forward;
+{$endif}
 
 {$ifdef DetectMMOperationsAfterUninstall}
 {Invalid handlers to catch MM operations after uninstall}
@@ -1820,19 +1827,19 @@ var
 {$ifndef Align16Bytes}
     (BlockSize: 8 {$ifdef UseCustomFixedSizeMoveRoutines}; UpsizeMoveProcedure: Move4{$endif}),
 {$endif}
-    (BlockSize: 16 {$ifdef UseCustomFixedSizeMoveRoutines}; UpsizeMoveProcedure: Move12{$endif}),
+    (BlockSize: 16 {$ifdef UseCustomFixedSizeMoveRoutines}; UpsizeMoveProcedure: {$ifdef 32Bit}Move12{$else}Move8{$endif}{$endif}),
 {$ifndef Align16Bytes}
     (BlockSize: 24 {$ifdef UseCustomFixedSizeMoveRoutines}; UpsizeMoveProcedure: Move20{$endif}),
 {$endif}
-    (BlockSize: 32 {$ifdef UseCustomFixedSizeMoveRoutines}; UpsizeMoveProcedure: Move28{$endif}),
+    (BlockSize: 32 {$ifdef UseCustomFixedSizeMoveRoutines}; UpsizeMoveProcedure: {$ifdef 32Bit}Move28{$else}Move24{$endif}{$endif}),
 {$ifndef Align16Bytes}
     (BlockSize: 40 {$ifdef UseCustomFixedSizeMoveRoutines}; UpsizeMoveProcedure: Move36{$endif}),
 {$endif}
-    (BlockSize: 48 {$ifdef UseCustomFixedSizeMoveRoutines}; UpsizeMoveProcedure: Move44{$endif}),
+    (BlockSize: 48 {$ifdef UseCustomFixedSizeMoveRoutines}; UpsizeMoveProcedure: {$ifdef 32Bit}Move44{$else}Move40{$endif}{$endif}),
 {$ifndef Align16Bytes}
     (BlockSize: 56 {$ifdef UseCustomFixedSizeMoveRoutines}; UpsizeMoveProcedure: Move52{$endif}),
 {$endif}
-    (BlockSize: 64 {$ifdef UseCustomFixedSizeMoveRoutines}; UpsizeMoveProcedure: Move60{$endif}),
+    (BlockSize: 64 {$ifdef UseCustomFixedSizeMoveRoutines}; UpsizeMoveProcedure: {$ifdef 32Bit}Move60{$else}Move56{$endif}{$endif}),
 {$ifndef Align16Bytes}
     (BlockSize: 72 {$ifdef UseCustomFixedSizeMoveRoutines}; UpsizeMoveProcedure: Move68{$endif}),
 {$endif}
@@ -2247,6 +2254,14 @@ asm
 {$endif}
 end;
 
+{$ifdef 64Bit}
+procedure Move8(const ASource; var ADest; ACount: NativeInt);
+asm
+  mov rax, [rcx]
+  mov [rdx], rax
+end;
+{$endif}
+
 procedure Move12(const ASource; var ADest; ACount: NativeInt);
 asm
 {$ifdef 32Bit}
@@ -2286,6 +2301,16 @@ asm
   mov [rdx + 16], ecx
 {$endif}
 end;
+
+{$ifdef 64Bit}
+procedure Move24(const ASource; var ADest; ACount: NativeInt);
+asm
+  movdqa xmm0, [rcx]
+  mov r8, [rcx + 16]
+  movdqa [rdx], xmm0
+  mov [rdx + 16], r8
+end;
+{$endif}
 
 procedure Move28(const ASource; var ADest; ACount: NativeInt);
 asm
@@ -2338,6 +2363,18 @@ asm
   mov [rdx + 32], ecx
 {$endif}
 end;
+
+{$ifdef 64Bit}
+procedure Move40(const ASource; var ADest; ACount: NativeInt);
+asm
+  movdqa xmm0, [rcx]
+  movdqa xmm1, [rcx + 16]
+  mov r8, [rcx + 32]
+  movdqa [rdx], xmm0
+  movdqa [rdx + 16], xmm1
+  mov [rdx + 32], r8
+end;
+{$endif}
 
 procedure Move44(const ASource; var ADest; ACount: NativeInt);
 asm
@@ -2396,6 +2433,20 @@ asm
   mov [rdx + 48], ecx
 {$endif}
 end;
+
+{$ifdef 64Bit}
+procedure Move56(const ASource; var ADest; ACount: NativeInt);
+asm
+  movdqa xmm0, [rcx]
+  movdqa xmm1, [rcx + 16]
+  movdqa xmm2, [rcx + 32]
+  mov r8, [rcx + 48]
+  movdqa [rdx], xmm0
+  movdqa [rdx + 16], xmm1
+  movdqa [rdx + 32], xmm2
+  mov [rdx + 48], r8
+end;
+{$endif}
 
 procedure Move60(const ASource; var ADest; ACount: NativeInt);
 asm
@@ -3574,7 +3625,7 @@ end;
 {Bins what remains in the current sequential feed medium block pool. Medium
  blocks must be locked.}
 procedure BinMediumSequentialFeedRemainder;
-{$ifndef Use32BitAsm}
+{$ifdef PurePascal}
 var
   LSequentialFeedFreeSize, LNextBlockSizeAndFlags: NativeUInt;
   LPRemainderBlock, LNextMediumBlock: Pointer;
@@ -3626,6 +3677,7 @@ begin
   end;
 end;
 {$else}
+{$ifdef 32Bit}
 asm
   cmp MediumSequentialFeedBytesLeft, 0
   jne @MustBinMedium
@@ -3683,6 +3735,61 @@ asm
   jmp @BinTheRemainder
 @Done:
 end;
+{$else}
+asm
+  .params 2
+  xor eax, eax
+  cmp MediumSequentialFeedBytesLeft, eax
+  je @Done
+  {Get a pointer to the last sequentially allocated medium block}
+  mov rax, LastSequentiallyFedMediumBlock
+  {Is the block that was last fed sequentially free?}
+  test byte ptr [rax - BlockHeaderSize], IsFreeBlockFlag
+  jnz @LastBlockFedIsFree
+  {Set the "previous block is free" flag in the last block fed}
+  or qword ptr [rax - BlockHeaderSize], PreviousMediumBlockIsFreeFlag
+  {Get the remainder in edx}
+  mov edx, MediumSequentialFeedBytesLeft
+  {Point eax to the start of the remainder}
+  sub rax, rdx
+@BinTheRemainder:
+  {Status: rax = start of remainder, edx = size of remainder}
+  {Store the size of the block as well as the flags}
+  lea rcx, [rdx + IsMediumBlockFlag + IsFreeBlockFlag]
+  mov [rax - BlockHeaderSize], rcx
+  {Store the trailing size marker}
+  mov [rax + rdx - 2 * BlockHeaderSize], rdx
+  {Bin this medium block}
+  cmp edx, MinimumMediumBlockSize
+  jb @Done
+  mov rcx, rax
+  call InsertMediumBlockIntoBin
+  jmp @Done
+@LastBlockFedIsFree:
+  {Drop the flags}
+  mov rdx, DropMediumAndLargeFlagsMask
+  and rdx, [rax - BlockHeaderSize]
+  {Free the last block fed}
+  cmp edx, MinimumMediumBlockSize
+  jb @DontRemoveLastFed
+  {Last fed block is free - remove it from its size bin}
+  mov rcx, rax
+  call RemoveMediumFreeBlock
+  {Re-read rax and rdx}
+  mov rax, LastSequentiallyFedMediumBlock
+  mov rdx, DropMediumAndLargeFlagsMask
+  and rdx, [rax - BlockHeaderSize]
+@DontRemoveLastFed:
+  {Get the number of bytes left in ecx}
+  mov ecx, MediumSequentialFeedBytesLeft
+  {Point rax to the start of the remainder}
+  sub rax, rcx
+  {edx = total size of the remainder}
+  add edx, ecx
+  jmp @BinTheRemainder
+@Done:
+end;
+{$endif}
 {$endif}
 
 {Allocates a new sequential feed medium block pool and immediately splits off a
@@ -7514,7 +7621,7 @@ asm
   jae @Done
   {Make the counter negative based}
   neg rbx
-  {Load zero into st(0)}
+  {Load zero into xmm0}
   pxor xmm0, xmm0
   {Clear groups of 16 bytes. Block sizes are always 8 less than a multiple of
    16.}
