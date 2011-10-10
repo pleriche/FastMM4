@@ -3625,7 +3625,7 @@ end;
 {Bins what remains in the current sequential feed medium block pool. Medium
  blocks must be locked.}
 procedure BinMediumSequentialFeedRemainder;
-{$ifdef PurePascal}
+{$ifndef ASMVersion}
 var
   LSequentialFeedFreeSize, LNextBlockSizeAndFlags: NativeUInt;
   LPRemainderBlock, LNextMediumBlock: Pointer;
