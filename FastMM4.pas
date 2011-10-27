@@ -8802,7 +8802,7 @@ begin
   else
   begin
 {$ifdef SuppressFreeMemErrorsInsideException}
-    if ExceptObject <> nil then
+    if {$ifdef BDS2006AndUp}ExceptObject{$else}RaiseList{$endif} <> nil then
       Result := 0
     else
 {$endif}
