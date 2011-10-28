@@ -1081,7 +1081,7 @@ type
   UIntPtr = Cardinal;
 {$endif}
 
-  TSmallBlockTypeState = packed record
+  TSmallBlockTypeState = record
     {The internal size of the block type}
     InternalBlockSize: Cardinal;
     {Useable block size: The number of non-reserved bytes inside the block.}
@@ -1094,7 +1094,7 @@ type
   end;
   TSmallBlockTypeStates = array[0..NumSmallBlockTypes - 1] of TSmallBlockTypeState;
 
-  TMemoryManagerState = packed record
+  TMemoryManagerState = record
     {Small block type states}
     SmallBlockTypeStates: TSmallBlockTypeStates;
     {Medium block stats}
@@ -1107,7 +1107,7 @@ type
     ReservedLargeBlockAddressSpace: NativeUInt;
   end;
 
-  TMemoryManagerUsageSummary = packed record
+  TMemoryManagerUsageSummary = record
     {The total number of bytes allocated by the application.}
     AllocatedBytes: NativeUInt;
     {The total number of address space bytes used by control structures, or
@@ -1125,7 +1125,7 @@ type
 
 {$ifdef EnableMemoryLeakReporting}
   {List of registered leaks}
-  TRegisteredMemoryLeak = packed record
+  TRegisteredMemoryLeak = record
     LeakAddress: Pointer;
     LeakedClass: TClass;
     {$ifdef CheckCppObjectTypeEnabled}
@@ -1354,7 +1354,7 @@ type
    Align16Bytes option will not work. Current size = 128 bytes under 32-bit,
    and 240 bytes under 64-bit.}
   PFullDebugBlockHeader = ^TFullDebugBlockHeader;
-  TFullDebugBlockHeader = packed record
+  TFullDebugBlockHeader = record
     {Space used by the medium block manager for previous/next block management.
      If a medium block is binned then these two fields will be modified.}
     Reserved1: Pointer;
@@ -1642,7 +1642,7 @@ type
 
   {Small block type (Size = 32 bytes for 32-bit, 64 bytes for 64-bit).}
   PSmallBlockType = ^TSmallBlockType;
-  TSmallBlockType = packed record
+  TSmallBlockType = record
     {True = Block type is locked}
     BlockTypeLocked: Boolean;
     {Bitmap indicating which of the first 8 medium block groups contain blocks
@@ -1681,7 +1681,7 @@ type
   end;
 
   {Small block pool (Size = 32 bytes for 32-bit, 48 bytes for 64-bit).}
-  TSmallBlockPoolHeader = packed record
+  TSmallBlockPoolHeader = record
     {BlockType}
     BlockType: PSmallBlockType;
 {$ifdef 32Bit}
@@ -1716,7 +1716,7 @@ type
   {The medium block pool from which medium blocks are drawn. Size = 16 bytes
    for 32-bit and 32 bytes for 64-bit.}
   PMediumBlockPoolHeader = ^TMediumBlockPoolHeader;
-  TMediumBlockPoolHeader = packed record
+  TMediumBlockPoolHeader = record
     {Points to the previous and next medium block pools. This circular linked
      list is used to track memory leaks on program shutdown.}
     PreviousMediumBlockPoolHeader: PMediumBlockPoolHeader;
@@ -1737,7 +1737,7 @@ type
 
   {A medium block that is unused}
   PMediumFreeBlock = ^TMediumFreeBlock;
-  TMediumFreeBlock = packed record
+  TMediumFreeBlock = record
     PreviousFreeBlock: PMediumFreeBlock;
     NextFreeBlock: PMediumFreeBlock;
   end;
@@ -1746,7 +1746,7 @@ type
 
   {Large block header record (Size = 16 for 32-bit, 32 for 64-bit)}
   PLargeBlockHeader = ^TLargeBlockHeader;
-  TLargeBlockHeader = packed record
+  TLargeBlockHeader = record
     {Points to the previous and next large blocks. This circular linked
      list is used to track memory leaks on program shutdown.}
     PreviousLargeBlockHeader: PLargeBlockHeader;
@@ -1765,7 +1765,7 @@ type
    not.}
   PExpectedMemoryLeak = ^TExpectedMemoryLeak;
   PPExpectedMemoryLeak = ^PExpectedMemoryLeak;
-  TExpectedMemoryLeak = packed record
+  TExpectedMemoryLeak = record
     {Linked list pointers}
     PreviousLeak, NextLeak: PExpectedMemoryLeak;
     {Information about the expected leak}
@@ -1778,7 +1778,7 @@ type
     LeakCount: Integer;
   end;
 
-  TExpectedMemoryLeaks = packed record
+  TExpectedMemoryLeaks = record
     {The number of entries used in the expected leaks buffer}
     EntriesUsed: Integer;
     {Freed entries}
@@ -1790,7 +1790,7 @@ type
     {Entries with only size specified}
     FirstEntryBySizeOnly: PExpectedMemoryLeak;
     {The expected leaks buffer (Need to leave space for this header)}
-    ExpectedLeaks: packed array[0..(ExpectedMemoryLeaksListSize - 64) div SizeOf(TExpectedMemoryLeak) - 1] of TExpectedMemoryLeak;
+    ExpectedLeaks: array[0..(ExpectedMemoryLeaksListSize - 64) div SizeOf(TExpectedMemoryLeak) - 1] of TExpectedMemoryLeak;
   end;
   PExpectedMemoryLeaks = ^TExpectedMemoryLeaks;
 
@@ -1822,7 +1822,7 @@ var
   {The small block types. Sizes include the leading header. Sizes are
    picked to limit maximum wastage to about 10% or 256 bytes (whichever is
    less) where possible.}
-  SmallBlockTypes: packed array[0..NumSmallBlockTypes - 1] of TSmallBlockType =(
+  SmallBlockTypes: array[0..NumSmallBlockTypes - 1] of TSmallBlockType =(
     {8/16 byte jumps}
 {$ifndef Align16Bytes}
     (BlockSize: 8 {$ifdef UseCustomFixedSizeMoveRoutines}; UpsizeMoveProcedure: Move4{$endif}),
@@ -1919,7 +1919,7 @@ var
     (BlockSize: MaximumSmallBlockSize),
     (BlockSize: MaximumSmallBlockSize));
   {Size to small block type translation table}
-  AllocSize2SmallBlockTypeIndX4: packed array[0..(MaximumSmallBlockSize - 1) div SmallBlockGranularity] of Byte;
+  AllocSize2SmallBlockTypeIndX4: array[0..(MaximumSmallBlockSize - 1) div SmallBlockGranularity] of Byte;
   {-----------------Medium block management------------------}
   {A dummy medium block pool header: Maintains a circular list of all medium
    block pools to enable memory leak detection on program shutdown.}
@@ -1935,12 +1935,12 @@ var
   MediumBlockBinGroupBitmap: Cardinal;
   {The medium block bins: total of 32 * 32 = 1024 bins of a certain
    minimum size.}
-  MediumBlockBinBitmaps: packed array[0..MediumBlockBinGroupCount - 1] of Cardinal;
+  MediumBlockBinBitmaps: array[0..MediumBlockBinGroupCount - 1] of Cardinal;
   {The medium block bins. There are 1024 LIFO circular linked lists each
    holding blocks of a specified minimum size. The sizes vary in size from
    MinimumMediumBlockSize to MaximumMediumBlockSize. The bins are treated as
    type TMediumFreeBlock to avoid pointer checks.}
-  MediumBlockBins: packed array[0..MediumBlockBinCount - 1] of TMediumFreeBlock;
+  MediumBlockBins: array[0..MediumBlockBinCount - 1] of TMediumFreeBlock;
   {-----------------Large block management------------------}
   {Are large blocks locked?}
   LargeBlocksLocked: Boolean;
@@ -9706,7 +9706,7 @@ procedure CheckBlocksOnShutdown(ACheckForLeakedBlocks: Boolean);
 {$ifdef EnableMemoryLeakReporting}
 type
   {Leaked class type}
-  TLeakedClass = packed record
+  TLeakedClass = record
     ClassPointer: TClass;
     {$ifdef CheckCppObjectTypeEnabled}
     CppTypeIdPtr: Pointer;
