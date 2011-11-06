@@ -5013,7 +5013,7 @@ asm
   {Increment the number of used blocks}
   add TSmallBlockPoolHeader[rdx].BlocksInUse, 1
   {Get the new first free block}
-  and rcx, [eax - BlockHeaderSize]
+  and rcx, [rax - BlockHeaderSize]
   {Set the new first free block}
   mov TSmallBlockPoolHeader[rdx].FirstFreeBlock, rcx
   {Set the block header}
@@ -5162,7 +5162,7 @@ asm
   {Get the address of the last block that was fed}
   mov rsi, LastSequentiallyFedMediumBlock
   {Enough sequential feed space: Will the remainder be usable?}
-  movzx ecx, TSmallBlockType[ebx].OptimalBlockPoolSize
+  movzx ecx, TSmallBlockType[rbx].OptimalBlockPoolSize
   lea edx, [ecx + MinimumMediumBlockSize]
   cmp edi, edx
   jb @NotMuchSpace
@@ -5178,7 +5178,7 @@ asm
 @AllocateNewSequentialFeed:
   {Need to allocate a new sequential feed medium block pool: use the
    optimal size for this small block pool}
-  movzx ecx, TSmallBlockType[ebx].OptimalBlockPoolSize
+  movzx ecx, TSmallBlockType[rbx].OptimalBlockPoolSize
   mov edi, ecx
   {Allocate the medium block pool}
   call AllocNewSequentialFeedMediumPool
@@ -6162,7 +6162,7 @@ asm
   {Can we combine this block with the previous free block? We need to
    re-read the flags since it could have changed before we could lock the
    medium blocks.}
-  test byte ptr [esi - BlockHeaderSize], PreviousMediumBlockIsFreeFlag
+  test byte ptr [rsi - BlockHeaderSize], PreviousMediumBlockIsFreeFlag
   jnz @PreviousBlockIsFree
 @PreviousBlockChecked:
   {Is the entire medium block pool free, and there are other free blocks
