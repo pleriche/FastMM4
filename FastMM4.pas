@@ -8669,9 +8669,11 @@ begin
         {$endif}
         {Return the start of the actual block}
         Result := Pointer(PByte(Result) + SizeOf(TFullDebugBlockHeader));
+{$ifdef EnableMemoryLeakReporting}
         {Should this block be marked as an expected leak automatically?}
         if FullDebugModeRegisterAllAllocsAsExpectedMemoryLeak then
           RegisterExpectedMemoryLeak(Result);
+{$endif}
       end
       else
       begin
@@ -8790,9 +8792,11 @@ begin
         {Recalculate the checksums}
         UpdateHeaderAndFooterCheckSums(LActualBlock);
       end;
+{$ifdef EnableMemoryLeakReporting}
       {Automatically deregister the expected memory leak?}
       if FullDebugModeRegisterAllAllocsAsExpectedMemoryLeak then
         UnregisterExpectedMemoryLeak(APointer);
+{$endif}
       {Free the actual block}
       Result := FastFreeMem(LActualBlock);
       {$ifdef FullDebugModeCallBacks}
