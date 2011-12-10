@@ -1069,14 +1069,19 @@ type
 {$ifdef BCB6OrDelphi6AndUp}
   {$if CompilerVersion < 20}
   PByte = PAnsiChar;
-  {NativeInt was broken before Delphi 2009.}
+  {NativeInt didn't exist or was broken before Delphi 2009.}
   NativeInt = Integer;
+  {$ifend}
+  {$if CompilerVersion < 21}
+  {NativeUInt didn't exist or was broken before Delphi 2010.}
   NativeUInt = Cardinal;
   {$ifend}
   {$if CompilerVersion < 22}
+  {PNativeUInt didn't exist before Delphi XE.}
   PNativeUInt = ^Cardinal;
   {$ifend}
   {$if CompilerVersion < 23}
+  {IntPtr and UIntPtr didn't exist before Delphi XE2.}
   IntPtr = Integer;
   UIntPtr = Cardinal;
   {$ifend}
