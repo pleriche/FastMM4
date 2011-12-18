@@ -10024,8 +10024,8 @@ const
   MsgBufferSize = 65536;
   MaxLineLength = 512;
   {Write the UTF-8 BOM in Delphi versions that support UTF-8 conversion.}
-  LogStateHeaderMsg = {$ifdef BCB6OrDelphi7AndUp}#$EF#$BB#$BF{$endif}
-    + 'FastMM State Capture:'#13#10'---------------------'#13#10#13#10;
+  LogStateHeaderMsg = {$ifdef BCB6OrDelphi7AndUp}#$EF#$BB#$BF + {$endif}
+    'FastMM State Capture:'#13#10'---------------------'#13#10#13#10;
   LogStateAllocatedMsg = 'K Allocated'#13#10;
   LogStateOverheadMsg = 'K Overhead'#13#10;
   LogStateEfficiencyMsg = '% Efficiency'#13#10#13#10'Usage Detail:'#13#10;
