@@ -99,6 +99,7 @@ Acknowledgements (for version 4):
  - Dennis Christensen for his tireless efforts with the Fastcode project:
    helping to develop, optimize and debug the growing Fastcode library.
  - JiYuan Xie for implementing the leak reporting code for C++ Builder.
+ - Sebastian Zierer for implementing the OS X support.
  - Pierre Y. for his suggestions regarding the extension of the memory leak
    checking options.
  - Hanspeter Widmer for his suggestion to have an option to display install and
@@ -182,7 +183,7 @@ Acknowledgements (for version 4):
  - Vadim Lopushansky and Charles Vinal for reporting the Delphi 5 compiler
    error in version 4.50.
  - Johni Jeferson Capeletto for the Brazilian Portuguese translation.
- - Kurt Fitzner for reporting the BCb6 compiler error in 4.52.
+ - Kurt Fitzner for reporting the BCB6 compiler error in 4.52.
  - Michal Niklas for reporting the Kylix compiler error in 4.54.
  - Thomas Speck and Uwe Queisser for German translations.
  - Zaenal Mutaqin for the Indonesian translation.
@@ -832,6 +833,7 @@ Change log:
     efficiency, and a breakdown of allocated memory by class and string type.
     This call may be useful to catch objects that do not necessarily leak, but
     do linger longer than they should.
+  - OS X support added by Sebastian Zierer
 
 *)
 
@@ -881,6 +883,9 @@ interface
 {$endif}
 {$define 32Bit}
 {$ifndef Delphi4or5}
+  {$if CompilerVersion >= 24}
+    {$LegacyIfEnd on}
+  {$ifend}
   {$if SizeOf(Pointer) = 8}
     {$define 64Bit}
     {$undef 32Bit}
@@ -932,8 +937,12 @@ interface
   {$define DoNotInstallIfDLLMissing}
 {$endif}
 
-{Some features not currently supported under Kylix}
 {$ifdef Linux}
+  {$define POSIX}
+{$endif}
+
+{Some features not currently supported under Kylix / OS X}
+{$ifdef POSIX}
   {$undef FullDebugMode}
   {$undef LogErrorsToFile}
   {$undef LogMemoryLeakDetailToFile}
@@ -1304,7 +1313,7 @@ procedure GetMemoryManagerState(var AMemoryManagerState: TMemoryManagerState);
 {Returns a summary of the information returned by GetMemoryManagerState}
 procedure GetMemoryManagerUsageSummary(
   var AMemoryManagerUsageSummary: TMemoryManagerUsageSummary);
-{$ifndef Linux}
+{$ifndef POSIX}
 {Gets the state of every 64K block in the 4GB address space}
 procedure GetMemoryMap(var AMemoryMap: TMemoryMap);
 {$endif}
@@ -1455,7 +1464,7 @@ var
 implementation
 
 uses
-{$ifndef Linux}
+{$ifndef POSIX}
   Windows,
   {$ifdef FullDebugMode}
     {$ifdef Delphi4or5}
@@ -1465,7 +1474,11 @@ uses
     {$endif}
   {$endif}
 {$else}
+  {$ifdef MACOS}
+  Posix.Stdlib, Posix.Unistd, Posix.Fcntl,
+  {$ELSE}
   Libc,
+  {$endif}
 {$endif}
   FastMM4Messages;
 
@@ -1595,7 +1608,7 @@ const
   Copyright: AnsiString = 'FastMM4 (c) 2004 - 2011 Pierre le Riche / Professional Software Development';
 {$ifdef FullDebugMode}
   {Virtual Method Called On Freed Object Errors}
-  StandardVirtualMethodNames: array[1 + vmtParent div SizeOf(Pointer) .. -1] of PAnsiChar = (
+  StandardVirtualMethodNames: array[1 + vmtParent div SizeOf(Pointer) .. vmtDestroy div SizeOf(Pointer)] of PAnsiChar = (
 {$ifdef BCB6OrDelphi6AndUp}
   {$if RTLVersion >= 20}
     'Equals',
@@ -2173,7 +2186,7 @@ asm
     al = CompareVal,
     dl = NewVal,
     ecx = AAddress}
-  {$ifndef Linux}
+  {$ifndef LINUX}
   lock cmpxchg [ecx], dl
   {$else}
   {Workaround for Kylix compiler bug}
@@ -2202,6 +2215,48 @@ asm
 end;
 {$endif}
 
+{$ifdef MACOS}
+
+function StrLCopy(Dest: PAnsiChar; const Source: PAnsiChar; MaxLen: Cardinal): PAnsiChar;
+var
+  Len: Cardinal;
+begin
+  Result := Dest;
+  Len := StrLen(Source);
+  if Len > MaxLen then
+    Len := MaxLen;
+  Move(Source^, Dest^, Len * SizeOf(AnsiChar));
+  Dest[Len] := #0;
+end;
+
+function GetModuleFileName(Module: HMODULE; Buffer: PAnsiChar; BufLen: Integer): Integer;
+const
+  CUnknown: AnsiString = 'unknown';
+var
+  tmp: array[0..512] of Char;
+begin
+  if FastMMIsInstalled then
+  begin
+    Result := System.GetModuleFileName(Module, tmp, BufLen);
+    StrLCopy(Buffer, PAnsiChar(AnsiString(tmp)), BufLen);
+  end
+  else
+  begin
+    Result := Length(CUnknown);
+    StrLCopy(Buffer, Pointer(CUnknown), Result + 1);
+  end;
+end;
+
+const
+  INVALID_HANDLE_VALUE = THandle(-1);
+
+function FileCreate(const FileName: string): THandle;
+begin
+  Result := THandle(__open(PAnsiChar(UTF8String(FileName)), O_RDWR or O_CREAT or O_TRUNC or O_EXCL, FileAccessRights));
+end;
+
+{$endif}
+
 {Writes the module filename to the specified buffer and returns the number of
  characters written.}
 function AppendModuleFileName(ABuffer: PAnsiChar): Integer;
@@ -2216,7 +2271,7 @@ begin
 {$endif}
     LModuleHandle := 0;
   {Get the module name}
-{$ifndef Linux}
+{$ifndef POSIX}
   Result := GetModuleFileNameA(LModuleHandle, ABuffer, 512);
 {$else}
   Result := GetModuleFileName(LModuleHandle, ABuffer, 512);
@@ -2730,9 +2785,9 @@ asm
 {$endif}
 end;
 
-{----------------Windows Emulation Functions for Kylix Support-----------------}
+{----------------Windows Emulation Functions for Kylix / OS X Support-----------------}
 
-{$ifdef Linux}
+{$ifdef POSIX}
 
 const
   {Messagebox constants}
@@ -2748,7 +2803,10 @@ const
 
 procedure MessageBoxA(hWnd: Cardinal; AMessageText, AMessageTitle: PAnsiChar; uType: Cardinal); stdcall;
 begin
-  writeln(AMessageText);
+  if FastMMIsInstalled then
+    writeln(AMessageText)
+  else
+    __write(STDERR_FILENO, AMessageText, StrLen(AMessageText));
 end;
 
 function VirtualAlloc(lpvAddress: Pointer; dwSize, flAllocationType, flProtect: Cardinal): Pointer; stdcall;
@@ -2760,6 +2818,19 @@ function VirtualFree(lpAddress: Pointer; dwSize, dwFreeType: Cardinal): LongBool
 begin
   free(lpAddress);
   Result := True;
+end;
+
+function WriteFile(hFile: THandle; const Buffer; nNumberOfBytesToWrite: Cardinal;
+  var lpNumberOfBytesWritten: Cardinal; lpOverlapped: Pointer): Boolean; stdcall;
+begin
+  lpNumberOfBytesWritten := __write(hFile, @Buffer, nNumberOfBytesToWrite);
+  if lpNumberOfBytesWritten = Cardinal(-1) then
+  begin
+    lpNumberOfBytesWritten := 0;
+    Result := False;
+  end
+  else
+    Result := True;
 end;
 
 {$ifndef NeverSleepOnThreadContention}
@@ -2865,7 +2936,7 @@ var
 
 {$endif}
 
-{$ifndef Linux}
+{$ifndef POSIX}
 function DelphiIsRunning: Boolean;
 begin
   Result := FindWindowA('TAppBuilder', nil) <> 0;
@@ -3156,7 +3227,7 @@ end;
 
 {Returns the class for a memory block. Returns nil if it is not a valid class}
 function DetectClassInstance(APointer: Pointer): TClass;
-{$ifndef Linux}
+{$ifndef POSIX}
 var
   LMemInfo: TMemoryBasicInformation;
 
@@ -3223,7 +3294,7 @@ begin
 end;
 {$else}
 begin
-  {Not currently supported under Linux}
+  {Not currently supported under Linux / OS X}
   Result := nil;
 end;
 {$endif}
@@ -3932,7 +4003,7 @@ end;
 function FreeLargeBlock(APointer: Pointer): Integer;
 var
   LPreviousLargeBlockHeader, LNextLargeBlockHeader: PLargeBlockHeader;
-{$ifndef Linux}
+{$ifndef POSIX}
   LRemainingSize: NativeUInt;
   LCurrentSegment: Pointer;
   LMemInfo: TMemoryBasicInformation;
@@ -3949,7 +4020,7 @@ begin
   LockLargeBlocks;
   LPreviousLargeBlockHeader := PLargeBlockHeader(APointer).PreviousLargeBlockHeader;
   LNextLargeBlockHeader := PLargeBlockHeader(APointer).NextLargeBlockHeader;
-{$ifndef Linux}
+{$ifndef POSIX}
   {Is the large block segmented?}
   if PLargeBlockHeader(APointer).BlockSizeAndFlags and LargeBlockIsSegmented = 0 then
   begin
@@ -3959,7 +4030,7 @@ begin
       Result := 0
     else
       Result := -1;
-{$ifndef Linux}
+{$ifndef POSIX}
   end
   else
   begin
@@ -4004,7 +4075,7 @@ function ReallocateLargeBlock(APointer: Pointer; ANewSize: NativeUInt): Pointer;
 var
   LOldAvailableSize, LBlockHeader, LOldUserSize, LMinimumUpsize,
     LNewAllocSize: NativeUInt;
-{$ifndef Linux}
+{$ifndef POSIX}
   LNewSegmentSize: NativeUInt;
   LNextSegmentPointer: Pointer;
   LMemInfo: TMemoryBasicInformation;
@@ -4027,7 +4098,7 @@ begin
       LNewAllocSize := LMinimumUpsize
     else
       LNewAllocSize := ANewSize;
-{$ifndef Linux}
+{$ifndef POSIX}
     {Can another large block segment be allocated directly after this segment,
      thus negating the need to move the data?}
     LNextSegmentPointer := Pointer(PByte(APointer) - LargeBlockHeaderSize + (LBlockHeader and DropMediumAndLargeFlagsMask));
@@ -10057,8 +10128,12 @@ begin
       {Do the final InsertionSort pass.}
       InsertionSortLogNodes(@LPLogInfo.Nodes[0], LPLogInfo.NodeCount - 1);
       {Create the output file}
+      {$ifdef POSIX}
+      lFileHandle := FileCreate(AFilename);
+      {$else}
       LFileHandle := CreateFile(PChar(AFilename), GENERIC_READ or GENERIC_WRITE, 0,
         nil, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, 0);
+      {$endif}
       if LFileHandle <> INVALID_HANDLE_VALUE then
       begin
         try
@@ -10143,7 +10218,11 @@ begin
           Result := True;
         finally
           {Close the file}
+          {$ifdef POSIX}
+          __close(LFileHandle)
+          {$else}
           CloseHandle(LFileHandle);
+          {$endif}
         end;
       end
       else
@@ -10804,7 +10883,7 @@ begin
     AMemoryManagerUsageSummary.EfficiencyPercentage := 100;
 end;
 
-{$ifndef Linux}
+{$ifndef POSIX}
 {Gets the state of every 64K block in the 4GB address space. Under 64-bit this
  returns only the state for the low 4GB.}
 procedure GetMemoryMap(var AMemoryMap: TMemoryMap);
@@ -11113,7 +11192,7 @@ begin
 {$endif}
     Exit;
   end;
-{$ifndef Linux}
+{$ifndef POSIX}
   if GetHeapStatus.TotalAllocated <> 0 then
   begin
     {Memory has been already been allocated with the RTL MM}
