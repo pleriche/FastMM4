@@ -883,9 +883,6 @@ interface
 {$endif}
 {$define 32Bit}
 {$ifndef Delphi4or5}
-  {$if CompilerVersion >= 24}
-    {$LegacyIfEnd on}
-  {$ifend}
   {$if SizeOf(Pointer) = 8}
     {$define 64Bit}
     {$undef 32Bit}
