@@ -47,6 +47,8 @@ Change log:
   - Recompiled using the latest JCL in order to fix a possible crash on shutdown
     when the executable contains no debug information. (Thanks to Hanspeter
     Widmer.)
+ Version 1.62 (19 July 2012):
+  - Added a workaround for QC 107209 (Thanks to David Heffernan.)
 
 }
 
@@ -225,9 +227,14 @@ begin
     begin
       {Try to determine what kind of call it is (if any), more or less in order
        of frequency of occurrence. (Code below taken from the Jedi Code Library
-       (jcl.sourceforge.net).)  We need to retrieve the current 8087 control
-       word, since any exception will reset it to the value in Default8087CW.}
+       (jcl.sourceforge.net).)  We need to retrieve the current floating point
+       control registers, since any external exception will reset it to the
+       DLL defaults which may not otherwise correspond to the defaults of the
+       main application (QC 107198).}
       Default8087CW := Get8087CW;
+{$if CompilerVersion > 22}
+      DefaultMXCSR := GetMXCSR;
+{$ifend}
       try
         {5 bytes, CALL NEAR REL32}
         if PByteArray(LCallAddress)[3] = $E8 then
