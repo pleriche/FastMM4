@@ -225,7 +225,9 @@ begin
     begin
       {Try to determine what kind of call it is (if any), more or less in order
        of frequency of occurrence. (Code below taken from the Jedi Code Library
-       (jcl.sourceforge.net).)}
+       (jcl.sourceforge.net).)  We need to retrieve the current 8087 control
+       word, since any exception will reset it to the value in Default8087CW.}
+      Default8087CW := Get8087CW;
       try
         {5 bytes, CALL NEAR REL32}
         if PByteArray(LCallAddress)[3] = $E8 then
