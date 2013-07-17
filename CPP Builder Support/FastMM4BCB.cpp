@@ -52,15 +52,15 @@ Change log:
 
 //#ifndef _NO_VCL
 
+#pragma option push
+#pragma option -k- -d -vi- -O2 -b- -3 -a8 -pc -RT- -x -xd -r -AT -vG- -vG0- -vG1- -vG2- -vG3- -vGc- -vGt- -vGd-
+
 #pragma hdrstop
 #include "FastMM4Messages.hpp"
 #include "FastMM4.hpp"
 
 //BCB6 support
 #include <tchar.h>
-
-#pragma option push
-#pragma option -k- -d -vi- -O2 -b- -3 -a8 -pc -RT- -x -xd -r -AT -vG- -vG0- -vG1- -vG2- -vG3- -vGc- -vGt- -vGd-
 
 #ifdef __cplusplus
 extern "C" {
