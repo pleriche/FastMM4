@@ -49,9 +49,12 @@ Change log:
     Widmer.)
  Version 1.62 (19 July 2012):
   - Added a workaround for QC 107209 (Thanks to David Heffernan.)
+  Version 1.63 (14 September 2013):
+  - Added support for OSX (Thanks to Sebastian Zierer)
 
 }
 
+{$IFDEF MSWINDOWS}
 {--------------------Start of options block-------------------------}
 
 {Select the stack tracing library to use. The JCL, madExcept and EurekaLog are
@@ -61,15 +64,16 @@ Change log:
 {.$define EurekaLog}
 
 {--------------------End of options block-------------------------}
+{$ENDIF}
 
 // JCL_DEBUG_EXPERT_INSERTJDBG OFF
 library FastMM_FullDebugMode;
 
 uses
-  {$ifdef JCLDebug}JCLDebug{$endif}
-  {$ifdef madExcept}madStackTrace{$endif}
-  {$ifdef EurekaLog}ExceptionLog{$endif},
-  SysUtils, Windows;
+  {$ifdef JCLDebug}JCLDebug,{$endif}
+  {$ifdef madExcept}madStackTrace,{$endif}
+  {$ifdef EurekaLog}ExceptionLog,{$endif}
+  SysUtils, {$IFDEF MACOS}Posix.Base, SBMapFiles {$ELSE} Windows {$ENDIF};
 
 {$R *.res}
 
@@ -172,6 +176,7 @@ var
   {There are a total of 1M x 4K pages in the (low) 4GB address space}
   MemoryPageAccessMap: array[0..1024 * 1024 - 1] of TMemoryPageAccess;
 
+{$IFDEF MSWINDOWS}
 {Updates the memory page access map. Currently only supports the low 4GB of
  address space.}
 procedure UpdateMemoryPageAccessMap(AAddress: NativeUInt);
@@ -209,6 +214,7 @@ begin
     MemoryPageAccessMap[AAddress div 4096] := mpaNotExecutable;
   end;
 end;
+{$ENDIF}
 
 {Thread-safe version that avoids the global variable Default8087CW.}
 procedure Set8087CW(ANewCW: Word);
@@ -238,6 +244,7 @@ asm
 end;
 {$ifend}
 
+{$IFDEF MSWINDOWS}
 {Returns true if the return address is a valid call site. This function is only
  safe to call while exceptions are being handled.}
 function IsValidCallSite(AReturnAddress: NativeUInt): boolean;
@@ -366,19 +373,52 @@ begin
   else
     Result := False;
 end;
+{$ENDIF}
 
 {Dumps the call stack trace to the given address. Fills the list with the
  addresses where the called addresses can be found. This is the "raw" stack
  tracing routine.}
+
+{$IFDEF MACOS}
+function backtrace(result: PNativeUInt; size: Integer): Integer; cdecl; external libc name '_backtrace';
+function _NSGetExecutablePath(buf: PAnsiChar; BufSize: PCardinal): Integer; cdecl; external libc name '__NSGetExecutablePath';
+{$ENDIF}
+
 procedure GetRawStackTrace(AReturnAddresses: PNativeUInt;
   AMaxDepth, ASkipFrames: Cardinal);
 var
   LStackTop, LStackBottom, LCurrentFrame, LNextFrame, LReturnAddress,
     LStackAddress: NativeUInt;
   LLastOSError: Cardinal;
+
+{$IFDEF MACOS}
+  StackLog: PNativeUInt; //array[0..10] of Pointer;
+  Cnt: Integer;
+  I: Integer;
+{$ENDIF}
 begin
+  {$IFDEF MACOS}
+  {$POINTERMATH ON}
+  Cnt := AMaxDepth + ASkipFrames;
+
+  GetMem(StackLog, SizeOf(Pointer) * Cnt);
+  try
+    Cnt := backtrace(StackLog, Cnt);
+
+    for I := ASkipFrames to Cnt - 1 do
+    begin
+//      writeln('Stack: ', inttohex(NativeUInt(stacklog[I]), 8));
+      AReturnAddresses[I - ASkipFrames] := StackLog[I];
+    end;
+
+  finally
+    FreeMem(StackLog);
+  end;
+  {$POINTERMATH OFF}
+  {$ENDIF}
   {Are exceptions being handled? Can only do a raw stack trace if the possible
    access violations are going to be handled.}
+{$IFDEF MSWINDOWS}
   if Assigned(ExceptObjProc) then
   begin
     {Save the last Windows error code}
@@ -482,6 +522,7 @@ begin
     {Exception handling is not available - do a frame based stack trace}
     GetFrameBasedStackTrace(AReturnAddresses, AMaxDepth, ASkipFrames);
   end;
+  {$ENDIF}
 end;
 
 {-----------------------------Stack Trace Logging----------------------------}
@@ -608,6 +649,62 @@ begin
 //      EurekaLog try to fill these with the DLLs functions calls;
 end;
 {$endif}
+
+{$IFDEF MACOS}
+
+{Appends the source text to the destination and returns the new destination
+ position}
+function AppendStringToBuffer(const ASource, ADestination: PAnsiChar; ACount: Cardinal): PAnsiChar;
+begin
+  System.Move(ASource^, ADestination^, ACount);
+  Result := Pointer(PByte(ADestination) + ACount);
+end;
+
+var
+  MapFile: TSBMapFile;
+
+function LogStackTrace(AReturnAddresses: PNativeUInt;
+  AMaxDepth: Cardinal; ABuffer: PAnsiChar): PAnsiChar;
+var
+  s1: AnsiString;
+  I: Integer;
+  FileName: array[0..255] of AnsiChar;
+  Len: Cardinal;
+begin
+  {$POINTERMATH ON}
+//  writelN('LogStackTrace');
+//  for I := 0 to AMaxDepth - 1 do
+//    Writeln(IntToHex(AReturnAddresses[I], 8));
+
+//  s1 := IntToHex(Integer(AReturnAddresses[0]), 8);
+//  result := ABuffer;
+//  Move(pointer(s1)^, result^, Length(s1));
+//  inc(result, Length(s1));
+
+  if MapFile = nil then
+  begin
+    MapFile := TSBMapFile.Create;
+    Len := Length(FileName);
+    _NSGetExecutablePath(@FileName[0], @Len);
+    if FileExists(ChangeFileExt(FileName, '.map')) then
+      MapFile.LoadFromFile(ChangeFileExt(FileName, '.map'));
+  end;
+
+  Result := ABuffer;
+
+  s1 := #13#10;
+  Result := AppendStringToBuffer(PAnsiChar(s1), Result, Length(s1));
+
+  for I := 0 to AMaxDepth - 1 do
+  begin
+    s1 := IntToHex(AReturnAddresses[I], 8);
+    s1 := s1 + ' ' + MapFile.GetFunctionName(AReturnAddresses[I]) + #13#10;
+    Result := AppendStringToBuffer(PAnsiChar(s1), Result, Length(s1));
+  end;
+
+  {$POINTERMATH OFF}
+end;
+{$ENDIF}
 
 {-----------------------------Exported Functions----------------------------}
 

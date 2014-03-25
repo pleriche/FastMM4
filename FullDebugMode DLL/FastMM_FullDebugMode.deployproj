@@ -1,0 +1,43 @@
+﻿<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+    <Import Condition="Exists('$(BDS)\bin\CodeGear.Deployment.targets')" Project="$(BDS)\bin\CodeGear.Deployment.targets"/>
+    <ProjectExtensions>
+        <ProjectFileVersion>12</ProjectFileVersion>
+    </ProjectExtensions>
+    <ItemGroup Condition="'$(Platform)'=='iOSDevice'"/>
+    <ItemGroup Condition="'$(Platform)'=='Android'"/>
+    <ItemGroup Condition="'$(Platform)'=='Win32'"/>
+    <ItemGroup Condition="'$(Platform)'=='OSX32'">
+        <DeployFile Include="libFastMM_FullDebugMode.dylib.rsm" Condition="'$(Config)'=='Debug'">
+            <RemoteDir>FastMM_FullDebugMode\</RemoteDir>
+            <RemoteName>libFastMM_FullDebugMode.dylib.rsm</RemoteName>
+            <Operation>1</Operation>
+            <LocalCommand/>
+            <RemoteCommand/>
+        </DeployFile>
+        <DeployFile Include="$(BDS)\Redist\osx32\libcgunwind.1.0.dylib">
+            <RemoteDir>FastMM_FullDebugMode\</RemoteDir>
+            <RemoteName>libcgunwind.1.0.dylib</RemoteName>
+            <Operation>1</Operation>
+            <LocalCommand/>
+            <RemoteCommand/>
+        </DeployFile>
+        <DeployFile Include="libFastMM_FullDebugMode.dylib" Condition="'$(Config)'=='Debug'">
+            <RemoteDir>FastMM_FullDebugMode\</RemoteDir>
+            <RemoteName>libFastMM_FullDebugMode.dylib</RemoteName>
+            <Operation>1</Operation>
+            <LocalCommand/>
+            <RemoteCommand/>
+            <Required>True</Required>
+        </DeployFile>
+    </ItemGroup>
+    <ItemGroup Condition="'$(Platform)'=='Win64'"/>
+    <ItemGroup Condition="'$(Platform)'=='iOSSimulator'">
+        <DeployFile Include="$(BDS)\Redist\osx32\libcgunwind.1.0.dylib">
+            <RemoteDir>FastMM_FullDebugMode.app\</RemoteDir>
+            <RemoteName>libcgunwind.1.0.dylib</RemoteName>
+            <Operation>0</Operation>
+            <LocalCommand/>
+            <RemoteCommand/>
+        </DeployFile>
+    </ItemGroup>
+</Project>

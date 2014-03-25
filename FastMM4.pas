@@ -835,6 +835,8 @@ Change log:
     do linger longer than they should.
   - OS X support added by Sebastian Zierer
   - Compatible with Delphi XE3
+  Version 4.??? (? ??? 2014)
+  - OS X full debug mode added by Sebastian Zierer
 
 *)
 
@@ -941,9 +943,11 @@ interface
 
 {Some features not currently supported under Kylix / OS X}
 {$ifdef POSIX}
-  {$undef FullDebugMode}
-  {$undef LogErrorsToFile}
-  {$undef LogMemoryLeakDetailToFile}
+  {$ifndef MACOS}
+    {$undef FullDebugMode}
+    {$undef LogErrorsToFile}
+    {$undef LogMemoryLeakDetailToFile}
+  {$endif}
   {$undef ShareMM}
   {$undef AttemptToUseSharedMM}
   {$undef RequireIDEPresenceForLeakReporting}
@@ -1350,7 +1354,7 @@ function DetectStringData(APMemoryBlock: Pointer;
 {Walks all allocated blocks, calling ACallBack for each. Passes the user block size and AUserData to the callback.
  Important note: All block types will be locked during the callback, so the memory manager cannot be used inside it.}
 procedure WalkAllocatedBlocks(ACallBack: TWalkAllocatedBlocksCallback; AUserData: Pointer);
-{Writes a log file containing a summary of the memory mananger state and a summary of allocated blocks grouped by
+{Writes a log file containing a summary of the memory manager state and a summary of allocated blocks grouped by
  class. The file will be saved in UTF-8 encoding (in supported Delphi versions). Returns True on success. }
 function LogMemoryManagerStateToFile(const AFileName: string; const AAdditionalDetails: string = ''): Boolean;
 
@@ -1473,7 +1477,7 @@ uses
   {$endif}
 {$else}
   {$ifdef MACOS}
-  Posix.Stdlib, Posix.Unistd, Posix.Fcntl,
+  Posix.Stdlib, Posix.Unistd, Posix.Fcntl, Posix.PThread, FastMM_OSXUtil,
   {$ELSE}
   Libc,
   {$endif}
@@ -2241,7 +2245,7 @@ begin
   else
   begin
     Result := Length(CUnknown);
-    StrLCopy(Buffer, Pointer(CUnknown), Result + 1);
+    StrLCopy(Buffer, PAnsiChar(CUnknown), Result + 1);
   end;
 end;
 
@@ -2807,6 +2811,7 @@ begin
     __write(STDERR_FILENO, AMessageText, StrLen(AMessageText));
 end;
 
+{$IFNDEF MACOS}
 function VirtualAlloc(lpvAddress: Pointer; dwSize, flAllocationType, flProtect: Cardinal): Pointer; stdcall;
 begin
   Result := valloc(dwSize);
@@ -2817,6 +2822,7 @@ begin
   free(lpAddress);
   Result := True;
 end;
+{$ENDIF}
 
 function WriteFile(hFile: THandle; const Buffer; nNumberOfBytesToWrite: Cardinal;
   var lpNumberOfBytesWritten: Cardinal; lpOverlapped: Pointer): Boolean; stdcall;
@@ -2846,7 +2852,7 @@ end;
 
 {Returns the current thread ID}
 function GetThreadID: Cardinal;
-{$ifdef 32Bit}
+{$ifdef WIN32}
 asm
   mov eax, FS:[$24]
 end;
@@ -7972,12 +7978,16 @@ begin
   {Did log file creation fail? If so, the destination folder is perhaps read-only:
    Try to redirect logging to a file in the user's "My Documents" folder.}
   if (LFileHandle = INVALID_HANDLE_VALUE)
+   {$IFNDEF MACOS}
 {$ifdef Delphi4or5}
     and SHGetSpecialFolderPathA(0, @LAlternateLogFileName, CSIDL_PERSONAL, True) then
 {$else}
     and (SHGetFolderPathA(0, CSIDL_PERSONAL or CSIDL_FLAG_CREATE, 0,
       SHGFP_TYPE_CURRENT, @LAlternateLogFileName) = S_OK) then
 {$endif}
+  {$ELSE}
+  then
+  {$ENDIF}
   begin
     {Extract the filename part from MMLogFileName and append it to the path of
      the "My Documents" folder.}
