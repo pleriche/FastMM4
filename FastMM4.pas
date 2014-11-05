@@ -837,6 +837,8 @@ Change log:
   - Compatible with Delphi XE3
   Version 4.??? (? ??? 2014)
   - OS X full debug mode added by Sebastian Zierer
+  - Included the average block size in the memory state log file. (Thanks to
+    Hallvard Vassbotn)
 
 *)
 
@@ -10109,6 +10111,8 @@ const
   LogStateOverheadMsg = 'K Overhead'#13#10;
   LogStateEfficiencyMsg = '% Efficiency'#13#10#13#10'Usage Detail:'#13#10;
   LogStateAdditionalInfoMsg = #13#10'Additional Information:'#13#10'-----------------------'#13#10;
+  AverageSizeLeadText = ' (';
+  AverageSizeTrailingText = ' bytes avg.)'#13#10;
 var
   LPLogInfo: PMemoryLogInfo;
   LInd: Integer;
@@ -10194,10 +10198,9 @@ begin
             LPMsg^ := ' ';
             Inc(LPMsg);
             LPMsg := NativeUIntToStrBuf(LPNode.InstanceCount, LPMsg);
-            LPMsg^ := #13;
-            Inc(LPMsg);
-            LPMsg^ := #10;
-            Inc(LPMsg);
+            LPMsg := AppendStringToBuffer(AverageSizeLeadText, LPMsg, Length(AverageSizeLeadText));
+            LPMsg := NativeUIntToStrBuf(LPNode.TotalMemoryUsage div LPNode.InstanceCount, LPMsg);
+            LPMsg := AppendStringToBuffer(AverageSizeTrailingText, LPMsg, Length(AverageSizeTrailingText));
             {Flush the buffer?}
             LBufferSpaceUsed := NativeInt(LPMsg) - NativeInt(@LMsgBuffer);
             if LBufferSpaceUsed > (MsgBufferSize - MaxLineLength) then
