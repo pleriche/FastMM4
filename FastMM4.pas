@@ -835,10 +835,12 @@ Change log:
     do linger longer than they should.
   - OS X support added by Sebastian Zierer
   - Compatible with Delphi XE3
-  Version 4.??? (? ??? 2014)
+  Version 4.??? (? ??? 2015)
   - OS X full debug mode added by Sebastian Zierer
   - Included the average block size in the memory state log file. (Thanks to
     Hallvard Vassbotn)
+  - Support added for Free Pascal's OS X and Linux targets, both i386 and
+    x86-64. (Thanks to Zoë Peterson)
 
 *)
 
@@ -856,61 +858,74 @@ interface
 {$LONGSTRINGS ON}
 
 {Compiler version defines}
-{$ifndef BCB}
-  {$ifdef ver120}
-    {$define Delphi4or5}
-  {$endif}
-  {$ifdef ver130}
-    {$define Delphi4or5}
-  {$endif}
-  {$ifdef ver140}
-    {$define Delphi6}
-  {$endif}
-  {$ifdef ver150}
-    {$define Delphi7}
-  {$endif}
-  {$ifdef ver170}
-    {$define Delphi2005}
-  {$endif}
-{$else}
-  {for BCB4, use the Delphi 5 codepath}
-  {$ifdef ver120}
-    {$define Delphi4or5}
-    {$define BCB4}
-  {$endif}
-  {for BCB5, use the Delphi 5 codepath}
-  {$ifdef ver130}
-    {$define Delphi4or5}
-  {$endif}
-{$endif}
-{$ifdef ver180}
-  {$define BDS2006}
-{$endif}
-{$define 32Bit}
-{$ifndef Delphi4or5}
-  {$if SizeOf(Pointer) = 8}
-    {$define 64Bit}
-    {$undef 32Bit}
-  {$ifend}
-  {$if CompilerVersion >= 23}
-    {$define XE2AndUp}
-  {$ifend}
-  {$define BCB6OrDelphi6AndUp}
+{$ifndef fpc}
   {$ifndef BCB}
-    {$define Delphi6AndUp}
-  {$endif}
-  {$ifndef Delphi6}
-    {$define BCB6OrDelphi7AndUp}
-    {$ifndef BCB}
-      {$define Delphi7AndUp}
+    {$ifdef ver120}
+      {$define Delphi4or5}
     {$endif}
+    {$ifdef ver130}
+      {$define Delphi4or5}
+    {$endif}
+    {$ifdef ver140}
+      {$define Delphi6}
+    {$endif}
+    {$ifdef ver150}
+      {$define Delphi7}
+    {$endif}
+    {$ifdef ver170}
+      {$define Delphi2005}
+    {$endif}
+  {$else}
+    {for BCB4, use the Delphi 5 codepath}
+    {$ifdef ver120}
+      {$define Delphi4or5}
+      {$define BCB4}
+    {$endif}
+    {for BCB5, use the Delphi 5 codepath}
+    {$ifdef ver130}
+      {$define Delphi4or5}
+    {$endif}
+  {$endif}
+  {$ifdef ver180}
+    {$define BDS2006}
+  {$endif}
+  {$define 32Bit}
+  {$ifndef Delphi4or5}
+    {$if SizeOf(Pointer) = 8}
+      {$define 64Bit}
+      {$undef 32Bit}
+    {$ifend}
+    {$if CompilerVersion >= 23}
+      {$define XE2AndUp}
+    {$ifend}
+    {$define BCB6OrDelphi6AndUp}
     {$ifndef BCB}
-      {$ifndef Delphi7}
-        {$ifndef Delphi2005}
-          {$define BDS2006AndUp}
+      {$define Delphi6AndUp}
+    {$endif}
+    {$ifndef Delphi6}
+      {$define BCB6OrDelphi7AndUp}
+      {$ifndef BCB}
+        {$define Delphi7AndUp}
+      {$endif}
+      {$ifndef BCB}
+        {$ifndef Delphi7}
+          {$ifndef Delphi2005}
+            {$define BDS2006AndUp}
+          {$endif}
         {$endif}
       {$endif}
     {$endif}
+  {$endif}
+{$else}
+  {$mode delphi}
+  {$ifdef CPUX64}
+    {$asmmode intel}
+    {$define 64bit}
+    {$define fpc64bit}
+    {$undef 32bit}
+  {$else}
+    {$define 32bit}
+    {$undef 64bit}
   {$endif}
 {$endif}
 
@@ -941,6 +956,14 @@ interface
 
 {$ifdef Linux}
   {$define POSIX}
+  {$ifdef 64Bit}
+    {$define PIC}  // Linux 64bit ASM is PIC
+  {$endif}
+{$endif}
+
+{$ifdef DARWIN}
+  {$define POSIX}
+  {$define PIC}
 {$endif}
 
 {Some features not currently supported under Kylix / OS X}
@@ -1105,12 +1128,14 @@ type
   UIntPtr = Cardinal;
   {$ifend}
 {$else}
+  {$ifndef fpc}
   PByte = PAnsiChar;
   NativeInt = Integer;
   NativeUInt = Cardinal;
   PNativeUInt = ^Cardinal;
   IntPtr = Integer;
   UIntPtr = Cardinal;
+  {$endif}
 {$endif}
 
   TSmallBlockTypeState = record
@@ -1270,10 +1295,10 @@ var
 
 {$ifndef FullDebugMode}
 {The standard memory manager functions}
-function FastGetMem(ASize: {$ifdef XE2AndUp}NativeInt{$else}Integer{$endif}): Pointer;
-function FastFreeMem(APointer: Pointer): Integer;
-function FastReallocMem(APointer: Pointer; ANewSize: {$ifdef XE2AndUp}NativeInt{$else}Integer{$endif}): Pointer;
-function FastAllocMem(ASize: {$ifdef XE2AndUp}NativeInt{$else}Cardinal{$endif}): Pointer;
+function FastGetMem(ASize: {$ifdef XE2AndUp}NativeInt{$else}{$ifdef fpc}NativeUInt{$else}Integer{$endif}{$endif}): Pointer;
+function FastFreeMem(APointer: Pointer): {$ifdef fpc}NativeUInt{$else}Integer{$endif};
+function FastReallocMem({$ifdef fpc}var {$endif}APointer: Pointer; ANewSize: {$ifdef XE2AndUp}NativeInt{$else}{$ifdef fpc}NativeUInt{$else}Integer{$endif}{$endif}): Pointer;
+function FastAllocMem(ASize: {$ifdef XE2AndUp}NativeInt{$else}{$ifdef fpc}NativeUInt{$else}Cardinal{$endif}{$endif}): Pointer;
 {$else}
 {The FullDebugMode memory manager functions}
 function DebugGetMem(ASize: {$ifdef XE2AndUp}NativeInt{$else}Integer{$endif}): Pointer;
@@ -1481,10 +1506,20 @@ uses
   {$ifdef MACOS}
   Posix.Stdlib, Posix.Unistd, Posix.Fcntl, Posix.PThread, FastMM_OSXUtil,
   {$ELSE}
+    {$ifdef fpc}
+  BaseUnix,
+    {$else}
   Libc,
+    {$endif}
   {$endif}
 {$endif}
   FastMM4Messages;
+
+{$ifdef fpc}
+function valloc(__size:size_t):pointer;cdecl;external clib name 'valloc';
+procedure free(__ptr:pointer);cdecl;external clib name 'free';
+function usleep(__useconds:dword):longint;cdecl;external clib name 'usleep';
+{$endif}
 
 {Fixed size move procedures. The 64-bit versions assume 16-byte alignment.}
 procedure Move4(const ASource; var ADest; ACount: NativeInt); forward;
@@ -1506,10 +1541,10 @@ procedure Move56(const ASource; var ADest; ACount: NativeInt); forward;
 
 {$ifdef DetectMMOperationsAfterUninstall}
 {Invalid handlers to catch MM operations after uninstall}
-function InvalidFreeMem(APointer: Pointer): Integer; forward;
-function InvalidGetMem(ASize: {$ifdef XE2AndUp}NativeInt{$else}Integer{$endif}): Pointer; forward;
-function InvalidReallocMem(APointer: Pointer; ANewSize: {$ifdef XE2AndUp}NativeInt{$else}Integer{$endif}): Pointer; forward;
-function InvalidAllocMem(ASize: {$ifdef XE2AndUp}NativeInt{$else}Cardinal{$endif}): Pointer; forward;
+function InvalidFreeMem(APointer: Pointer): {$ifdef fpc}NativeUInt{$else}Integer{$endif}; forward;
+function InvalidGetMem(ASize: {$ifdef XE2AndUp}NativeInt{$else}{$ifdef fpc}NativeUInt{$else}Integer{$endif}{$endif}): Pointer; forward;
+function InvalidReallocMem({$ifdef fpc}var {$endif}APointer: Pointer; ANewSize: {$ifdef XE2AndUp}NativeInt{$else}{$ifdef fpc}NativeUInt{$else}Integer{$endif}{$endif}): Pointer; forward;
+function InvalidAllocMem(ASize: {$ifdef XE2AndUp}NativeInt{$else}{$ifdef fpc}NativeUint{$else}Cardinal{$endif}{$endif}): Pointer; forward;
 function InvalidRegisterAndUnRegisterMemoryLeak(APointer: Pointer): Boolean; forward;
 {$endif}
 
@@ -2183,7 +2218,7 @@ end;
 {Compare [AAddress], CompareVal:
  If Equal: [AAddress] := NewVal and result = CompareVal
  If Unequal: Result := [AAddress]}
-function LockCmpxchg(CompareVal, NewVal: Byte; AAddress: PByte): Byte;
+function LockCmpxchg(CompareVal, NewVal: Byte; AAddress: PByte): Byte; {$ifdef fpc64bit}nostackframe;{$endif}
 asm
 {$ifdef 32Bit}
   {On entry:
@@ -2201,19 +2236,28 @@ asm
     cl = CompareVal
     dl = NewVal
     r8 = AAddress}
+  {$ifndef unix}
   .noframe
   mov rax, rcx
   lock cmpxchg [r8], dl
+  {$else}
+   mov rax, rdi
+   lock cmpxchg [rdx], sil
+  {$endif}
 {$endif}
 end;
 
 {$ifndef ASMVersion}
 {Gets the first set bit in the 32-bit number, returning the bit index}
-function FindFirstSetBit(ACardinal: Cardinal): Cardinal;
+function FindFirstSetBit(ACardinal: Cardinal): Cardinal; {$ifdef fpc64bit} nostackframe; {$endif}
 asm
 {$ifdef 64Bit}
+  {$ifndef unix}
   .noframe
   mov rax, rcx
+  {$else}
+  mov rax, rdi
+  {$endif}
 {$endif}
   bsf eax, eax
 end;
@@ -2259,6 +2303,39 @@ begin
   Result := THandle(__open(PAnsiChar(UTF8String(FileName)), O_RDWR or O_CREAT or O_TRUNC or O_EXCL, FileAccessRights));
 end;
 
+{$endif}
+
+{$ifdef FPC}
+function StrLCopy(Dest: PAnsiChar; const Source: PAnsiChar; MaxLen: Cardinal): PAnsiChar;
+var
+  Len: Cardinal;
+begin
+  Result := Dest;
+  Len := StrLen(Source);
+  if Len > MaxLen then
+    Len := MaxLen;
+  Move(Source^, Dest^, Len * SizeOf(AnsiChar));
+  Dest[Len] := #0;
+end;
+
+function GetModuleFileName(Module: HMODULE; Buffer: PAnsiChar; BufLen: Integer): Integer;
+const
+  CUnknown: AnsiString = 'unknown';
+var
+  tmp: array[0..512] of Char;
+begin
+  Result := Length(CUnknown);
+  StrLCopy(Buffer, PAnsiChar(CUnknown), Result + 1);
+end;
+
+const
+  INVALID_HANDLE_VALUE = THandle(-1);
+  FileAcc = (S_IRUSR or S_IWUSR or S_IRGRP or S_IWGRP or S_IROTH or S_IWOTH);
+
+function FileCreate(const FileName: string): THandle;
+begin
+  Result := THandle(fpopen(PAnsiChar(UTF8String(FileName)), O_RDWR or O_CREAT or O_TRUNC or O_EXCL, FileAcc));
+end;
 {$endif}
 
 {Writes the module filename to the specified buffer and returns the number of
@@ -2329,27 +2406,37 @@ end;
 {Fixed size move operations ignore the size parameter. All moves are assumed to
  be non-overlapping.}
 
-procedure Move4(const ASource; var ADest; ACount: NativeInt);
+procedure Move4(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} nostackframe; {$endif}
 asm
 {$ifdef 32Bit}
   mov eax, [eax]
   mov [edx], eax
 {$else}
+  {$ifndef unix}
 .noframe
   mov eax, [rcx]
   mov [rdx], eax
+  {$else}
+  mov eax, [rdi]
+  mov [rsi], eax
+  {$endif}
 {$endif}
 end;
 
 {$ifdef 64Bit}
 procedure Move8(const ASource; var ADest; ACount: NativeInt);
 asm
+{$ifndef unix}
   mov rax, [rcx]
   mov [rdx], rax
+{$else}
+  mov rax, [rdi]
+  mov [rsi], rax
+{$endif}
 end;
 {$endif}
 
-procedure Move12(const ASource; var ADest; ACount: NativeInt);
+procedure Move12(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} nostackframe; {$endif}
 asm
 {$ifdef 32Bit}
   mov ecx, [eax]
@@ -2359,15 +2446,22 @@ asm
   mov [edx + 4], ecx
   mov [edx + 8], eax
 {$else}
+  {$ifndef unix}
 .noframe
   mov rax, [rcx]
   mov ecx, [rcx + 8]
   mov [rdx], rax
   mov [rdx + 8], ecx
+  {$else}
+  mov rax, [rdi]
+  mov edi, [rdi + 8]
+  mov [rsi], rax
+  mov [rsi + 8], edi
+  {$endif}
 {$endif}
 end;
 
-procedure Move20(const ASource; var ADest; ACount: NativeInt);
+procedure Move20(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} nostackframe; {$endif}
 asm
 {$ifdef 32Bit}
   mov ecx, [eax]
@@ -2381,25 +2475,39 @@ asm
   mov [edx + 12], ecx
   mov [edx + 16], eax
 {$else}
+  {$ifndef unix}
 .noframe
   movdqa xmm0, [rcx]
   mov ecx, [rcx + 16]
   movdqa [rdx], xmm0
   mov [rdx + 16], ecx
+  {$else}
+  movdqa xmm0, [rdi]
+  mov edi, [rdi + 16]
+  movdqa [rsi], xmm0
+  mov [rsi + 16], edi
+  {$endif}
 {$endif}
 end;
 
 {$ifdef 64Bit}
 procedure Move24(const ASource; var ADest; ACount: NativeInt);
 asm
+  {$ifndef unix}
   movdqa xmm0, [rcx]
   mov r8, [rcx + 16]
   movdqa [rdx], xmm0
   mov [rdx + 16], r8
+  {$else}
+  movdqa xmm0, [rdi]
+  mov rdx, [rdi + 16]
+  movdqa [rsi], xmm0
+  mov [rsi + 16], rdx
+  {$endif}
 end;
 {$endif}
 
-procedure Move28(const ASource; var ADest; ACount: NativeInt);
+procedure Move28(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} nostackframe; {$endif}
 asm
 {$ifdef 32Bit}
   mov ecx, [eax]
@@ -2417,6 +2525,7 @@ asm
   mov [edx + 20], ecx
   mov [edx + 24], eax
 {$else}
+  {$ifndef unix}
 .noframe
   movdqa xmm0, [rcx]
   mov r8, [rcx + 16]
@@ -2424,10 +2533,18 @@ asm
   movdqa [rdx], xmm0
   mov [rdx + 16], r8
   mov [rdx + 24], ecx
+  {$else}
+  movdqa xmm0, [rdi]
+  mov rdx, [rdi + 16]
+  mov edi, [rdi + 24]
+  movdqa [rsi], xmm0
+  mov [rsi + 16], rdx
+  mov [rsi + 24], edi
+  {$endif}
 {$endif}
 end;
 
-procedure Move36(const ASource; var ADest; ACount: NativeInt);
+procedure Move36(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} nostackframe; {$endif}
 asm
 {$ifdef 32Bit}
   fild qword ptr [eax]
@@ -2441,6 +2558,7 @@ asm
   fistp qword ptr [edx + 8]
   fistp qword ptr [edx]
 {$else}
+  {$ifndef unix}
 .noframe
   movdqa xmm0, [rcx]
   movdqa xmm1, [rcx + 16]
@@ -2448,22 +2566,39 @@ asm
   movdqa [rdx], xmm0
   movdqa [rdx + 16], xmm1
   mov [rdx + 32], ecx
+  {$else}
+  movdqa xmm0, [rdi]
+  movdqa xmm1, [rdi + 16]
+  mov edi, [rdi + 32]
+  movdqa [rsi], xmm0
+  movdqa [rsi + 16], xmm1
+  mov [rsi + 32], edi
+  {$endif}
 {$endif}
 end;
 
 {$ifdef 64Bit}
 procedure Move40(const ASource; var ADest; ACount: NativeInt);
 asm
+  {$ifndef unix}
   movdqa xmm0, [rcx]
   movdqa xmm1, [rcx + 16]
   mov r8, [rcx + 32]
   movdqa [rdx], xmm0
   movdqa [rdx + 16], xmm1
   mov [rdx + 32], r8
+  {$else}
+  movdqa xmm0, [rdi]
+  movdqa xmm1, [rdi + 16]
+  mov rdx, [rdi + 32]
+  movdqa [rsi], xmm0
+  movdqa [rsi + 16], xmm1
+  mov [rsi + 32], rdx
+  {$endif}
 end;
 {$endif}
 
-procedure Move44(const ASource; var ADest; ACount: NativeInt);
+procedure Move44(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} nostackframe; {$endif}
 asm
 {$ifdef 32Bit}
   fild qword ptr [eax]
@@ -2479,6 +2614,7 @@ asm
   fistp qword ptr [edx + 8]
   fistp qword ptr [edx]
 {$else}
+  {$ifndef unix}
 .noframe
   movdqa xmm0, [rcx]
   movdqa xmm1, [rcx + 16]
@@ -2488,10 +2624,20 @@ asm
   movdqa [rdx + 16], xmm1
   mov [rdx + 32], r8
   mov [rdx + 40], ecx
+  {$else}
+  movdqa xmm0, [rdi]
+  movdqa xmm1, [rdi + 16]
+  mov rdx, [rdi + 32]
+  mov edi, [rdi + 40]
+  movdqa [rsi], xmm0
+  movdqa [rsi + 16], xmm1
+  mov [rsi + 32], rdx
+  mov [rsi + 40], edi
+  {$endif}
 {$endif}
 end;
 
-procedure Move52(const ASource; var ADest; ACount: NativeInt);
+procedure Move52(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} nostackframe; {$endif}
 asm
 {$ifdef 32Bit}
   fild qword ptr [eax]
@@ -2509,6 +2655,7 @@ asm
   fistp qword ptr [edx + 8]
   fistp qword ptr [edx]
 {$else}
+  {$ifndef unix}
 .noframe
   movdqa xmm0, [rcx]
   movdqa xmm1, [rcx + 16]
@@ -2518,12 +2665,23 @@ asm
   movdqa [rdx + 16], xmm1
   movdqa [rdx + 32], xmm2
   mov [rdx + 48], ecx
+  {$else}
+  movdqa xmm0, [rdi]
+  movdqa xmm1, [rdi + 16]
+  movdqa xmm2, [rdi + 32]
+  mov edi, [rdi + 48]
+  movdqa [rsi], xmm0
+  movdqa [rsi + 16], xmm1
+  movdqa [rsi + 32], xmm2
+  mov [rsi + 48], edi
+  {$endif}
 {$endif}
 end;
 
 {$ifdef 64Bit}
 procedure Move56(const ASource; var ADest; ACount: NativeInt);
 asm
+  {$ifndef unix}
   movdqa xmm0, [rcx]
   movdqa xmm1, [rcx + 16]
   movdqa xmm2, [rcx + 32]
@@ -2532,10 +2690,20 @@ asm
   movdqa [rdx + 16], xmm1
   movdqa [rdx + 32], xmm2
   mov [rdx + 48], r8
+  {$else}
+  movdqa xmm0, [rdi]
+  movdqa xmm1, [rdi + 16]
+  movdqa xmm2, [rdi + 32]
+  mov rdx, [rdi + 48]
+  movdqa [rsi], xmm0
+  movdqa [rsi + 16], xmm1
+  movdqa [rsi + 32], xmm2
+  mov [rsi + 48], rdx
+  {$endif}
 end;
 {$endif}
 
-procedure Move60(const ASource; var ADest; ACount: NativeInt);
+procedure Move60(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} nostackframe; {$endif}
 asm
 {$ifdef 32Bit}
   fild qword ptr [eax]
@@ -2555,6 +2723,7 @@ asm
   fistp qword ptr [edx + 8]
   fistp qword ptr [edx]
 {$else}
+  {$ifndef fpc}
 .noframe
   movdqa xmm0, [rcx]
   movdqa xmm1, [rcx + 16]
@@ -2566,10 +2735,22 @@ asm
   movdqa [rdx + 32], xmm2
   mov [rdx + 48], r8
   mov [rdx + 56], ecx
+  {$else}
+  movdqa xmm0, [rdi]
+  movdqa xmm1, [rdi + 16]
+  movdqa xmm2, [rdi + 32]
+  mov rdx, [rdi + 48]
+  mov edi, [rdi + 56]
+  movdqa [rsi], xmm0
+  movdqa [rsi + 16], xmm1
+  movdqa [rsi + 32], xmm2
+  mov [rsi + 48], rdx
+  mov [rsi + 56], edi
+  {$endif}
 {$endif}
 end;
 
-procedure Move68(const ASource; var ADest; ACount: NativeInt);
+procedure Move68(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} nostackframe; {$endif}
 asm
 {$ifdef 32Bit}
   fild qword ptr [eax]
@@ -2591,6 +2772,7 @@ asm
   fistp qword ptr [edx + 8]
   fistp qword ptr [edx]
 {$else}
+  {$ifndef unix}
 .noframe
   movdqa xmm0, [rcx]
   movdqa xmm1, [rcx + 16]
@@ -2602,6 +2784,18 @@ asm
   movdqa [rdx + 32], xmm2
   movdqa [rdx + 48], xmm3
   mov [rdx + 64], ecx
+  {$else}
+  movdqa xmm0, [rdi]
+  movdqa xmm1, [rdi + 16]
+  movdqa xmm2, [rdi + 32]
+  movdqa xmm3, [rdi + 48]
+  mov edi, [rdi + 64]
+  movdqa [rsi], xmm0
+  movdqa [rsi + 16], xmm1
+  movdqa [rsi + 32], xmm2
+  movdqa [rsi + 48], xmm3
+  mov [rsi + 64], edi
+  {$endif}
 {$endif}
 end;
 
@@ -2609,7 +2803,7 @@ end;
  SizeOf(Pointer). Important note: Always moves at least 16 - SizeOf(Pointer)
  bytes (the minimum small block size with 16 byte alignment), irrespective of
  ACount.}
-procedure MoveX16LP(const ASource; var ADest; ACount: NativeInt);
+procedure MoveX16LP(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} nostackframe; {$endif}
 asm
 {$ifdef 32Bit}
   {Make the counter negative based: The last 12 bytes are moved separately}
@@ -2690,6 +2884,7 @@ asm
   mov [edx + ecx + 8], eax
 {$endif}
 {$else}
+  {$ifndef unix}
 .noframe
   {Make the counter negative based: The last 8 bytes are moved separately}
   sub r8, 8
@@ -2708,6 +2903,25 @@ asm
   {Do the last 8 bytes}
   mov r9, [rcx + r8]
   mov [rdx + r8], r9
+  {$else}
+  {Make the counter negative based: The last 8 bytes are moved separately}
+  sub rdx, 8
+  add rdi, rdx
+  add rsi, rdx
+  neg rdx
+  jns @MoveLast12
+@MoveLoop:
+  {Move a 16 byte block}
+  movdqa xmm0, [rdi + rdx]
+  movdqa [rsi + rdx], xmm0
+  {Are there another 16 bytes to move?}
+  add rdx, 16
+  js @MoveLoop
+@MoveLast12:
+  {Do the last 8 bytes}
+  mov rcx, [rdi + rdx]
+  mov [rsi + rdx], rcx
+  {$endif}
 {$endif}
 end;
 
@@ -2715,7 +2929,7 @@ end;
  SizeOf(Pointer). Important note: Always moves at least 8 - SizeOf(Pointer)
  bytes (the minimum small block size with 8 byte alignment), irrespective of
  ACount.}
-procedure MoveX8LP(const ASource; var ADest; ACount: NativeInt);
+procedure MoveX8LP(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} nostackframe; {$endif}
 asm
 {$ifdef 32Bit}
   {Make the counter negative based: The last 4 bytes are moved separately}
@@ -2774,6 +2988,7 @@ asm
   mov eax, [eax]
   mov [edx], eax
 {$else}
+  {$ifndef unix}
 .noframe
   {Make the counter negative based}
   add rcx, r8
@@ -2786,6 +3001,19 @@ asm
   {Are there another 8 bytes to move?}
   add r8, 8
   js @MoveLoop
+  {$else}
+  {Make the counter negative based}
+  add rdi, rdx
+  add rsi, rdx
+  neg rdx
+@MoveLoop:
+  {Move an 8 byte block}
+  mov rcx, [rdi + rdx]
+  mov [rsi + rdx], rcx
+  {Are there another 8 bytes to move?}
+  add rdx, 8
+  js @MoveLoop
+  {$Endif}
 {$endif}
 end;
 
@@ -2810,7 +3038,11 @@ begin
   if FastMMIsInstalled then
     writeln(AMessageText)
   else
+    {$ifndef fpc}
     __write(STDERR_FILENO, AMessageText, StrLen(AMessageText));
+    {$else}
+    FpWrite(StdErrorHandle, AMessageText, StrLen(AMessageText));
+    {$endif}
 end;
 
 {$IFNDEF MACOS}
@@ -2829,7 +3061,11 @@ end;
 function WriteFile(hFile: THandle; const Buffer; nNumberOfBytesToWrite: Cardinal;
   var lpNumberOfBytesWritten: Cardinal; lpOverlapped: Pointer): Boolean; stdcall;
 begin
+  {$ifndef fpc}
   lpNumberOfBytesWritten := __write(hFile, @Buffer, nNumberOfBytesToWrite);
+  {$else}
+  lpNumberOfBytesWritten := fpwrite(hFile, Buffer, nNumberOfBytesToWrite);
+  {$endif}
   if lpNumberOfBytesWritten = Cardinal(-1) then
   begin
     lpNumberOfBytesWritten := 0;
@@ -2882,6 +3118,7 @@ asm
   js @FillLoop
 @Done:
 {$else}
+  {$ifdef unix}
   {On Entry:
    rcx = AAddress
    rdx = AByteCount
@@ -2894,6 +3131,20 @@ asm
   add rdx, 8
   js @FillLoop
 @Done:
+  {$else}
+    {On Entry:
+   rdi = AAddress
+   rsi = AByteCount
+   rdx = AFillValue}
+  add rdi, rsi
+  neg rsi
+  jns @Done
+@FillLoop:
+  mov [rdi + rsi], rdx
+  add rsi, 8
+  js @FillLoop
+@Done:
+  {$endif}
 {$endif}
 end;
 
@@ -4202,7 +4453,7 @@ end;
 
 {Replacement for SysGetMem}
 
-function FastGetMem(ASize: {$ifdef XE2AndUp}NativeInt{$else}Integer{$endif}): Pointer;
+function FastGetMem(ASize: {$ifdef XE2AndUp}NativeInt{$else}{$ifdef fpc}NativeUInt{$else}Integer{$endif}{$endif}): Pointer;
 {$ifndef ASMVersion}
 var
   LMediumBlock{$ifndef FullDebugMode}, LNextFreeBlock, LSecondSplit{$endif}: PMediumFreeBlock;
@@ -4640,7 +4891,11 @@ asm
   push ebx
   {Get the IsMultiThread variable so long}
 {$ifndef AssumeMultiThreaded}
+  {$ifndef fpc}
   mov cl, IsMultiThread
+  {$else}
+  mov cl, BYTE IsMultiThread
+  {$endif}
 {$endif}
   {Is it a small block?}
   ja @NotASmallBlock
@@ -5623,7 +5878,7 @@ end;
 {$endif}
 
 {Replacement for SysFreeMem}
-function FastFreeMem(APointer: Pointer): Integer;
+function FastFreeMem(APointer: Pointer): {$ifdef fpc}NativeUInt{$else}Integer{$endif};
 {$ifndef ASMVersion}
 var
   LPSmallBlockPool{$ifndef FullDebugMode}, LPPreviousPool, LPNextPool{$endif},
@@ -5632,6 +5887,13 @@ var
   LOldFirstFreeBlock: Pointer;
   LBlockHeader: NativeUInt;
 begin
+  {$ifdef fpc}
+  if APointer = nil then
+  begin
+    Result := 0;
+    Exit;
+  end;
+  {$endif}
   {Get the small block header: Is it actually a small block?}
   LBlockHeader := PNativeUInt(PByte(APointer) - BlockHeaderSize)^;
   {Is it a small block that is in use?}
@@ -5740,6 +6002,12 @@ end;
 {$else}
 {$ifdef 32Bit}
 asm
+  {$ifdef fpc}
+  test eax, eax
+  jne @PointerNotNil
+  ret
+@PointerNotNil:
+  {$endif}
   {Get the block header in edx}
   mov edx, [eax - 4]
   {Is it a small block in use?}
@@ -5750,7 +6018,11 @@ asm
   push ebx
   {Get the IsMultiThread variable in bl}
 {$ifndef AssumeMultiThreaded}
+  {$ifndef fpc}
   mov bl, IsMultiThread
+  {$else}
+  mov bl, BYTE IsMultiThread
+  {$endif}
 {$endif}
   {Is it a small block that is in use?}
   jnz @NotSmallBlockInUse
@@ -5852,7 +6124,11 @@ asm
   mov eax, edx
   mov edx, [edx - 4]
 {$ifndef AssumeMultiThreaded}
+  {$ifndef fpc}
   mov bl, IsMultiThread
+  {$else}
+  mov bl, BYTE IsMultiThread
+  {$endif}
 {$endif}
   jmp @FreeMediumBlock
   {Align branch target}
@@ -6382,7 +6658,7 @@ end;
 
 {$ifndef FullDebugMode}
 {Replacement for SysReallocMem}
-function FastReallocMem(APointer: Pointer; ANewSize: {$ifdef XE2AndUp}NativeInt{$else}Integer{$endif}): Pointer;
+function FastReallocMem({$ifdef fpc}var {$endif}APointer: Pointer; ANewSize: {$ifdef XE2AndUp}NativeInt{$else}{$ifdef fpc}NativeUInt{$else}Integer{$endif}{$endif}): Pointer;
 {$ifndef ASMVersion}
 var
   LBlockHeader, LNextBlockSizeAndFlags, LNewAllocSize, LBlockFlags,
@@ -6483,6 +6759,22 @@ var
   end;
 
 begin
+{$ifdef fpc}
+  if APointer = nil then
+  begin
+    if ANewSize <> 0 then
+      APointer := FastGetMem(ANewSize);
+    Result := APointer;
+    Exit;
+  end
+  else if ANewSize = 0 then
+  begin
+    FastFreeMem(APointer);
+    APointer := nil;
+    Result := APointer;
+    Exit;
+  end;
+{$endif}
   {Get the block header: Is it actually a small block?}
   LBlockHeader := PNativeUInt(PByte(APointer) - BlockHeaderSize)^;
   {Is it a small block that is in use?}
@@ -6732,10 +7024,43 @@ begin
       end;
     end;
   end;
+{$ifdef fpc}
+  APointer := Result;
+{$endif}
 end;
 {$else}
 {$ifdef 32Bit}
 asm
+{$ifdef fpc}
+  push esi
+  mov esi, eax
+  mov eax, [esi]
+  test eax, eax
+  jne @PointerNotNil
+  test edx, edx
+  je @SizeIsZero
+  mov eax, edx
+  call FastGetMem
+  mov [esi], eax
+  nop
+  nop
+@SizeIsZero:
+  pop esi
+  ret
+  nop
+  nop
+@PointerNotNil:
+  test edx, edx
+  jne @GoRealloc
+  call FastFreeMem
+  mov [esi], 0
+  pop esi
+  ret
+  nop
+  nop
+  nop
+@GoRealloc:
+{$endif}
   {On entry: eax = APointer; edx = ANewSize}
   {Get the block header: Is it actually a small block?}
   mov ecx, [eax - 4]
@@ -6767,6 +7092,11 @@ asm
   {In-place downsize - return the original pointer}
   pop esi
   pop ebx
+{$ifdef fpc}
+  mov [esi], eax
+  pop esi
+  nop
+{$endif}
   ret
   {Align branch target}
   nop
@@ -6805,6 +7135,11 @@ asm
 @SmallDownsizeDone:
   pop esi
   pop ebx
+{$ifdef fpc}
+  mov [esi], eax
+  pop esi
+  nop
+{$endif}
   ret
   {Align branch target}
   nop
@@ -6864,6 +7199,11 @@ asm
   pop edi
   pop esi
   pop ebx
+{$ifdef fpc}
+  mov [esi], eax
+  pop esi
+  nop
+{$endif}
   ret
   {Align branch target}
   nop
@@ -6904,6 +7244,11 @@ asm
   pop esi
   pop ebx
   {Return}
+{$ifdef fpc}
+  mov [esi], eax
+  pop esi
+  nop
+{$endif}
   ret
   {Align branch target}
   nop
@@ -7000,6 +7345,11 @@ asm
   pop esi
   pop ebx
   {Return}
+{$ifdef fpc}
+  mov [esi], eax
+  pop esi
+  nop
+{$endif}
   ret
   {Align branch target}
 @MediumDownsizeRealloc:
@@ -7034,6 +7384,11 @@ asm
   pop edi
   pop esi
   pop ebx
+{$ifdef fpc}
+  mov [esi], eax
+  pop esi
+  nop
+{$endif}
   ret
   {Align branch target}
 @MediumBlockUpsize:
@@ -7143,6 +7498,10 @@ asm
   pop esi
   pop ebx
   {Return}
+{$ifdef fpc}
+  mov [esi], eax
+  pop esi
+{$endif}
   ret
   {Align branch target for "@CannotUpsizeMediumBlockInPlace"}
   nop
@@ -7201,6 +7560,12 @@ asm
   pop esi
   pop ebx
   {Return}
+{$ifdef fpc}
+  mov [esi], eax
+  pop esi
+  nop
+  nop
+{$endif}
   ret
   {Align branch target}
   nop
@@ -7211,9 +7576,21 @@ asm
   pop ebx
   {Is this a valid large block?}
   test cl, IsFreeBlockFlag + IsMediumBlockFlag
+{$ifndef fpc}
   jz ReallocateLargeBlock
+{$else}
+  jnz @error
+  call ReallocateLargeBlock
+  jmp @Done
   {-----------------------Invalid block------------------------------}
+@error:
+{$endif}
   xor eax, eax
+{$ifdef fpc}
+@Done:
+  mov [esi], eax
+  pop esi
+{$endif}
 end;
 
 {$else}
@@ -7646,7 +8023,7 @@ end;
 {$endif}
 
 {Allocates a block and fills it with zeroes}
-function FastAllocMem(ASize: {$ifdef XE2AndUp}NativeInt{$else}Cardinal{$endif}): Pointer;
+function FastAllocMem(ASize: {$ifdef XE2AndUp}NativeInt{$else}{$ifdef fpc} NativeUInt{$else}Cardinal{$endif}{$endif}): Pointer;
 {$ifndef ASMVersion}
 begin
   Result := FastGetMem(ASize);
@@ -7743,11 +8120,41 @@ end;
 {$endif}
 {$endif}
 
+{$ifdef fpc}
+Function FastFreeMemSize(p: pointer; size: NativeUInt):NativeUInt;
+{$ifndef ASMVersion}
+begin
+  if size=0 then
+    exit(0);
+  { can't free partial blocks, ignore size }
+  result := FastFreeMem(p);
+{$else}
+asm
+  test edx, edx
+  jne @SizeNotZero
+  mov eax, 0
+  ret
+@SizeNotZero:
+  call FastFreeMem
+{$endif}
+end;
+
+function FastMemSize(p: pointer): NativeUInt;
+{$ifndef ASMVersion}
+begin
+  result := GetAvailableSpaceInBlock(p);
+{$else}
+asm
+  call GetAvailableSpaceInBlock
+{$endif}
+end;
+{$endif}
+
 {-----------------Post Uninstall GetMem/FreeMem/ReallocMem-------------------}
 
 {$ifdef DetectMMOperationsAfterUninstall}
 
-function InvalidGetMem(ASize: {$ifdef XE2AndUp}NativeInt{$else}Integer{$endif}): Pointer;
+function InvalidGetMem(ASize: {$ifdef XE2AndUp}NativeInt{$else}{$ifdef fpc}NativeUInt{$else}Integer{$endif}{$endif}): Pointer;
 {$ifndef NoMessageBoxes}
 var
   LErrorMessageTitle: array[0..1023] of AnsiChar;
@@ -7763,7 +8170,7 @@ begin
   Result := nil;
 end;
 
-function InvalidFreeMem(APointer: Pointer): Integer;
+function InvalidFreeMem(APointer: Pointer): {$ifdef fpc}NativeUInt{$else}Integer{$endif};
 {$ifndef NoMessageBoxes}
 var
   LErrorMessageTitle: array[0..1023] of AnsiChar;
@@ -7779,7 +8186,7 @@ begin
   Result := -1;
 end;
 
-function InvalidReallocMem(APointer: Pointer; ANewSize: {$ifdef XE2AndUp}NativeInt{$else}Integer{$endif}): Pointer;
+function InvalidReallocMem({$ifdef fpc}var {$endif}APointer: Pointer; ANewSize: {$ifdef XE2AndUp}NativeInt{$else}{$ifdef fpc}NativeUInt{$else}Integer{$endif}{$endif}): Pointer;
 {$ifndef NoMessageBoxes}
 var
   LErrorMessageTitle: array[0..1023] of AnsiChar;
@@ -7795,7 +8202,7 @@ begin
   Result := nil;
 end;
 
-function InvalidAllocMem(ASize: {$ifdef XE2AndUp}NativeInt{$else}Cardinal{$endif}): Pointer;
+function InvalidAllocMem(ASize: {$ifdef XE2AndUp}NativeInt{$else}{$ifdef fpc}NativeUInt{$else}Cardinal{$endif}{$endif}): Pointer;
 {$ifndef NoMessageBoxes}
 var
   LErrorMessageTitle: array[0..1023] of AnsiChar;
@@ -10230,7 +10637,11 @@ begin
         finally
           {Close the file}
           {$ifdef POSIX}
+            {$ifndef fpc}
           __close(LFileHandle)
+            {$else}
+          fpclose(LFileHandle)
+            {$endif}
           {$else}
           CloseHandle(LFileHandle);
           {$endif}
@@ -11452,6 +11863,11 @@ begin
       NewMemoryManager.GetMem := FastGetMem;
       NewMemoryManager.FreeMem := FastFreeMem;
       NewMemoryManager.ReallocMem := FastReallocMem;
+      {$ifdef fpc}
+      NewMemoryManager.FreememSize := FastFreeMemSize;
+      NewMemoryManager.AllocMem := FastAllocMem;
+      NewMemoryManager.MemSize := FastMemSize;
+      {$endif}
 {$else}
       NewMemoryManager.GetMem := DebugGetMem;
       NewMemoryManager.FreeMem := DebugFreeMem;
