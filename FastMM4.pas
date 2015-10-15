@@ -840,7 +840,7 @@ Change log:
   - Included the average block size in the memory state log file. (Thanks to
     Hallvard Vassbotn)
   - Support added for Free Pascal's OS X and Linux targets, both i386 and
-    x86-64. (Thanks to Zoë Peterson)
+    x86-64. (Thanks to Zoë Peterson - some fixes by Arnaud Bouchez)
 
 *)
 
@@ -959,6 +959,9 @@ interface
   {$ifdef 64Bit}
     {$define PIC}  // Linux 64bit ASM is PIC
   {$endif}
+  {$ifndef FPC}
+    {$define KYLIX}
+  {$endif}
 {$endif}
 
 {$ifdef DARWIN}
@@ -980,6 +983,9 @@ interface
   {$ifdef PIC}
     {BASM version does not support position independent code}
     {$undef ASMVersion}
+  {$endif}
+  {$ifndef FPC}
+    {$define MACOS_OR_KYLIX}
   {$endif}
 {$endif}
 
@@ -2263,7 +2269,7 @@ asm
 end;
 {$endif}
 
-{$ifdef MACOS}
+{$ifdef MACOS_OR_KYLIX}
 
 function StrLCopy(Dest: PAnsiChar; const Source: PAnsiChar; MaxLen: Cardinal): PAnsiChar;
 var
@@ -2300,7 +2306,8 @@ const
 
 function FileCreate(const FileName: string): THandle;
 begin
-  Result := THandle(__open(PAnsiChar(UTF8String(FileName)), O_RDWR or O_CREAT or O_TRUNC or O_EXCL, FileAccessRights));
+  Result := THandle({$ifdef MACOS}__open{$else}open{$endif}(
+    PAnsiChar(UTF8String(FileName)), O_RDWR or O_CREAT or O_TRUNC or O_EXCL, FileAccessRights));
 end;
 
 {$endif}
@@ -2424,9 +2431,10 @@ asm
 end;
 
 {$ifdef 64Bit}
-procedure Move8(const ASource; var ADest; ACount: NativeInt);
+procedure Move8(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} nostackframe; {$endif}
 asm
 {$ifndef unix}
+.noframe
   mov rax, [rcx]
   mov [rdx], rax
 {$else}
@@ -2491,9 +2499,10 @@ asm
 end;
 
 {$ifdef 64Bit}
-procedure Move24(const ASource; var ADest; ACount: NativeInt);
+procedure Move24(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} nostackframe; {$endif}
 asm
   {$ifndef unix}
+.noframe
   movdqa xmm0, [rcx]
   mov r8, [rcx + 16]
   movdqa [rdx], xmm0
@@ -2578,9 +2587,10 @@ asm
 end;
 
 {$ifdef 64Bit}
-procedure Move40(const ASource; var ADest; ACount: NativeInt);
+procedure Move40(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} nostackframe; {$endif}
 asm
   {$ifndef unix}
+.noframe
   movdqa xmm0, [rcx]
   movdqa xmm1, [rcx + 16]
   mov r8, [rcx + 32]
@@ -2679,9 +2689,10 @@ asm
 end;
 
 {$ifdef 64Bit}
-procedure Move56(const ASource; var ADest; ACount: NativeInt);
+procedure Move56(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} nostackframe; {$endif}
 asm
   {$ifndef unix}
+.noframe
   movdqa xmm0, [rcx]
   movdqa xmm1, [rcx + 16]
   movdqa xmm2, [rcx + 32]
@@ -2723,7 +2734,7 @@ asm
   fistp qword ptr [edx + 8]
   fistp qword ptr [edx]
 {$else}
-  {$ifndef fpc}
+  {$ifndef unix}
 .noframe
   movdqa xmm0, [rcx]
   movdqa xmm1, [rcx + 16]
@@ -3062,7 +3073,8 @@ function WriteFile(hFile: THandle; const Buffer; nNumberOfBytesToWrite: Cardinal
   var lpNumberOfBytesWritten: Cardinal; lpOverlapped: Pointer): Boolean; stdcall;
 begin
   {$ifndef fpc}
-  lpNumberOfBytesWritten := __write(hFile, @Buffer, nNumberOfBytesToWrite);
+  lpNumberOfBytesWritten := __write(hFile, {$ifdef MACOS}@Buffer{$else}Buffer{$endif},
+    nNumberOfBytesToWrite);
   {$else}
   lpNumberOfBytesWritten := fpwrite(hFile, Buffer, nNumberOfBytesToWrite);
   {$endif}
@@ -3102,7 +3114,7 @@ end;
 
 {Fills a block of memory with the given dword (32-bit) or qword (64-bit).
  Always fills a multiple of SizeOf(Pointer) bytes}
-procedure DebugFillMem(var AAddress; AByteCount: NativeInt; AFillValue: NativeUInt);
+procedure DebugFillMem(var AAddress; AByteCount: NativeInt; AFillValue: NativeUInt); {$ifdef fpc64bit} nostackframe; {$endif}
 asm
 {$ifdef 32Bit}
   {On Entry:
@@ -3118,7 +3130,8 @@ asm
   js @FillLoop
 @Done:
 {$else}
-  {$ifdef unix}
+  {$ifndef unix}
+.noframe
   {On Entry:
    rcx = AAddress
    rdx = AByteCount
@@ -3577,6 +3590,13 @@ begin
 end;
 
 {-----------------Small Block Management------------------}
+
+{$ifdef KYLIX}
+procedure SwitchToThread;
+begin
+  sched_yield;
+end;
+{$endif}
 
 {Locks all small block types}
 procedure LockAllSmallBlockTypes;
