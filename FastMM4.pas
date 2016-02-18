@@ -9692,7 +9692,7 @@ begin
     while LockCmpxchg(0, 1, @ExpectedMemoryLeaksListLocked) <> 0 do
     begin
 {$ifdef NeverSleepOnThreadContention}
-  {$ifdef UseSwitchToThread9}
+  {$ifdef UseSwitchToThread}
       SwitchToThread;
   {$endif}
 {$else}
