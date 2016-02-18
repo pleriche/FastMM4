@@ -6615,6 +6615,7 @@ var
 {$ifdef LogLockContention}
 var
   LDidSleep: boolean;
+  LStackTrace: TStackTrace;
 {$endif}
 
 begin
@@ -6877,8 +6878,10 @@ begin
   end;
 {$ifdef LogLockContention}
   finally
-    if LDidSleep then
-
+    if LDidSleep then begin
+      GetStackTrace(@LStackTrace, StackTraceDepth, 1);
+      LPSmallBlockType.BlockCollector.Add(@LStackTrace[0], StackTraceDepth);
+    end;
   end;
 {$endif}
 end;

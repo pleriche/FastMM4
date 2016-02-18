@@ -45,7 +45,7 @@ type
   var
     FGeneration1   : array [1..CGeneration1Size] of TDataInfo;
     FGeneration2   : array [1..CGeneration2Size] of TDataInfo;
-    FGenerationInfo: array [1..3] of TGenerationInfo; //gen3 is used for merging
+    FGenerationInfo: array [0..2] of TGenerationInfo; //gen0 is used for merging
     FLocked        : boolean;
     FPadding       : array [1..3] of byte;
     function GetGen1_PromoteCountOver: integer;
@@ -322,15 +322,15 @@ var
 begin
   // Merges two sorted arrays.
 
-  FGenerationInfo[3].Data := @mergedData;
-  FGenerationInfo[3].Last := mergedCount;
-  FGenerationInfo[3].Size := CCollectedDataSize;
-  FGenerationInfo[3].NextGeneration := 0;
+  FGenerationInfo[0].Data := @mergedData;
+  FGenerationInfo[0].Last := mergedCount;
+  FGenerationInfo[0].Size := CCollectedDataSize;
+  FGenerationInfo[0].NextGeneration := 0;
 
   for iNew := 1 to newCount do
-    AddToGeneration(3, newData[iNew].Data, newData[iNew].Count);
+    AddToGeneration(0, newData[iNew].Data, newData[iNew].Count);
 
-  mergedCount := FGenerationInfo[3].Last;
+  mergedCount := FGenerationInfo[0].Last;
 end;
 
 function TStaticCollector.Now_ms: int64;
