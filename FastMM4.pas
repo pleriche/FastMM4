@@ -95,7 +95,7 @@ Acknowledgements (for version 4):
  - Eric Grange for his RecyclerMM on which the earlier versions of FastMM were
    based. RecyclerMM was what inspired me to try and write my own memory
    manager back in early 2004.
- - Primoz Gabrijelcic for helping to track down various bugs.
+ - Primoz Gabrijelcic for several bugfixes and enhancements.
  - Dennis Christensen for his tireless efforts with the Fastcode project:
    helping to develop, optimize and debug the growing Fastcode library.
  - JiYuan Xie for implementing the leak reporting code for C++ Builder.
@@ -835,12 +835,15 @@ Change log:
     do linger longer than they should.
   - OS X support added by Sebastian Zierer
   - Compatible with Delphi XE3
-  Version 4.??? (? ??? 2015)
+  Version 4.??? (? ??? 2016)
   - OS X full debug mode added by Sebastian Zierer
   - Included the average block size in the memory state log file. (Thanks to
     Hallvard Vassbotn)
   - Support added for Free Pascal's OS X and Linux targets, both i386 and
     x86-64. (Thanks to Zoë Peterson - some fixes by Arnaud Bouchez)
+  - Added the LogLockContention option which may be used to track down areas
+    in the application that lead to frequent lock contentions in the memory
+    manager. (Primoz Gabrijelcic)
 
 *)
 
@@ -938,6 +941,11 @@ interface
    stack traces are much more accurate than under 32-bit. (And frame based
    stack tracing is much faster.)}
   {$undef RawStackTraces}
+{$endif}
+
+{Lock contention logging requires ~ASMVersion.}
+{$ifdef LogLockContention}
+  {$undef ASMVersion}
 {$endif}
 
 {IDE debug mode always enables FullDebugMode and dynamic loading of the FullDebugMode DLL.}
@@ -1098,6 +1106,12 @@ interface
     {$undef EnableMemoryLeakReporting}
   {$endif}
 {$endif}
+
+{Stack tracer is needed for LogLockContention and for FullDebugMode.}
+{$undef _StackTracer}
+{$undef _EventLog}
+{$ifdef FullDebugMode}{$define _StackTracer}{$define _EventLog}{$endif}
+{$ifdef LogLockContention}{$define _StackTracer}{$define _EventLog}{$endif}
 
 {-------------------------Public constants-----------------------------}
 const
@@ -1314,10 +1328,6 @@ function DebugAllocMem(ASize: {$ifdef XE2AndUp}NativeInt{$else}Cardinal{$endif})
 {Scans the memory pool for any corruptions. If a corruption is encountered an "Out of Memory" exception is
  raised.}
 procedure ScanMemoryPoolForCorruptions;
-{Specify the full path and name for the filename to be used for logging memory
- errors, etc. If ALogFileName is nil or points to an empty string it will
- revert to the default log file name.}
-procedure SetMMLogFileName(ALogFileName: PAnsiChar = nil);
 {Returns the current "allocation group". Whenever a GetMem request is serviced
  in FullDebugMode, the current "allocation group" is stored in the block header.
  This may help with debugging. Note that if a block is subsequently reallocated
@@ -1335,6 +1345,12 @@ procedure PopAllocationGroup;
  logged. This routine also checks the memory pool for consistency at the same
  time, raising an "Out of Memory" error if the check fails.}
 procedure LogAllocatedBlocksToFile(AFirstAllocationGroupToLog, ALastAllocationGroupToLog: Cardinal);
+{$endif}
+{$ifdef _EventLog}
+{Specify the full path and name for the filename to be used for logging memory
+ errors, etc. If ALogFileName is nil or points to an empty string it will
+ revert to the default log file name.}
+procedure SetMMLogFileName(ALogFileName: PAnsiChar = nil);
 {$endif}
 
 {Releases all allocated memory (use with extreme care)}
@@ -1391,12 +1407,21 @@ procedure WalkAllocatedBlocks(ACallBack: TWalkAllocatedBlocksCallback; AUserData
  class. The file will be saved in UTF-8 encoding (in supported Delphi versions). Returns True on success. }
 function LogMemoryManagerStateToFile(const AFileName: string; const AAdditionalDetails: string = ''): Boolean;
 
-{$ifdef FullDebugMode}
-{-------------FullDebugMode constants---------------}
+{$ifdef _StackTracer}
+{------------- FullDebugMode/LogLockContention constants---------------}
 const
   {The stack trace depth. (Must be an *uneven* number to ensure that the
    Align16Bytes option works in FullDebugMode.)}
   StackTraceDepth = 11;
+
+type
+  PStackTrace = ^TStackTrace;
+  TStackTrace = array[0..StackTraceDepth - 1] of NativeUInt;
+{$endif}
+
+{$ifdef FullDebugMode}
+{-------------FullDebugMode constants---------------}
+const
   {The number of entries in the allocation group stack}
   AllocationGroupStackSize = 1000;
   {The number of fake VMT entries - used to track virtual method calls on
@@ -1416,9 +1441,6 @@ const
 
 {-------------------------FullDebugMode structures--------------------}
 type
-  PStackTrace = ^TStackTrace;
-  TStackTrace = array[0..StackTraceDepth - 1] of NativeUInt;
-
   TBlockOperation = (boBlockCheck, boGetMem, boFreeMem, boReallocMem);
 
   {The header placed in front of blocks in FullDebugMode (just after the
@@ -1501,7 +1523,7 @@ implementation
 uses
 {$ifndef POSIX}
   Windows,
-  {$ifdef FullDebugMode}
+  {$ifdef _EventLog}
     {$ifdef Delphi4or5}
   ShlObj,
     {$else}
@@ -1518,6 +1540,9 @@ uses
   Libc,
     {$endif}
   {$endif}
+{$endif}
+{$ifdef LogLockContention}
+  FastMM4DataCollector,
 {$endif}
   FastMM4Messages;
 
@@ -1671,6 +1696,9 @@ const
     'Destroy');
   {The name of the FullDebugMode support DLL. The support DLL implements stack
    tracing and the conversion of addresses to unit and line number information.}
+{$endif}
+
+{$ifdef _StackTracer}
 {$ifdef 32Bit}
   FullDebugModeLibraryName = FullDebugModeLibraryName32Bit;
 {$else}
@@ -1763,6 +1791,9 @@ type
 {$ifdef 64Bit}
     {Pad to 64 bytes for 64-bit}
     Reserved2: Pointer;
+{$endif}
+{$ifdef LogLockContention}
+    BlockCollector: TStaticCollector;
 {$endif}
   end;
 
@@ -2039,6 +2070,11 @@ var
   ExpectedMemoryLeaks: PExpectedMemoryLeaks;
   ExpectedMemoryLeaksListLocked: Boolean;
 {$endif}
+  {---------------------EventLog-------------------}
+{$ifdef _EventLog}
+  {The current log file name}
+  MMLogFileName: array[0..1023] of AnsiChar;
+{$endif}
   {---------------------Full Debug Mode structures--------------------}
 {$ifdef FullDebugMode}
   {The allocation group stack}
@@ -2053,8 +2089,6 @@ var
    allocate, free or reallocate any block or modify any FullDebugMode
    block header or footer.}
   ThreadsInFullDebugModeRoutine: Integer;
-  {The current log file name}
-  MMLogFileName: array[0..1023] of AnsiChar;
   {The 64K block of reserved memory used to trap invalid memory accesses using
    fields in a freed object.}
   ReservedBlock: Pointer;
@@ -2070,6 +2104,13 @@ var
   VMTBadInterface: array[0..MaxFakeVMTEntries - 1] of Pointer;
   {$endif}
 {$endif}
+
+  {---------------------Lock contention logging--------------------}
+{$ifdef LogLockContention}
+  MediumBlockCollector: TStaticCollector;
+  LargeBlockCollector: TStaticCollector;
+{$endif}
+
   {--------------Other info--------------}
   {The memory manager that was replaced}
   OldMemoryManager: {$ifndef BDS2006AndUp}TMemoryManager{$else}TMemoryManagerEx{$endif};
@@ -3160,6 +3201,10 @@ asm
   {$endif}
 {$endif}
 end;
+{$endif}
+
+{$ifdef _StackTracer}
+{------------------------Stack tracer---------------------------}
 
   {$ifndef LoadDebugDLLDynamically}
 
@@ -3690,15 +3735,21 @@ end;
 {Locks the medium blocks. Note that the 32-bit asm version is assumed to
  preserve all registers except eax.}
 {$ifndef Use32BitAsm}
-procedure LockMediumBlocks;
+procedure LockMediumBlocks({$ifdef LogLockContention}var ADidSleep: Boolean{$endif});
 begin
   {Lock the medium blocks}
+{$ifdef LogLockContention}
+  ADidSleep := False;
+{$endif}
 {$ifndef AssumeMultiThreaded}
   if IsMultiThread then
 {$endif}
   begin
     while LockCmpxchg(0, 1, @MediumBlocksLocked) <> 0 do
     begin
+{$ifdef LogLockContention}
+      ADidSleep := True;
+{$endif}
 {$ifdef NeverSleepOnThreadContention}
   {$ifdef UseSwitchToThread}
       SwitchToThread;
@@ -4210,15 +4261,21 @@ end;
 {-----------------Large Block Management------------------}
 
 {Locks the large blocks}
-procedure LockLargeBlocks;
+procedure LockLargeBlocks({$ifdef LogLockContention}var ADidSleep: Boolean{$endif});
 begin
   {Lock the large blocks}
+{$ifdef LogLockContention}
+  ADidSleep := False;
+{$endif}
 {$ifndef AssumeMultiThreaded}
   if IsMultiThread then
 {$endif}
   begin
     while LockCmpxchg(0, 1, @LargeBlocksLocked) <> 0 do
     begin
+{$ifdef LogLockContention}
+      ADidSleep := True;
+{$endif}
 {$ifdef NeverSleepOnThreadContention}
   {$ifdef UseSwitchToThread}
       SwitchToThread;
@@ -4237,7 +4294,7 @@ end;
  allow for alignment etc.). ASize must be the actual user requested size. This
  procedure will pad it to the appropriate page boundary and also add the space
  required by the header.}
-function AllocateLargeBlock(ASize: NativeUInt): Pointer;
+function AllocateLargeBlock(ASize: NativeUInt {$ifdef LogLockContention}; var ADidSleep: Boolean{$endif}): Pointer;
 var
   LLargeUsedBlockSize: NativeUInt;
   LOldFirstLargeBlock: PLargeBlockHeader;
@@ -4258,7 +4315,7 @@ begin
     PLargeBlockHeader(Result).UserAllocatedSize := ASize;
     PLargeBlockHeader(Result).BlockSizeAndFlags := LLargeUsedBlockSize or IsLargeBlockFlag;
     {Insert the large block into the linked list of large blocks}
-    LockLargeBlocks;
+    LockLargeBlocks({$ifdef LogLockContention}ADidSleep{$endif});
     LOldFirstLargeBlock := LargeBlocksCircularList.NextLargeBlockHeader;
     PLargeBlockHeader(Result).PreviousLargeBlockHeader := @LargeBlocksCircularList;
     LargeBlocksCircularList.NextLargeBlockHeader := Result;
@@ -4285,6 +4342,10 @@ var
   LCurrentSegment: Pointer;
   LMemInfo: TMemoryBasicInformation;
 {$endif}
+{$ifdef LogLockContention}
+  LDidSleep: Boolean;
+  LStackTrace: TStackTrace;
+{$endif}
 begin
 {$ifdef ClearLargeBlocksBeforeReturningToOS}
   FillChar(APointer^,
@@ -4294,7 +4355,14 @@ begin
   {Point to the start of the large block}
   APointer := Pointer(PByte(APointer) - LargeBlockHeaderSize);
   {Get the previous and next large blocks}
-  LockLargeBlocks;
+  LockLargeBlocks({$ifdef LogLockContention}LDidSleep{$endif});
+  {$ifdef LogLockContention}
+  if LDidSleep then 
+  begin
+    GetStackTrace(@LStackTrace, StackTraceDepth, 1);
+    LargeBlockCollector.Add(@LStackTrace[0], StackTraceDepth);
+  end;
+  {$endif}
   LPreviousLargeBlockHeader := PLargeBlockHeader(APointer).PreviousLargeBlockHeader;
   LNextLargeBlockHeader := PLargeBlockHeader(APointer).NextLargeBlockHeader;
 {$ifndef POSIX}
@@ -4473,7 +4541,8 @@ end;
 
 {Replacement for SysGetMem}
 
-function FastGetMem(ASize: {$ifdef XE2AndUp}NativeInt{$else}{$ifdef fpc}NativeUInt{$else}Integer{$endif}{$endif}): Pointer;
+function FastGetMem(ASize: {$ifdef XE2AndUp}NativeInt{$else}{$ifdef fpc}NativeUInt{$else}Integer{$endif}{$endif}
+  {$ifdef FullDebugMode}{$ifdef LogLockContention}; var ACollector: PStaticCollector{$endif}{$endif}): Pointer;
 {$ifndef ASMVersion}
 var
   LMediumBlock{$ifndef FullDebugMode}, LNextFreeBlock, LSecondSplit{$endif}: PMediumFreeBlock;
@@ -4486,7 +4555,17 @@ var
   LPMediumBin: PMediumFreeBlock;
   LBinNumber, {$ifndef FullDebugMode}LBinGroupsMasked, {$endif}LBinGroupMasked,
     LBinGroupNumber: Cardinal;
+{$ifdef LogLockContention}
+  LDidSleep: Boolean;
+{$ifndef FullDebugMode}
+  ACollector: PStaticCollector;
+  LStackTrace: TStackTrace;
+{$endif}
+{$endif}
 begin
+{$ifdef LogLockContention}
+  ACollector := nil;
+{$endif}
   {Is it a small block? -> Take the header size into account when
    determining the required block size}
   if NativeUInt(ASize) <= (MaximumSmallBlockSize - BlockHeaderSize) then
@@ -4517,6 +4596,9 @@ begin
           Break;
         {All three sizes locked - given up and sleep}
         Dec(PByte(LPSmallBlockType), 2 * SizeOf(TSmallBlockType));
+{$ifdef LogLockContention}
+        ACollector := @LPSmallBlockType.BlockCollector;
+{$endif}
 {$ifdef NeverSleepOnThreadContention}
   {$ifdef UseSwitchToThread}
         SwitchToThread;
@@ -4581,7 +4663,11 @@ begin
       else
       begin
         {Need to allocate a pool: Lock the medium blocks}
-        LockMediumBlocks;
+        LockMediumBlocks({$ifdef LogLockContention}LDidSleep{$endif});
+{$ifdef LogLockContention}
+        if LDidSleep then
+          ACollector := @MediumBlockCollector;
+{$endif}
 {$ifndef FullDebugMode}
         {Are there any available blocks of a suitable size?}
         LBinGroupsMasked := MediumBlockBinGroupBitmap and ($ffffff00 or LPSmallBlockType.AllowedGroupsForBlockPoolBitmap);
@@ -4739,7 +4825,11 @@ begin
       {Get the bin number}
       LBinNumber := (LBlockSize - MinimumMediumBlockSize) div MediumBlockGranularity;
       {Lock the medium blocks}
-      LockMediumBlocks;
+      LockMediumBlocks({$ifdef LogLockContention}LDidSleep{$endif});
+{$ifdef LogLockContention}
+      if LDidSleep then
+        ACollector := @MediumBlockCollector;
+{$endif}
       {Calculate the bin group}
       LBinGroupNumber := LBinNumber div 32;
       {Is there a suitable block inside this group?}
@@ -4885,12 +4975,27 @@ begin
     else
     begin
       {Allocate a Large block}
-      if ASize > 0 then
-        Result := AllocateLargeBlock(ASize)
+      if ASize > 0 then 
+      begin
+        Result := AllocateLargeBlock(ASize {$ifdef LogLockContention}, LDidSleep{$endif});
+{$ifdef LogLockContention}
+        if LDidSleep then
+          ACollector := @LargeBlockCollector;
+{$endif}
+      end
       else
         Result := nil;
     end;
   end;
+{$ifdef LogLockContention}
+{$ifndef FullDebugMode}
+  if Assigned(ACollector) then 
+  begin
+    GetStackTrace(@LStackTrace, StackTraceDepth, 1);
+    MediumBlockCollector.Add(@LStackTrace[0], StackTraceDepth);
+  end;
+{$endif}
+{$endif}
 end;
 {$else}
 {$ifdef 32Bit}
@@ -5747,13 +5852,24 @@ var
   LPPreviousMediumBlockPoolHeader, LPNextMediumBlockPoolHeader: PMediumBlockPoolHeader;
 {$endif}
   LBlockHeader: NativeUInt;
+{$ifdef LogLockContention}
+  LDidSleep: Boolean;
+  LStackTrace: TStackTrace;
+{$endif}
 begin
   {Get the block header}
   LBlockHeader := PNativeUInt(PByte(APointer) - BlockHeaderSize)^;
   {Get the medium block size}
   LBlockSize := LBlockHeader and DropMediumAndLargeFlagsMask;
   {Lock the medium blocks}
-  LockMediumBlocks;
+  LockMediumBlocks({$ifdef LogLockContention}LDidSleep{$endif});
+  {$ifdef LogLockContention}
+  if LDidSleep then 
+  begin
+    GetStackTrace(@LStackTrace, StackTraceDepth, 1);
+    MediumBlockCollector.Add(@LStackTrace[0], StackTraceDepth);
+  end;
+  {$endif}
   {Can we combine this block with the next free block?}
   LNextMediumBlock := PMediumFreeBlock(PByte(APointer) + LBlockSize);
   LNextMediumBlockSizeAndFlags := PNativeUInt(PByte(LNextMediumBlock) - BlockHeaderSize)^;
@@ -5906,6 +6022,10 @@ var
   LPSmallBlockType: PSmallBlockType;
   LOldFirstFreeBlock: Pointer;
   LBlockHeader: NativeUInt;
+{$ifdef LogLockContention}
+  LDidSleep: Boolean;
+  LStackTrace: TStackTrace;
+{$endif}
 begin
   {$ifdef fpc}
   if APointer = nil then
@@ -5927,12 +6047,18 @@ begin
     FillChar(APointer^, LPSmallBlockType.BlockSize - BlockHeaderSize, 0);
 {$endif}
     {Lock the block type}
+{$ifdef LogLockContention}
+    LDidSleep := False;
+{$endif}
 {$ifndef AssumeMultiThreaded}
     if IsMultiThread then
 {$endif}
     begin
       while (LockCmpxchg(0, 1, @LPSmallBlockType.BlockTypeLocked) <> 0) do
       begin
+{$ifdef LogLockContention}
+        LDidSleep := True;
+{$endif}
 {$ifdef NeverSleepOnThreadContention}
   {$ifdef UseSwitchToThread}
         SwitchToThread;
@@ -5945,6 +6071,13 @@ begin
 {$endif}
       end;
     end;
+{$ifdef LogLockContention}
+    if LDidSleep then 
+    begin
+      GetStackTrace(@LStackTrace, StackTraceDepth, 1);
+      LPSmallBlockType.BlockCollector.Add(@LStackTrace[0], StackTraceDepth);
+    end;
+{$endif}
     {Get the old first free block}
     LOldFirstFreeBlock := LPSmallBlockPool.FirstFreeBlock;
     {Was the pool manager previously full?}
@@ -6686,6 +6819,9 @@ var
     LSecondSplitSize, LNewBlockSize: NativeUInt;
   LPSmallBlockType: PSmallBlockType;
   LPNextBlock, LPNextBlockHeader: Pointer;
+{$ifdef LogLockContention}
+  LCollector: PStaticCollector;
+{$endif}
 
   {Upsizes a large block in-place. The following variables are assumed correct:
     LBlockFlags, LOldAvailableSize, LPNextBlock, LNextBlockSizeAndFlags,
@@ -6736,6 +6872,10 @@ var
   {In-place downsize of a medium block. On entry Size must be less than half of
    LOldAvailableSize.}
   procedure MediumBlockInPlaceDownsize;
+{$ifdef LogLockContention}
+  var
+    LDidSleep: Boolean;
+{$endif}
   begin
     {Round up to the next medium block size}
     LNewBlockSize := ((ANewSize + (BlockHeaderSize + MediumBlockGranularity - 1 - MediumBlockSizeOffset))
@@ -6743,7 +6883,11 @@ var
     {Get the size of the second split}
     LSecondSplitSize := (LOldAvailableSize + BlockHeaderSize) - LNewBlockSize;
     {Lock the medium blocks}
-    LockMediumBlocks;
+    LockMediumBlocks({$ifdef LogLockContention}LDidSleep{$endif});
+{$ifdef LogLockContention}
+    if LDidSleep then
+      LCollector := @MediumBlockCollector;
+{$endif}
     {Set the new size}
     PNativeUInt(PByte(APointer) - BlockHeaderSize)^ :=
       (PNativeUInt(PByte(APointer) - BlockHeaderSize)^ and ExtractMediumAndLargeFlagsMask)
@@ -6778,7 +6922,17 @@ var
     MediumBlocksLocked := False;
   end;
 
+{$ifdef LogLockContention}
+var
+  LDidSleep: Boolean;
+  LStackTrace: TStackTrace;
+{$endif}
+
 begin
+{$ifdef LogLockContention}
+  LCollector := nil;
+  try
+{$endif}
 {$ifdef fpc}
   if APointer = nil then
   begin
@@ -6904,7 +7058,11 @@ begin
 {$endif}
               {Multi-threaded application - lock medium blocks and re-read the
                information on the blocks.}
-              LockMediumBlocks;
+               LockMediumBlocks({$ifdef LogLockContention}LDidSleep{$endif});
+{$ifdef LogLockContention}
+               if LDidSleep then
+                 LCollector := @MediumBlockCollector;
+{$endif}
               {Re-read the info for this block}
               LBlockFlags := PNativeUInt(PByte(APointer) - BlockHeaderSize)^ and ExtractMediumAndLargeFlagsMask;
               {Re-read the info for the next block}
@@ -7046,6 +7204,15 @@ begin
   end;
 {$ifdef fpc}
   APointer := Result;
+{$endif}
+{$ifdef LogLockContention}
+  finally
+    if LDidSleep then 
+    begin
+      GetStackTrace(@LStackTrace, StackTraceDepth, 1);
+      LPSmallBlockType.BlockCollector.Add(@LStackTrace[0], StackTraceDepth);
+    end;
+  end;
 {$endif}
 end;
 {$else}
@@ -8045,8 +8212,15 @@ end;
 {Allocates a block and fills it with zeroes}
 function FastAllocMem(ASize: {$ifdef XE2AndUp}NativeInt{$else}{$ifdef fpc} NativeUInt{$else}Cardinal{$endif}{$endif}): Pointer;
 {$ifndef ASMVersion}
+{$ifdef LogLockContention}
+{$ifdef FullDebugMode}
+var
+  LCollector: PStaticCollector;
+{$endif}
+{$endif}
 begin
-  Result := FastGetMem(ASize);
+  {DebugAllocMem does not call FastAllocMem so in this case we can ignore returned collector.}
+  Result := FastGetMem(ASize{$ifdef LogLockContention}{$ifdef FullDebugMode}, LCollector{$endif}{$endif});
   {Large blocks are already zero filled}
   if (Result <> nil) and (ASize <= (MaximumMediumBlockSize - BlockHeaderSize)) then
     FillChar(Result^, ASize, 0);
@@ -8245,118 +8419,9 @@ end;
 
 {$endif}
 
-{-----------------Full Debug Mode Memory Manager Interface--------------------}
+{------------------------EventLog handling------------------------}
 
-{$ifdef FullDebugMode}
-
-{Compare [AAddress], CompareVal:
- If Equal: [AAddress] := NewVal and result = CompareVal
- If Unequal: Result := [AAddress]}
-function LockCmpxchg32(CompareVal, NewVal: Integer; AAddress: PInteger): Integer;
-asm
-{$ifdef 32Bit}
-  {On entry:
-    eax = CompareVal,
-    edx = NewVal,
-    ecx = AAddress}
-  lock cmpxchg [ecx], edx
-{$else}
-.noframe
-  {On entry:
-    ecx = CompareVal,
-    edx = NewVal,
-    r8 = AAddress}
-  mov eax, ecx
-  lock cmpxchg [r8], edx
-{$endif}
-end;
-
-{Called by DebugGetMem, DebugFreeMem and DebugReallocMem in order to block a
- free block scan operation while the memory pool is being modified.}
-procedure StartChangingFullDebugModeBlock;
-var
-  LOldCount: Integer;
-begin
-  while True do
-  begin
-    {Get the old thread count}
-    LOldCount := ThreadsInFullDebugModeRoutine;
-    if (LOldCount >= 0)
-      and (LockCmpxchg32(LOldCount, LOldCount + 1, @ThreadsInFullDebugModeRoutine) = LOldCount) then
-    begin
-      Break;
-    end;
-  {$ifdef NeverSleepOnThreadContention}
-    {$ifdef UseSwitchToThread}
-    SwitchToThread;
-    {$endif}
-  {$else}
-    Sleep(InitialSleepTime);
-    {Try again}
-    LOldCount := ThreadsInFullDebugModeRoutine;
-    if (LOldCount >= 0)
-      and (LockCmpxchg32(LOldCount, LOldCount + 1, @ThreadsInFullDebugModeRoutine) = LOldCount) then
-    begin
-      Break;
-    end;
-    Sleep(AdditionalSleepTime);
-  {$endif}
-  end;
-end;
-
-procedure DoneChangingFullDebugModeBlock;
-asm
-{$ifdef 32Bit}
-  lock dec ThreadsInFullDebugModeRoutine
-{$else}
-.noframe
-  lea rax, ThreadsInFullDebugModeRoutine
-  lock dec dword ptr [rax]
-{$endif}
-end;
-
-{Increments the allocation number}
-procedure IncrementAllocationNumber;
-asm
-{$ifdef 32Bit}
-  lock inc CurrentAllocationNumber
-{$else}
-.noframe
-  lea rax, CurrentAllocationNumber
-  lock inc dword ptr [rax]
-{$endif}
-end;
-
-{Called by a routine wanting to lock the entire memory pool in FullDebugMode, e.g. before scanning the memory
- pool for corruptions.}
-procedure BlockFullDebugModeMMRoutines;
-begin
-  while True do
-  begin
-    {Get the old thread count}
-    if LockCmpxchg32(0, -1, @ThreadsInFullDebugModeRoutine) = 0 then
-      Break;
-{$ifdef NeverSleepOnThreadContention}
-  {$ifdef UseSwitchToThread}
-    SwitchToThread;
-  {$endif}
-{$else}
-    Sleep(InitialSleepTime);
-    {Try again}
-    if LockCmpxchg32(0, -1, @ThreadsInFullDebugModeRoutine) = 0 then
-      Break;
-    Sleep(AdditionalSleepTime);
-{$endif}
-  end;
-end;
-
-procedure UnblockFullDebugModeMMRoutines;
-begin
-  {Currently blocked? If so, unblock the FullDebugMode routines.}
-  if ThreadsInFullDebugModeRoutine = -1 then
-    ThreadsInFullDebugModeRoutine := 0;
-end;
-
+{$ifdef _EventLog}
 procedure DeleteEventLog;
 begin
   {Delete the file}
@@ -8541,6 +8606,119 @@ begin
   end;
   {Invalid log file name}
   SetDefaultMMLogFileName;
+end;
+{$endif}
+
+{-----------------Full Debug Mode Memory Manager Interface--------------------}
+
+{$ifdef FullDebugMode}
+
+{Compare [AAddress], CompareVal:
+ If Equal: [AAddress] := NewVal and result = CompareVal
+ If Unequal: Result := [AAddress]}
+function LockCmpxchg32(CompareVal, NewVal: Integer; AAddress: PInteger): Integer;
+asm
+{$ifdef 32Bit}
+  {On entry:
+    eax = CompareVal,
+    edx = NewVal,
+    ecx = AAddress}
+  lock cmpxchg [ecx], edx
+{$else}
+.noframe
+  {On entry:
+    ecx = CompareVal,
+    edx = NewVal,
+    r8 = AAddress}
+  mov eax, ecx
+  lock cmpxchg [r8], edx
+{$endif}
+end;
+
+{Called by DebugGetMem, DebugFreeMem and DebugReallocMem in order to block a
+ free block scan operation while the memory pool is being modified.}
+procedure StartChangingFullDebugModeBlock;
+var
+  LOldCount: Integer;
+begin
+  while True do
+  begin
+    {Get the old thread count}
+    LOldCount := ThreadsInFullDebugModeRoutine;
+    if (LOldCount >= 0)
+      and (LockCmpxchg32(LOldCount, LOldCount + 1, @ThreadsInFullDebugModeRoutine) = LOldCount) then
+    begin
+      Break;
+    end;
+  {$ifdef NeverSleepOnThreadContention}
+    {$ifdef UseSwitchToThread}
+    SwitchToThread;
+    {$endif}
+  {$else}
+    Sleep(InitialSleepTime);
+    {Try again}
+    LOldCount := ThreadsInFullDebugModeRoutine;
+    if (LOldCount >= 0)
+      and (LockCmpxchg32(LOldCount, LOldCount + 1, @ThreadsInFullDebugModeRoutine) = LOldCount) then
+    begin
+      Break;
+    end;
+    Sleep(AdditionalSleepTime);
+  {$endif}
+  end;
+end;
+
+procedure DoneChangingFullDebugModeBlock;
+asm
+{$ifdef 32Bit}
+  lock dec ThreadsInFullDebugModeRoutine
+{$else}
+.noframe
+  lea rax, ThreadsInFullDebugModeRoutine
+  lock dec dword ptr [rax]
+{$endif}
+end;
+
+{Increments the allocation number}
+procedure IncrementAllocationNumber;
+asm
+{$ifdef 32Bit}
+  lock inc CurrentAllocationNumber
+{$else}
+.noframe
+  lea rax, CurrentAllocationNumber
+  lock inc dword ptr [rax]
+{$endif}
+end;
+
+{Called by a routine wanting to lock the entire memory pool in FullDebugMode, e.g. before scanning the memory
+ pool for corruptions.}
+procedure BlockFullDebugModeMMRoutines;
+begin
+  while True do
+  begin
+    {Get the old thread count}
+    if LockCmpxchg32(0, -1, @ThreadsInFullDebugModeRoutine) = 0 then
+      Break;
+{$ifdef NeverSleepOnThreadContention}
+  {$ifdef UseSwitchToThread}
+    SwitchToThread;
+  {$endif}
+{$else}
+    Sleep(InitialSleepTime);
+    {Try again}
+    if LockCmpxchg32(0, -1, @ThreadsInFullDebugModeRoutine) = 0 then
+      Break;
+    Sleep(AdditionalSleepTime);
+{$endif}
+  end;
+end;
+
+procedure UnblockFullDebugModeMMRoutines;
+begin
+  {Currently blocked? If so, unblock the FullDebugMode routines.}
+  if ThreadsInFullDebugModeRoutine = -1 then
+    ThreadsInFullDebugModeRoutine := 0;
 end;
 
 {Returns the current "allocation group". Whenever a GetMem request is serviced
@@ -9155,6 +9333,11 @@ begin
 end;
 
 function DebugGetMem(ASize: {$ifdef XE2AndUp}NativeInt{$else}Integer{$endif}): Pointer;
+{$ifdef LogLockContention}
+var
+  LCollector: PStaticCollector;
+  LStackTrace: TStackTrace;
+{$endif}
 begin
   {Scan the entire memory pool first?}
   if FullDebugModeScanMemoryPoolBeforeEveryOperation then
@@ -9164,7 +9347,7 @@ begin
   try
     {We need extra space for (a) The debug header, (b) the block debug trailer
      and (c) the trailing block size pointer for free blocks}
-    Result := FastGetMem(ASize + FullDebugBlockOverhead);
+    Result := FastGetMem(ASize + FullDebugBlockOverhead {$ifdef LogLockContention}, LCollector{$endif});
     if Result <> nil then
     begin
       {Large blocks are always newly allocated (and never reused), so checking
@@ -9174,6 +9357,10 @@ begin
       begin
         {Set the allocation call stack}
         GetStackTrace(@PFullDebugBlockHeader(Result).AllocationStackTrace, StackTraceDepth, 1);
+{$ifdef LogLockContention}
+        if assigned(LCollector) then
+          LCollector.Add(@PFullDebugBlockHeader(Result).AllocationStackTrace[0], StackTraceDepth);
+{$endif LogLockContention}
         {Set the thread ID of the thread that allocated the block}
         PFullDebugBlockHeader(Result).AllocatedByThread := GetThreadID;
         {Block is now in use: It was allocated by this routine}
@@ -9208,6 +9395,13 @@ begin
       end
       else
       begin
+{$ifdef LogLockContention}
+        if assigned(LCollector) then 
+        begin
+          GetStackTrace(@LStackTrace, StackTraceDepth, 1);
+          LCollector.Add(@LStackTrace[0], StackTraceDepth);
+        end;
+{$endif LogLockContention}
         Result := nil;
       end;
     end;
@@ -10256,11 +10450,14 @@ var
   LPSmallBlockPool: PSmallBlockPoolHeader;
   LCurPtr, LEndPtr: Pointer;
   LInd: Integer;
+{$ifdef LogLockContention}
+  LDidSleep: Boolean;
+{$endif}
 begin
   {Lock all small block types}
   LockAllSmallBlockTypes;
   {Lock the medium blocks}
-  LockMediumBlocks;
+  LockMediumBlocks({$ifdef LogLockContention}LDidSleep{$endif});
   try
     {Step through all the medium block pools}
     LPMediumBlockPoolHeader := MediumBlockPoolsCircularList.NextMediumBlockPoolHeader;
@@ -10313,7 +10510,7 @@ begin
       SmallBlockTypes[LInd].BlockTypeLocked := False;
   end;
   {Step through all the large blocks}
-  LockLargeBlocks;
+  LockLargeBlocks({$ifdef LogLockContention}LDidSleep{$endif});
   try
     {Get all leaked large blocks}
     LPLargeBlock := LargeBlocksCircularList.NextLargeBlockHeader;
@@ -11213,6 +11410,9 @@ var
   LBlockTypeIndex, LMediumBlockSize: Cardinal;
   LMediumBlockHeader, LLargeBlockSize: NativeUInt;
   LPLargeBlock: PLargeBlockHeader;
+{$ifdef LogLockContention}
+  LDidSleep: Boolean;
+{$endif}
 begin
   {Clear the structure}
   FillChar(AMemoryManagerState, SizeOf(AMemoryManagerState), 0);
@@ -11229,7 +11429,7 @@ begin
   {Lock all small block types}
   LockAllSmallBlockTypes;
   {Lock the medium blocks}
-  LockMediumBlocks;
+  LockMediumBlocks({$ifdef LogLockContention}LDidSleep{$endif});
   {Step through all the medium block pools}
   LPMediumBlockPoolHeader := MediumBlockPoolsCircularList.NextMediumBlockPoolHeader;
   while LPMediumBlockPoolHeader <> @MediumBlockPoolsCircularList do
@@ -11278,7 +11478,7 @@ begin
   for LInd := 0 to NumSmallBlockTypes - 1 do
     SmallBlockTypes[LInd].BlockTypeLocked := False;
   {Step through all the large blocks}
-  LockLargeBlocks;
+  LockLargeBlocks({$ifdef LogLockContention}LDidSleep{$endif});
   LPLargeBlock := LargeBlocksCircularList.NextLargeBlockHeader;
   while LPLargeBlock <> @LargeBlocksCircularList do
   begin
@@ -11334,11 +11534,14 @@ var
   LPLargeBlock: PLargeBlockHeader;
   LInd, LChunkIndex, LNextChunk, LLargeBlockSize: NativeUInt;
   LMBI: TMemoryBasicInformation;
+{$ifdef LogLockContention}
+  LDidSleep: Boolean;
+{$endif}
 begin
   {Clear the map}
   FillChar(AMemoryMap, SizeOf(AMemoryMap), Ord(csUnallocated));
   {Step through all the medium block pools}
-  LockMediumBlocks;
+  LockMediumBlocks({$ifdef LogLockContention}LDidSleep{$endif});
   LPMediumBlockPoolHeader := MediumBlockPoolsCircularList.NextMediumBlockPoolHeader;
   while LPMediumBlockPoolHeader <> @MediumBlockPoolsCircularList do
   begin
@@ -11355,7 +11558,7 @@ begin
   end;
   MediumBlocksLocked := False;
   {Step through all the large blocks}
-  LockLargeBlocks;
+  LockLargeBlocks({$ifdef LogLockContention}LDidSleep{$endif});
   LPLargeBlock := LargeBlocksCircularList.NextLargeBlockHeader;
   while LPLargeBlock <> @LargeBlocksCircularList do
   begin
@@ -11423,13 +11626,16 @@ var
   LSmallBlockUsage, LSmallBlockOverhead, LMediumBlockHeader, LLargeBlockSize: NativeUInt;
   LInd: Integer;
   LPLargeBlock: PLargeBlockHeader;
+{$ifdef LogLockContention}
+  LDidSleep: Boolean;
+{$endif}
 begin
   {Clear the structure}
   FillChar(Result, SizeOf(Result), 0);
   {Lock all small block types}
   LockAllSmallBlockTypes;
   {Lock the medium blocks}
-  LockMediumBlocks;
+  LockMediumBlocks({$ifdef LogLockContention}LDidSleep{$endif});
   {Step through all the medium block pools}
   LPMediumBlockPoolHeader := MediumBlockPoolsCircularList.NextMediumBlockPoolHeader;
   while LPMediumBlockPoolHeader <> @MediumBlockPoolsCircularList do
@@ -11496,7 +11702,7 @@ begin
   for LInd := 0 to NumSmallBlockTypes - 1 do
     SmallBlockTypes[LInd].BlockTypeLocked := False;
   {Step through all the large blocks}
-  LockLargeBlocks;
+  LockLargeBlocks({$ifdef LogLockContention}LDidSleep{$endif});
   LPLargeBlock := LargeBlocksCircularList.NextLargeBlockHeader;
   while LPLargeBlock <> @LargeBlocksCircularList do
   begin
@@ -11581,6 +11787,72 @@ begin
   LargeBlocksCircularList.PreviousLargeBlockHeader := @LargeBlocksCircularList;
   LargeBlocksCircularList.NextLargeBlockHeader := @LargeBlocksCircularList;
 end;
+
+{$ifdef LogLockContention}
+procedure ReportLockContention;
+var
+  count: Integer;
+  data: TStaticCollector.TCollectedData;
+  i: Integer;
+  LErrorMessage: array[0..32767] of AnsiChar;
+  LMessageTitleBuffer: array[0..200] of AnsiChar;
+  LMsgPtr: PAnsiChar;
+  mergedCount: Integer;
+  mergedData: TStaticCollector.TCollectedData;
+begin
+  LargeBlockCollector.GetData(mergedData, mergedCount);
+  MediumBlockCollector.GetData(data, count);
+  LargeBlockCollector.Merge(mergedData, mergedCount, data, count);
+  for i := 0 to High(SmallBlockTypes) do 
+  begin
+    SmallBlockTypes[i].BlockCollector.GetData(data, count);
+    LargeBlockCollector.Merge(mergedData, mergedCount, data, count);
+  end;
+
+  if mergedCount > 0 then 
+  begin
+    FillChar(LErrorMessage, SizeOf(LErrorMessage), 0);
+    FillChar(LMessageTitleBuffer, SizeOf(LMessageTitleBuffer), 0);
+    LMsgPtr := @LErrorMessage[0];
+    LMsgPtr := AppendStringToBuffer(LockingReportHeader, LMsgPtr, Length(LockingReportHeader));
+    LMsgPtr := AppendStringToBuffer(CRLF, LMsgPtr, Length(CRLF));
+    LMsgPtr := AppendStringToBuffer(CRLF, LMsgPtr, Length(CRLF));
+    for i := 1 to 3 do 
+    begin
+      if i > mergedCount then
+        break; //for i
+      if i > 1 then
+        LMsgPtr := AppendStringToBuffer(CRLF, LMsgPtr, Length(CRLF));
+      LMsgPtr := NativeUIntToStrBuf(mergedData[i].Count, LMsgPtr);
+      LMsgPtr^ := ' ';
+      Inc(LMsgPtr);
+      LMsgPtr^ := 'x';
+      Inc(LMsgPtr);
+      LMsgPtr := AppendStringToBuffer(CRLF, LMsgPtr, Length(CRLF));
+      LMsgPtr := LogStackTrace(@mergedData[i].Data.Pointers[1], mergedData[i].Data.Count, LMsgPtr);
+      LMsgPtr := AppendStringToBuffer(CRLF, LMsgPtr, Length(CRLF));
+    end;
+    AppendStringToModuleName(LockingReportTitle, LMessageTitleBuffer);
+    ShowMessageBox(LErrorMessage, LMessageTitleBuffer);
+    for i := 4 to 10 do 
+    begin
+      if i > mergedCount then
+        break; //for i
+      LMsgPtr := AppendStringToBuffer(CRLF, LMsgPtr, Length(CRLF));
+      LMsgPtr := NativeUIntToStrBuf(mergedData[i].Count, LMsgPtr);
+      LMsgPtr^ := ' ';
+      Inc(LMsgPtr);
+      LMsgPtr^ := 'x';
+      Inc(LMsgPtr);
+      LMsgPtr := AppendStringToBuffer(CRLF, LMsgPtr, Length(CRLF));
+      LMsgPtr := LogStackTrace(@mergedData[i].Data.Pointers[1], mergedData[i].Data.Count, LMsgPtr);
+      LMsgPtr := AppendStringToBuffer(CRLF, LMsgPtr, Length(CRLF));
+    end;
+    LMsgPtr := AppendStringToBuffer(CRLF, LMsgPtr, Length(CRLF));
+    AppendEventLog(@LErrorMessage[0], NativeUInt(LMsgPtr) - NativeUInt(@LErrorMessage[0]));
+  end;
+end;
+{$endif}
 
 {----------------------------Memory Manager Setup-----------------------------}
 
@@ -11696,6 +11968,9 @@ begin
       SmallBlockTypes[LInd].UpsizeMoveProcedure := @System.Move;
   {$endif}
 {$endif}
+{$ifdef LogLockContention}
+    SmallBlockTypes[LInd].BlockCollector.Initialize;
+{$endif}
     {Set the first "available pool" to the block type itself, so that the
      allocation routines know that there are currently no pools with free
      blocks of this size.}
@@ -11799,7 +12074,13 @@ begin
   {$endif}
   end;
   {Set up the default log file name}
+{$endif}
+{$ifdef _EventLog}
   SetDefaultMMLogFileName;
+{$endif}
+{$ifdef LogLockContention}
+  MediumBlockCollector.Initialize;
+  LargeBlockCollector.Initialize;
 {$endif}
 end;
 
@@ -12099,6 +12380,9 @@ begin
         VirtualFree(ExpectedMemoryLeaks, 0, MEM_RELEASE);
         ExpectedMemoryLeaks := nil;
       end;
+{$endif}
+{$ifdef LogLockContention}
+      ReportLockContention;
 {$endif}
 {$ifndef NeverUninstall}
       {Clean up: Free all memory. If this is a .DLL that owns its own MM, then
