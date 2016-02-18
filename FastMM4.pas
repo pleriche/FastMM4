@@ -95,7 +95,7 @@ Acknowledgements (for version 4):
  - Eric Grange for his RecyclerMM on which the earlier versions of FastMM were
    based. RecyclerMM was what inspired me to try and write my own memory
    manager back in early 2004.
- - Primoz Gabrijelcic for helping to track down various bugs.
+ - Primoz Gabrijelcic for several bugfixes and enhancements.
  - Dennis Christensen for his tireless efforts with the Fastcode project:
    helping to develop, optimize and debug the growing Fastcode library.
  - JiYuan Xie for implementing the leak reporting code for C++ Builder.
@@ -835,12 +835,15 @@ Change log:
     do linger longer than they should.
   - OS X support added by Sebastian Zierer
   - Compatible with Delphi XE3
-  Version 4.??? (? ??? 2015)
+  Version 4.??? (? ??? 2016)
   - OS X full debug mode added by Sebastian Zierer
   - Included the average block size in the memory state log file. (Thanks to
     Hallvard Vassbotn)
   - Support added for Free Pascal's OS X and Linux targets, both i386 and
     x86-64. (Thanks to Zoë Peterson - some fixes by Arnaud Bouchez)
+  - Added the LogLockContention option which may be used to track down areas
+    in the application that lead to frequent lock contentions in the memory
+    manager. (Primoz Gabrijelcic)
 
 *)
 
