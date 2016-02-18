@@ -129,6 +129,11 @@ const
   InvalidAllocMemMsg = 'FastMM has detected an AllocMem call after FastMM was uninstalled.';
 {$endif}
 
+{$ifdef LogLockContention}
+  LockingReportTitle = 'Locking Report';
+  LockingReportHeader = 'Top locking contention sites';
+{$endif}
+
 implementation
 
 end.
