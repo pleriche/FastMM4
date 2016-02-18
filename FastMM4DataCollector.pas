@@ -7,10 +7,11 @@ interface
 type
   TStaticCollector = record
   strict private const
-    CGeneration1Size = 1024;
     CDefaultPromoteGen1_sec  = 1; // promote every second
     CDefaultPromoteGen1Count = 1; // promote allocations with Count > 1
+    CGeneration1Size = 1024;
     CGeneration2Size = 256;
+    CCollectedDataSize = CGeneration2Size;
     CMaxPointers = 11; // same as in FastMM4
   public type
     TPointers = record
@@ -22,7 +23,7 @@ type
       Data : TPointers;
       Count: integer;
     end;
-    TCollectedData = array [1..CGeneration2Size] of TDataInfo;
+    TCollectedData = array [1..CCollectedDataSize] of TDataInfo;
     TGenerationOverflowCount = record
       Generation1: integer;
       Generation2: integer;
@@ -44,9 +45,9 @@ type
   var
     FGeneration1   : array [1..CGeneration1Size] of TDataInfo;
     FGeneration2   : array [1..CGeneration2Size] of TDataInfo;
-    FGenerationInfo: array [1..2] of TGenerationInfo;
+    FGenerationInfo: array [1..3] of TGenerationInfo; //gen3 is used for merging
     FLocked        : boolean;
-    FPadding: array [1..3] of byte;
+    FPadding       : array [1..3] of byte;
     function GetGen1_PromoteCountOver: integer;
     function GetGen1_PromoteEvery_sec: integer;
     function GetOverflowCount: TGenerationOverflowCount;
@@ -55,7 +56,8 @@ type
     procedure SetGen1_PromoteCountOver(const value: integer);
     procedure SetGen1_PromoteEvery_sec(const value: integer);
   private
-    procedure AddToGeneration(generation: integer; const aData: TPointers);
+    procedure AddToGeneration(generation: integer; const aData: TPointers;
+      count: integer = 1);
     procedure CheckPromoteGeneration(generation: integer); inline;
     function FindInGeneration(generation: integer; const aData: TPointers): integer; inline;
     function FindInsertionPoint(generation, count: integer): integer; inline;
@@ -64,11 +66,11 @@ type
     procedure PromoteGeneration(oldGen, newGen: integer);
     procedure ResortGeneration(generation, idxData: integer);
   public
-    class procedure Merge(var mergedData: TCollectedData; var mergedCount: integer;
-      const newData: TCollectedData; newCount: integer); static;
     procedure Initialize;
     procedure Add(const pointers: pointer; count: integer);
     procedure GetData(var data: TCollectedData; var count: integer);
+    procedure Merge(var mergedData: TCollectedData; var mergedCount: integer;
+      const newData: TCollectedData; newCount: integer);
     property Gen1_PromoteCountOver: integer read GetGen1_PromoteCountOver
       write SetGen1_PromoteCountOver;
     property OverflowCount: TGenerationOverflowCount read GetOverflowCount;
@@ -137,7 +139,8 @@ begin
   FLocked := false;
 end;
 
-procedure TStaticCollector.AddToGeneration(generation: integer; const aData: TPointers);
+procedure TStaticCollector.AddToGeneration(generation: integer; const aData: TPointers;
+  count: integer = 1);
 var
   dataInfo: TDataInfo;
   idxData : integer;
@@ -147,12 +150,12 @@ begin
   with FGenerationInfo[generation] do begin
     idxData := FindInGeneration(generation, aData);
     if idxData >= 1 then begin
-      Data^[idxData].Count := Data^[idxData].Count + 1;
+      Data^[idxData].Count := Data^[idxData].Count + count;
       ResortGeneration(generation, idxData);
     end
     else begin
       dataInfo.Data := aData;
-      dataInfo.Count := 1;
+      dataInfo.Count := count;
       InsertIntoGeneration(generation, dataInfo);
     end;
   end;
@@ -312,35 +315,22 @@ begin
   end;
 end;
 
-class procedure TStaticCollector.Merge(var mergedData: TCollectedData;
+procedure TStaticCollector.Merge(var mergedData: TCollectedData;
   var mergedCount: integer; const newData: TCollectedData; newCount: integer);
 var
-  iNew    : integer;
-  iOld    : integer;
-  oldCount: integer;
-  oldData : TCollectedData;
+  iNew: integer;
 begin
   // Merges two sorted arrays.
 
-  if mergedCount > 0 then
-    Move(mergedData[1], oldData[1], mergedCount * SizeOf(mergedData[1]));
-  oldCount := mergedCount;
+  FGenerationInfo[3].Data := @mergedData;
+  FGenerationInfo[3].Last := mergedCount;
+  FGenerationInfo[3].Size := CCollectedDataSize;
+  FGenerationInfo[3].NextGeneration := 0;
 
-  mergedCount := 0;
-  iOld := 1;
-  iNew := 1;
-  while (mergedCount < High(mergedData)) and ((iOld <= oldCount) or (iNew <= newCount)) do begin
-    if (iOld > oldCount) or ((iNew <= newCount) and (oldData[iOld].Count < newData[iNew].Count)) then begin
-      Inc(mergedCount);
-      mergedData[mergedCount] := newData[iNew];
-      Inc(iNew);
-    end
-    else begin
-      Inc(mergedCount);
-      mergedData[mergedCount] := oldData[iOld];
-      Inc(iOld);
-    end;
-  end;
+  for iNew := 1 to newCount do
+    AddToGeneration(3, newData[iNew].Data, newData[iNew].Count);
+
+  mergedCount := FGenerationInfo[3].Last;
 end;
 
 function TStaticCollector.Now_ms: int64;

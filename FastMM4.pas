@@ -11347,10 +11347,10 @@ var
 begin
   LargeBlockCollector.GetData(mergedData, mergedCount);
   MediumBlockCollector.GetData(data, count);
-  TStaticCollector.Merge(mergedData, mergedCount, data, count);
+  LargeBlockCollector.Merge(mergedData, mergedCount, data, count);
   for i := 0 to High(SmallBlockTypes) do begin
     SmallBlockTypes[i].BlockCollector.GetData(data, count);
-    TStaticCollector.Merge(mergedData, mergedCount, data, count);
+    LargeBlockCollector.Merge(mergedData, mergedCount, data, count);
   end;
 
   if mergedCount > 0 then begin
