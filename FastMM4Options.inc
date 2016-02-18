@@ -304,6 +304,18 @@ Set the default options for FastMM here.
  supersedes the ClearMemoryBeforeReturningToOS option.}
 {.$define AlwaysClearFreedMemory}
 
+{----------------------------Lock Contention Logging--------------------------}
+
+{Define this to lock stack traces for all occasions where GetMem/FreeMem
+ go to sleep because of lock contention (IOW, when memory manager is already
+ locked by another thread). At the end of the program execution top 10 sites
+ (locations with highest occurrence) will be logged to the _MemoryManager_EventLog.txt
+ file.
+ This options works with FullDebugMode or without it, but requires
+ FastMM_FullDebugMode.dll to be present in both cases.
+}
+{.$define LogLockContention}
+
 {--------------------------------Option Grouping------------------------------}
 
 {Enabling this option enables FullDebugMode, InstallOnlyIfRunningInIDE and
