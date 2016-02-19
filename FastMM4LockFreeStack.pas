@@ -242,6 +242,11 @@ begin
       obsTaskPopLoops := GetMinAndClear(0, 4) div 4;
       //Calculate first 4 minimum average for InsertLink rutine
       obsTaskPushLoops := GetMinAndClear(1, 4) div 4;
+
+      //This gives better performance (determined experimentally)
+      obsTaskPopLoops := obsTaskPopLoops * 2;
+      obsTaskPushLoops := obsTaskPushLoops * 2;
+
       obsIsInitialized := true;
     finally SetThreadAffinityMask(GetCurrentThread, oldAffinity); end;
   end;

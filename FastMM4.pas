@@ -1705,6 +1705,9 @@ const
   {The name of the FullDebugMode support DLL. The support DLL implements stack
    tracing and the conversion of addresses to unit and line number information.}
 {$endif}
+{$ifdef UseReleaseStack}
+  ReleaseStackSize = 16;
+{$endif}
 
 {$ifdef _StackTracer}
 {$ifdef 32Bit}
@@ -4587,6 +4590,10 @@ begin
       (NativeUInt(ASize) + (BlockHeaderSize - 1)) div SmallBlockGranularity]
       * (SizeOf(TSmallBlockType) div 4)
       + UIntPtr(@SmallBlockTypes));
+{$ifdef UseReleaseStack}
+    if (not LPSmallBlockType.ReleaseStack.IsEmpty) and LPSmallBlockType.ReleaseStack.Pop(Result) then
+      Exit;
+{$endif}
     {Lock the block type}
 {$ifndef AssumeMultiThreaded}
     if IsMultiThread then
@@ -6037,7 +6044,9 @@ var
   LDidSleep: Boolean;
   LStackTrace: TStackTrace;
 {$endif}
+  count: integer;
 begin
+  count := 0;
   {$ifdef fpc}
   if APointer = nil then
   begin
@@ -6142,7 +6151,7 @@ begin
       begin
 {$endif}
 {$ifdef UseReleaseStack}
-        if not LPSmallBlockType.ReleaseStack.Pop(APointer) then
+        if (count = (ReleaseStackSize div 2)) or (not LPSmallBlockType.ReleaseStack.Pop(APointer)) then
         begin
 {$endif}
           APointer := nil;
@@ -6150,6 +6159,7 @@ begin
           LPSmallBlockType.BlockTypeLocked := False;
 {$ifdef UseReleaseStack}
         end;
+        Inc(count);
 {$endif}
 {$ifndef FullDebugMode}
       end;
@@ -6959,10 +6969,6 @@ var
 {$endif}
 
 begin
-{$ifdef LogLockContention}
-  LCollector := nil;
-  try
-{$endif}
 {$ifdef fpc}
   if APointer = nil then
   begin
@@ -6978,6 +6984,10 @@ begin
     Result := APointer;
     Exit;
   end;
+{$endif}
+{$ifdef LogLockContention}
+  LCollector := nil;
+  try
 {$endif}
   {Get the block header: Is it actually a small block?}
   LBlockHeader := PNativeUInt(PByte(APointer) - BlockHeaderSize)^;
@@ -7237,7 +7247,7 @@ begin
 {$endif}
 {$ifdef LogLockContention}
   finally
-    if LDidSleep then 
+    if assigned(LCollector) then
     begin
       GetStackTrace(@LStackTrace, StackTraceDepth, 1);
       LPSmallBlockType.BlockCollector.Add(@LStackTrace[0], StackTraceDepth);
@@ -12046,7 +12056,7 @@ begin
     SmallBlockTypes[LInd].OptimalBlockPoolSize :=
       ((LBlocksPerPool * SmallBlockTypes[LInd].BlockSize + SmallBlockPoolHeaderSize + MediumBlockGranularity - 1 - MediumBlockSizeOffset) and -MediumBlockGranularity) + MediumBlockSizeOffset;
 {$ifdef UseReleaseStack}
-    SmallBlockTypes[LInd].ReleaseStack.Initialize(16 {guesswork}, SizeOf(pointer));
+    SmallBlockTypes[LInd].ReleaseStack.Initialize(ReleaseStackSize, SizeOf(pointer));
 {$endif}
 {$ifdef CheckHeapForCorruption}
     {Debug checks}
@@ -12360,8 +12370,8 @@ var
   LMemory: pointer;
 begin
   for LInd := 0 to High(SmallBlockTypes) do begin
-    if SmallBlockTypes[LInd].ReleaseStack.Pop(LMemory) then
-      FastFreeMem(LMemory); // FastFreeMem will clean the rest of the stack
+    while SmallBlockTypes[LInd].ReleaseStack.Pop(LMemory) do
+      FastFreeMem(LMemory);
     SmallBlockTypes[LInd].ReleaseStack.Finalize;
   end;
 end;
