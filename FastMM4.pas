@@ -7207,7 +7207,7 @@ begin
 {$endif}
 {$ifdef LogLockContention}
   finally
-    if LDidSleep then 
+    if assigned(LCollector) then
     begin
       GetStackTrace(@LStackTrace, StackTraceDepth, 1);
       LPSmallBlockType.BlockCollector.Add(@LStackTrace[0], StackTraceDepth);
