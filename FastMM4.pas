@@ -948,6 +948,11 @@ interface
   {$undef ASMVersion}
 {$endif}
 
+{Release stack requires ~ASMVersion (for now).}
+{$ifdef UseReleaseStack}
+  {$undef ASMVersion}
+{$endif}
+
 {IDE debug mode always enables FullDebugMode and dynamic loading of the FullDebugMode DLL.}
 {$ifdef FullDebugModeInIDE}
   {$define InstallOnlyIfRunningInIDE}
@@ -1544,6 +1549,9 @@ uses
 {$ifdef LogLockContention}
   FastMM4DataCollector,
 {$endif}
+{$ifdef UseReleaseStack}
+  FastMM4LockFreeStack,
+{$endif}
   FastMM4Messages;
 
 {$ifdef fpc}
@@ -1787,6 +1795,9 @@ type
     UpsizeMoveProcedure: TMoveProc;
 {$else}
     Reserved1: Pointer;
+{$endif}
+{$ifdef UseReleaseStack}
+    ReleaseStack: TLFStack;
 {$endif}
 {$ifdef 64Bit}
     {Pad to 64 bytes for 64-bit}
@@ -6056,6 +6067,13 @@ begin
     begin
       while (LockCmpxchg(0, 1, @LPSmallBlockType.BlockTypeLocked) <> 0) do
       begin
+{$ifdef UseReleaseStack}
+        if LPSmallBlockType.ReleaseStack.Push(APointer) then begin
+          {Block will be released later.}
+          Result := 0;
+          Exit;
+        end;
+{$endif}
 {$ifdef LogLockContention}
         LDidSleep := True;
 {$endif}
@@ -6072,59 +6090,71 @@ begin
       end;
     end;
 {$ifdef LogLockContention}
-    if LDidSleep then 
+    if LDidSleep then
     begin
       GetStackTrace(@LStackTrace, StackTraceDepth, 1);
       LPSmallBlockType.BlockCollector.Add(@LStackTrace[0], StackTraceDepth);
     end;
 {$endif}
-    {Get the old first free block}
-    LOldFirstFreeBlock := LPSmallBlockPool.FirstFreeBlock;
-    {Was the pool manager previously full?}
-    if LOldFirstFreeBlock = nil then
-    begin
-      {Insert this as the first partially free pool for the block size}
-      LPOldFirstPool := LPSmallBlockType.NextPartiallyFreePool;
-      LPSmallBlockPool.NextPartiallyFreePool := LPOldFirstPool;
-      LPOldFirstPool.PreviousPartiallyFreePool := LPSmallBlockPool;
-      LPSmallBlockPool.PreviousPartiallyFreePool := PSmallBlockPoolHeader(LPSmallBlockType);
-      LPSmallBlockType.NextPartiallyFreePool := LPSmallBlockPool;
-    end;
-    {Store the old first free block}
-    PNativeUInt(PByte(APointer) - BlockHeaderSize)^ := UIntPtr(LOldFirstFreeBlock) or IsFreeBlockFlag;
-    {Store this as the new first free block}
-    LPSmallBlockPool.FirstFreeBlock := APointer;
-    {Decrement the number of allocated blocks}
-    Dec(LPSmallBlockPool.BlocksInUse);
-    {Small block pools are never freed in full debug mode. This increases the
-     likehood of success in catching objects still being used after being
-     destroyed.}
+    repeat
+      {Get the old first free block}
+      LOldFirstFreeBlock := LPSmallBlockPool.FirstFreeBlock;
+      {Was the pool manager previously full?}
+      if LOldFirstFreeBlock = nil then
+      begin
+        {Insert this as the first partially free pool for the block size}
+        LPOldFirstPool := LPSmallBlockType.NextPartiallyFreePool;
+        LPSmallBlockPool.NextPartiallyFreePool := LPOldFirstPool;
+        LPOldFirstPool.PreviousPartiallyFreePool := LPSmallBlockPool;
+        LPSmallBlockPool.PreviousPartiallyFreePool := PSmallBlockPoolHeader(LPSmallBlockType);
+        LPSmallBlockType.NextPartiallyFreePool := LPSmallBlockPool;
+      end;
+      {Store the old first free block}
+      PNativeUInt(PByte(APointer) - BlockHeaderSize)^ := UIntPtr(LOldFirstFreeBlock) or IsFreeBlockFlag;
+      {Store this as the new first free block}
+      LPSmallBlockPool.FirstFreeBlock := APointer;
+      {Decrement the number of allocated blocks}
+      Dec(LPSmallBlockPool.BlocksInUse);
+      {Small block pools are never freed in full debug mode. This increases the
+       likehood of success in catching objects still being used after being
+       destroyed.}
 {$ifndef FullDebugMode}
-    {Is the entire pool now free? -> Free it.}
-    if LPSmallBlockPool.BlocksInUse = 0 then
-    begin
-      {Get the previous and next chunk managers}
-      LPPreviousPool := LPSmallBlockPool.PreviousPartiallyFreePool;
-      LPNextPool := LPSmallBlockPool.NextPartiallyFreePool;
-      {Remove this manager}
-      LPPreviousPool.NextPartiallyFreePool := LPNextPool;
-      LPNextPool.PreviousPartiallyFreePool := LPPreviousPool;
-      {Is this the sequential feed pool? If so, stop sequential feeding}
-      if (LPSmallBlockType.CurrentSequentialFeedPool = LPSmallBlockPool) then
-        LPSmallBlockType.MaxSequentialFeedBlockAddress := nil;
-      {Unlock this block type}
-      LPSmallBlockType.BlockTypeLocked := False;
-      {Free the block pool}
-      FreeMediumBlock(LPSmallBlockPool);
-    end
-    else
-    begin
+      {Is the entire pool now free? -> Free it.}
+      if LPSmallBlockPool.BlocksInUse = 0 then
+      begin
+        {Get the previous and next chunk managers}
+        LPPreviousPool := LPSmallBlockPool.PreviousPartiallyFreePool;
+        LPNextPool := LPSmallBlockPool.NextPartiallyFreePool;
+        {Remove this manager}
+        LPPreviousPool.NextPartiallyFreePool := LPNextPool;
+        LPNextPool.PreviousPartiallyFreePool := LPPreviousPool;
+        {Is this the sequential feed pool? If so, stop sequential feeding}
+        if (LPSmallBlockType.CurrentSequentialFeedPool = LPSmallBlockPool) then
+          LPSmallBlockType.MaxSequentialFeedBlockAddress := nil;
+        {Unlock this block type}
+        LPSmallBlockType.BlockTypeLocked := False;
+        {Free the block pool}
+        FreeMediumBlock(LPSmallBlockPool);
+        {Stop unwinding the release stack.}
+        APointer := nil;
+      end
+      else
+      begin
 {$endif}
-      {Unlock this block type}
-      LPSmallBlockType.BlockTypeLocked := False;
+{$ifdef UseReleaseStack}
+        if not LPSmallBlockType.ReleaseStack.Pop(APointer) then
+        begin
+{$endif}
+          APointer := nil;
+          {Unlock this block type}
+          LPSmallBlockType.BlockTypeLocked := False;
+{$ifdef UseReleaseStack}
+        end;
+{$endif}
 {$ifndef FullDebugMode}
-    end;
+      end;
 {$endif}
+    until not assigned(APointer);
     {No error}
     Result := 0;
   end
@@ -12015,6 +12045,9 @@ begin
      last block.}
     SmallBlockTypes[LInd].OptimalBlockPoolSize :=
       ((LBlocksPerPool * SmallBlockTypes[LInd].BlockSize + SmallBlockPoolHeaderSize + MediumBlockGranularity - 1 - MediumBlockSizeOffset) and -MediumBlockGranularity) + MediumBlockSizeOffset;
+{$ifdef UseReleaseStack}
+    SmallBlockTypes[LInd].ReleaseStack.Initialize(16 {guesswork}, SizeOf(pointer));
+{$endif}
 {$ifdef CheckHeapForCorruption}
     {Debug checks}
     if (SmallBlockTypes[LInd].OptimalBlockPoolSize < MinimumMediumBlockSize)
@@ -12320,11 +12353,28 @@ begin
 {$endif}
 end;
 
+{$ifdef UseReleaseStack}
+procedure CleanupReleaseStacks;
+var
+  LInd: integer;
+  LMemory: pointer;
+begin
+  for LInd := 0 to High(SmallBlockTypes) do begin
+    if SmallBlockTypes[LInd].ReleaseStack.Pop(LMemory) then
+      FastFreeMem(LMemory); // FastFreeMem will clean the rest of the stack
+    SmallBlockTypes[LInd].ReleaseStack.Finalize;
+  end;
+end;
+{$endif}
+
 procedure FinalizeMemoryManager;
 begin
   {Restore the old memory manager if FastMM has been installed}
   if FastMMIsInstalled then
   begin
+{$ifdef UseReleaseStack}
+  CleanupReleaseStacks;
+{$endif}
 {$ifndef NeverUninstall}
     {Uninstall FastMM}
     UninstallMemoryManager;
