@@ -951,6 +951,9 @@ interface
 {Release stack requires ~ASMVersion (for now).}
 {$ifdef UseReleaseStack}
   {$undef ASMVersion}
+  {$ifdef FullDebugMode}
+  {$message error 'UseReleaseStack is not compatible with FullDebugMode'}
+  {$endif}
 {$endif}
 
 {IDE debug mode always enables FullDebugMode and dynamic loading of the FullDebugMode DLL.}
@@ -6077,7 +6080,7 @@ begin
       while (LockCmpxchg(0, 1, @LPSmallBlockType.BlockTypeLocked) <> 0) do
       begin
 {$ifdef UseReleaseStack}
-        if LPSmallBlockType.ReleaseStack.Push(APointer) then begin
+        if (not LPSmallBlockType.ReleaseStack.IsFull) and LPSmallBlockType.ReleaseStack.Push(APointer) then begin
           {Block will be released later.}
           Result := 0;
           Exit;
@@ -6151,7 +6154,9 @@ begin
       begin
 {$endif}
 {$ifdef UseReleaseStack}
-        if (count = (ReleaseStackSize div 2)) or (not LPSmallBlockType.ReleaseStack.Pop(APointer)) then
+        if (count = (ReleaseStackSize div 2)) or
+           LPSmallBlockType.ReleaseStack.IsEmpty or
+           (not LPSmallBlockType.ReleaseStack.Pop(APointer)) then
         begin
 {$endif}
           APointer := nil;
