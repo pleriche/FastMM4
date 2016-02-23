@@ -1802,12 +1802,12 @@ type
 {$else}
     Reserved1: Pointer;
 {$endif}
-{$ifdef UseReleaseStack}
-    ReleaseStack: TLFStack;
-{$endif}
 {$ifdef 64Bit}
     {Pad to 64 bytes for 64-bit}
     Reserved2: Pointer;
+{$endif}
+{$ifdef UseReleaseStack}
+    ReleaseStack: TLFStack;
 {$endif}
 {$ifdef LogLockContention}
     BlockCollector: TStaticCollector;
@@ -6154,9 +6154,15 @@ begin
       begin
 {$endif}
 {$ifdef UseReleaseStack}
-        if (count = (ReleaseStackSize div 2)) or
-           LPSmallBlockType.ReleaseStack.IsEmpty or
-           (not LPSmallBlockType.ReleaseStack.Pop(APointer)) then
+        if (count < (ReleaseStackSize div 2)) and
+           (not LPSmallBlockType.ReleaseStack.IsEmpty) and
+           LPSmallBlockType.ReleaseStack.Pop(APointer) then
+        begin
+          LBlockHeader := PNativeUInt(PByte(APointer) - BlockHeaderSize)^;
+          LPSmallBlockPool := PSmallBlockPoolHeader(LBlockHeader);
+          Inc(count);
+        end
+        else
         begin
 {$endif}
           APointer := nil;
@@ -6164,7 +6170,6 @@ begin
           LPSmallBlockType.BlockTypeLocked := False;
 {$ifdef UseReleaseStack}
         end;
-        Inc(count);
 {$endif}
 {$ifndef FullDebugMode}
       end;
