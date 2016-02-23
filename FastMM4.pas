@@ -1566,10 +1566,6 @@ procedure free(__ptr:pointer);cdecl;external clib name 'free';
 function usleep(__useconds:dword):longint;cdecl;external clib name 'usleep';
 {$endif}
 
-{$ifdef PerCPUReleaseStack}
-function GetCurrentProcessorNumber: DWORD; stdcall; external 'kernel32.dll' delayed;
-{$endif}
-
 {Fixed size move procedures. The 64-bit versions assume 16-byte alignment.}
 procedure Move4(const ASource; var ADest; ACount: NativeInt); forward;
 procedure Move12(const ASource; var ADest; ACount: NativeInt); forward;
@@ -1717,6 +1713,7 @@ const
 {$endif}
 {$ifdef UseReleaseStack}
   ReleaseStackSize = 16;
+  NumStacksPerBlock = 64; //should be power of 2
 {$endif}
 
 {$ifdef _StackTracer}
@@ -1814,7 +1811,7 @@ type
     Reserved2: Pointer;
 {$endif}
 {$ifdef UseReleaseStack}
-    ReleaseStack: {$ifdef PerCPUReleaseStack}array [0..63] of{$endif} TLFStack;
+    ReleaseStack: array [0..NumStacksPerBlock-1] of TLFStack;
 {$endif}
 {$ifdef LogLockContention}
     BlockCollector: TStaticCollector;
@@ -2137,7 +2134,7 @@ var
 
   {---------------------Release stack------------------------}
 {$ifdef UseReleaseStack}
-  MediumReleaseStack: {$ifdef PerCPUReleaseStack}array [0..63] of{$endif} TLFStack;
+  MediumReleaseStack: array [0..NumStacksPerBlock-1] of TLFStack;
 {$endif}
 
   {--------------Other info--------------}
@@ -3280,6 +3277,22 @@ var
 
 {$endif}
 
+{$ifdef UseReleaseStack}
+function GetStackSlot: DWORD; {$ifdef CONDITIONALEXPRESSIONS}{$if CompilerVersion >= 17}inline;{$ifend}{$endif}
+begin
+  Result := (GetCurrentThreadID SHR 4) AND (NumStacksPerBlock-1);
+// A bit slower but probably gives better hash:
+//  Result := GetCurrentThreadID;
+//  Result := (Result XOR 61) XOR (Result SHR 16);
+//  Result := Result + (Result SHL 3);
+//  Result := Result XOR (Result SHR 4);
+//  Result := Result * $27d4eb2d;
+//  Result := Result XOR (Result SHR 15);
+//  Result := Result AND (NumStacksPerBlock-1);
+// http://burtleburtle.net/bob/hash/integer.html
+end;
+{$endif}
+
 {$ifndef POSIX}
 function DelphiIsRunning: Boolean;
 begin
@@ -3785,7 +3798,7 @@ begin
 {$ifdef UseReleaseStack}
       if assigned(APointer) then
       begin
-         LPReleaseStack := @MediumReleaseStack{$ifdef PerCPUReleaseStack}[GetCurrentProcessorNumber]{$endif};
+         LPReleaseStack := @MediumReleaseStack[GetStackSlot];
          if (not LPReleaseStack^.IsFull) and LPReleaseStack.Push(APointer) then
          begin
            APointer := nil;
@@ -4631,7 +4644,7 @@ begin
       * (SizeOf(TSmallBlockType) div 4)
       + UIntPtr(@SmallBlockTypes));
 {$ifdef UseReleaseStack}
-    LPReleaseStack := @LPSmallBlockType.ReleaseStack{$ifdef PerCPUReleaseStack}[GetCurrentProcessorNumber]{$endif};
+    LPReleaseStack := @LPSmallBlockType.ReleaseStack[GetStackSlot];
     if (not LPReleaseStack^.IsEmpty) and LPReleaseStack^.Pop(Result) then
       Exit;
 {$endif}
@@ -6095,7 +6108,7 @@ begin
 {$ifdef UseReleaseStack}
     if Result = 0 then
     begin
-      LPReleaseStack := @MediumReleaseStack{$ifdef PerCPUReleaseStack}[GetCurrentProcessorNumber]{$endif};
+      LPReleaseStack := @MediumReleaseStack[GetStackSlot];
       if LPReleaseStack^.IsEmpty or (not LPReleaseStack.Pop(APointer)) then
         APointer := nil
       else
@@ -6160,7 +6173,7 @@ begin
       while (LockCmpxchg(0, 1, @LPSmallBlockType.BlockTypeLocked) <> 0) do
       begin
 {$ifdef UseReleaseStack}
-        LPReleaseStack := @LPSmallBlockType.ReleaseStack{$ifdef PerCPUReleaseStack}[GetCurrentProcessorNumber]{$endif};
+        LPReleaseStack := @LPSmallBlockType.ReleaseStack[GetStackSlot];
         if (not LPReleaseStack^.IsFull) and LPReleaseStack^.Push(APointer) then begin
           {Block will be released later.}
           Result := 0;
@@ -6238,7 +6251,7 @@ begin
       begin
 {$endif}
 {$ifdef UseReleaseStack}
-        LPReleaseStack := @LPSmallBlockType.ReleaseStack{$ifdef PerCPUReleaseStack}[GetCurrentProcessorNumber]{$endif};
+        LPReleaseStack := @LPSmallBlockType.ReleaseStack[GetStackSlot];
         if (LReleaseCount < (ReleaseStackSize div 2)) and
            (not LPReleaseStack^.IsEmpty) and
            LPReleaseStack^.Pop(APointer) then
@@ -12069,9 +12082,7 @@ var
     LBlocksPerPool, LPreviousBlockSize: Cardinal;
   LPMediumFreeBlock: PMediumFreeBlock;
 {$ifdef UseReleaseStack}
-{$ifdef PerCPUReleaseStack}
   LCPU: integer;
-{$endif}
 {$endif}
 begin
 {$ifdef FullDebugMode}
@@ -12156,10 +12167,8 @@ begin
     SmallBlockTypes[LInd].OptimalBlockPoolSize :=
       ((LBlocksPerPool * SmallBlockTypes[LInd].BlockSize + SmallBlockPoolHeaderSize + MediumBlockGranularity - 1 - MediumBlockSizeOffset) and -MediumBlockGranularity) + MediumBlockSizeOffset;
 {$ifdef UseReleaseStack}
-{$ifdef PerCPUReleaseStack}
-    for LCPU := 0 to 63 do
-{$endif}
-      SmallBlockTypes[LInd].ReleaseStack{$ifdef PerCPUReleaseStack}[LCPU]{$endif}.Initialize(ReleaseStackSize, SizeOf(pointer));
+    for LCPU := 0 to NumStacksPerBlock-1 do
+      SmallBlockTypes[LInd].ReleaseStack[LCPU].Initialize(ReleaseStackSize, SizeOf(pointer));
 {$endif}
 {$ifdef CheckHeapForCorruption}
     {Debug checks}
@@ -12231,10 +12240,8 @@ begin
 {$endif}
   {Initialize release stacks for medium blocks}
 {$ifdef UseReleaseStack}
-{$ifdef PerCPUReleaseStack}
-  for LCPU := 0 to 63 do
-{$endif}
-    MediumReleaseStack{$ifdef PerCPUReleaseStack}[LCPU]{$endif}.Initialize(ReleaseStackSize, SizeOf(pointer));
+  for LCPU := 0 to NumStacksPerBlock-1 do
+    MediumReleaseStack[LCPU].Initialize(ReleaseStackSize, SizeOf(pointer));
 {$endif}
 end;
 
@@ -12479,32 +12486,22 @@ procedure CleanupReleaseStacks;
 var
   LInd: integer;
   LMemory: pointer;
-{$ifdef PerCPUReleaseStack}
   LCPU: Integer;
-{$endif}
 begin
   for LInd := 0 to High(SmallBlockTypes) do begin
-{$ifdef PerCPUReleaseStack}
-    for LCPU := 0 to 63 do
-{$endif}
-      while SmallBlockTypes[LInd].ReleaseStack{$ifdef PerCPUReleaseStack}[LCPU]{$endif}.Pop(LMemory) do
+    for LCPU := 0 to NumStacksPerBlock-1 do
+      while SmallBlockTypes[LInd].ReleaseStack[LCPU].Pop(LMemory) do
         FastFreeMem(LMemory);
     {Finalize all stacks only after all memory for this block has been freed.}
     {Otherwise, FastFreeMem could try to access a stack that was already finalized.}
-{$ifdef PerCPUReleaseStack}
-    for LCPU := 0 to 63 do
-{$endif}
-      SmallBlockTypes[LInd].ReleaseStack{$ifdef PerCPUReleaseStack}[LCPU]{$endif}.Finalize;
+    for LCPU := 0 to NumStacksPerBlock-1 do
+      SmallBlockTypes[LInd].ReleaseStack[LCPU].Finalize;
   end;
-{$ifdef PerCPUReleaseStack}
-  for LCPU := 0 to 63 do
-{$endif}
-    while MediumReleaseStack{$ifdef PerCPUReleaseStack}[LCPU]{$endif}.Pop(LMemory) do
+  for LCPU := 0 to NumStacksPerBlock-1 do
+    while MediumReleaseStack[LCPU].Pop(LMemory) do
       FastFreeMem(LMemory);
-{$ifdef PerCPUReleaseStack}
-  for LCPU := 0 to 63 do
-{$endif}
-    MediumReleaseStack{$ifdef PerCPUReleaseStack}[LCPU]{$endif}.Finalize;
+  for LCPU := 0 to NumStacksPerBlock-1 do
+    MediumReleaseStack[LCPU].Finalize;
 end;
 {$endif}
 
