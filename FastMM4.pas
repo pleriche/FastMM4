@@ -12082,7 +12082,7 @@ var
     LBlocksPerPool, LPreviousBlockSize: Cardinal;
   LPMediumFreeBlock: PMediumFreeBlock;
 {$ifdef UseReleaseStack}
-  LCPU: integer;
+  LSlot: integer;
 {$endif}
 begin
 {$ifdef FullDebugMode}
@@ -12167,8 +12167,8 @@ begin
     SmallBlockTypes[LInd].OptimalBlockPoolSize :=
       ((LBlocksPerPool * SmallBlockTypes[LInd].BlockSize + SmallBlockPoolHeaderSize + MediumBlockGranularity - 1 - MediumBlockSizeOffset) and -MediumBlockGranularity) + MediumBlockSizeOffset;
 {$ifdef UseReleaseStack}
-    for LCPU := 0 to NumStacksPerBlock-1 do
-      SmallBlockTypes[LInd].ReleaseStack[LCPU].Initialize(ReleaseStackSize, SizeOf(pointer));
+    for LSlot := 0 to NumStacksPerBlock-1 do
+      SmallBlockTypes[LInd].ReleaseStack[LSlot].Initialize(ReleaseStackSize, SizeOf(pointer));
 {$endif}
 {$ifdef CheckHeapForCorruption}
     {Debug checks}
@@ -12240,8 +12240,8 @@ begin
 {$endif}
   {Initialize release stacks for medium blocks}
 {$ifdef UseReleaseStack}
-  for LCPU := 0 to NumStacksPerBlock-1 do
-    MediumReleaseStack[LCPU].Initialize(ReleaseStackSize, SizeOf(pointer));
+  for LSlot := 0 to NumStacksPerBlock-1 do
+    MediumReleaseStack[LSlot].Initialize(ReleaseStackSize, SizeOf(pointer));
 {$endif}
 end;
 
@@ -12486,22 +12486,22 @@ procedure CleanupReleaseStacks;
 var
   LInd: integer;
   LMemory: pointer;
-  LCPU: Integer;
+  LSlot: Integer;
 begin
   for LInd := 0 to High(SmallBlockTypes) do begin
-    for LCPU := 0 to NumStacksPerBlock-1 do
-      while SmallBlockTypes[LInd].ReleaseStack[LCPU].Pop(LMemory) do
+    for LSlot := 0 to NumStacksPerBlock-1 do
+      while SmallBlockTypes[LInd].ReleaseStack[LSlot].Pop(LMemory) do
         FastFreeMem(LMemory);
     {Finalize all stacks only after all memory for this block has been freed.}
     {Otherwise, FastFreeMem could try to access a stack that was already finalized.}
-    for LCPU := 0 to NumStacksPerBlock-1 do
-      SmallBlockTypes[LInd].ReleaseStack[LCPU].Finalize;
+    for LSlot := 0 to NumStacksPerBlock-1 do
+      SmallBlockTypes[LInd].ReleaseStack[LSlot].Finalize;
   end;
-  for LCPU := 0 to NumStacksPerBlock-1 do
-    while MediumReleaseStack[LCPU].Pop(LMemory) do
+  for LSlot := 0 to NumStacksPerBlock-1 do
+    while MediumReleaseStack[LSlot].Pop(LMemory) do
       FastFreeMem(LMemory);
-  for LCPU := 0 to NumStacksPerBlock-1 do
-    MediumReleaseStack[LCPU].Finalize;
+  for LSlot := 0 to NumStacksPerBlock-1 do
+    MediumReleaseStack[LSlot].Finalize;
 end;
 {$endif}
 
