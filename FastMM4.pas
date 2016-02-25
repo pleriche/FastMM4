@@ -2135,6 +2135,7 @@ var
   {---------------------Release stack------------------------}
 {$ifdef UseReleaseStack}
   MediumReleaseStack: array [0..NumStacksPerBlock-1] of TLFStack;
+  LargeReleaseStack: array [0..NumStacksPerBlock-1] of TLFStack;
 {$endif}
 
   {--------------Other info--------------}
@@ -4325,7 +4326,12 @@ end;
 {-----------------Large Block Management------------------}
 
 {Locks the large blocks}
-procedure LockLargeBlocks({$ifdef LogLockContention}var ADidSleep: Boolean{$endif});
+procedure LockLargeBlocks({$ifdef LogLockContention}var ADidSleep: Boolean{$endif}
+  {$ifdef UseReleaseStack}APointer: Pointer = nil; APDelayRelease: PBoolean = nil{$endif});
+{$ifdef UseReleaseStack}
+var
+  LPReleaseStack: ^TLFStack;
+{$endif}
 begin
   {Lock the large blocks}
 {$ifdef LogLockContention}
@@ -4337,6 +4343,18 @@ begin
   begin
     while LockCmpxchg(0, 1, @LargeBlocksLocked) <> 0 do
     begin
+{$ifdef UseReleaseStack}
+      if assigned(APointer) then
+      begin
+         LPReleaseStack := @LargeReleaseStack[GetStackSlot];
+         if (not LPReleaseStack^.IsFull) and LPReleaseStack.Push(APointer) then
+         begin
+           APointer := nil;
+           APDelayRelease^ := True;
+           Exit;
+         end;
+      end;
+{$endif}
 {$ifdef LogLockContention}
       ADidSleep := True;
 {$endif}
@@ -4352,6 +4370,10 @@ begin
 {$endif}
     end;
   end;
+{$ifdef UseReleaseStack}
+  if assigned(APDelayRelease) then
+    APDelayRelease^ := False;
+{$endif}
 end;
 
 {Allocates a Large block of at least ASize (actual size may be larger to
@@ -4410,16 +4432,25 @@ var
   LDidSleep: Boolean;
   LStackTrace: TStackTrace;
 {$endif}
+{$ifdef UseReleaseStack}
+  LDelayRelease: boolean;
+  LPReleaseStack: ^TLFStack;
+{$endif}
 begin
 {$ifdef ClearLargeBlocksBeforeReturningToOS}
   FillChar(APointer^,
     (PLargeBlockHeader(PByte(APointer) - LargeBlockHeaderSize).BlockSizeAndFlags
       and DropMediumAndLargeFlagsMask) - LargeBlockHeaderSize, 0);
 {$endif}
-  {Point to the start of the large block}
-  APointer := Pointer(PByte(APointer) - LargeBlockHeaderSize);
-  {Get the previous and next large blocks}
-  LockLargeBlocks({$ifdef LogLockContention}LDidSleep{$endif});
+  LockLargeBlocks({$ifdef LogLockContention}LDidSleep{$endif}
+    {$ifdef UseReleaseStack}APointer, @LDelayRelease{$endif});
+{$ifdef UseReleaseStack}
+  if LDelayRelease then
+  begin
+    Result := 0;
+    Exit;
+  end;
+{$endif}
   {$ifdef LogLockContention}
   if LDidSleep then 
   begin
@@ -4427,53 +4458,76 @@ begin
     LargeBlockCollector.Add(@LStackTrace[0], StackTraceDepth);
   end;
   {$endif}
-  LPreviousLargeBlockHeader := PLargeBlockHeader(APointer).PreviousLargeBlockHeader;
-  LNextLargeBlockHeader := PLargeBlockHeader(APointer).NextLargeBlockHeader;
-{$ifndef POSIX}
-  {Is the large block segmented?}
-  if PLargeBlockHeader(APointer).BlockSizeAndFlags and LargeBlockIsSegmented = 0 then
-  begin
+{$ifdef UseReleaseStack}
+  repeat
 {$endif}
-    {Single segment large block: Try to free it}
-    if VirtualFree(APointer, 0, MEM_RELEASE) then
-      Result := 0
-    else
-      Result := -1;
-{$ifndef POSIX}
-  end
-  else
-  begin
-    {The large block is segmented - free all segments}
-    LCurrentSegment := APointer;
-    LRemainingSize := PLargeBlockHeader(APointer).BlockSizeAndFlags and DropMediumAndLargeFlagsMask;
-    Result := 0;
-    while True do
+    {Point to the start of the large block}
+    APointer := Pointer(PByte(APointer) - LargeBlockHeaderSize);
+    {Get the previous and next large blocks}
+    LPreviousLargeBlockHeader := PLargeBlockHeader(APointer).PreviousLargeBlockHeader;
+    LNextLargeBlockHeader := PLargeBlockHeader(APointer).NextLargeBlockHeader;
+  {$ifndef POSIX}
+    {Is the large block segmented?}
+    if PLargeBlockHeader(APointer).BlockSizeAndFlags and LargeBlockIsSegmented = 0 then
     begin
-      {Get the size of the current segment}
-      VirtualQuery(LCurrentSegment, LMemInfo, SizeOf(LMemInfo));
-      {Free the segment}
-      if not VirtualFree(LCurrentSegment, 0, MEM_RELEASE) then
-      begin
+  {$endif}
+      {Single segment large block: Try to free it}
+      if VirtualFree(APointer, 0, MEM_RELEASE) then
+        Result := 0
+      else
         Result := -1;
-        Break;
+  {$ifndef POSIX}
+    end
+    else
+    begin
+      {The large block is segmented - free all segments}
+      LCurrentSegment := APointer;
+      LRemainingSize := PLargeBlockHeader(APointer).BlockSizeAndFlags and DropMediumAndLargeFlagsMask;
+      Result := 0;
+      while True do
+      begin
+        {Get the size of the current segment}
+        VirtualQuery(LCurrentSegment, LMemInfo, SizeOf(LMemInfo));
+        {Free the segment}
+        if not VirtualFree(LCurrentSegment, 0, MEM_RELEASE) then
+        begin
+          Result := -1;
+          Break;
+        end;
+        {Done?}
+        if NativeUInt(LMemInfo.RegionSize) >= LRemainingSize then
+          Break;
+        {Decrement the remaining size}
+        Dec(LRemainingSize, NativeUInt(LMemInfo.RegionSize));
+        Inc(PByte(LCurrentSegment), NativeUInt(LMemInfo.RegionSize));
       end;
-      {Done?}
-      if NativeUInt(LMemInfo.RegionSize) >= LRemainingSize then
-        Break;
-      {Decrement the remaining size}
-      Dec(LRemainingSize, NativeUInt(LMemInfo.RegionSize));
-      Inc(PByte(LCurrentSegment), NativeUInt(LMemInfo.RegionSize));
     end;
-  end;
+  {$endif}
+    {Success?}
+    if Result = 0 then
+    begin
+      {Remove the large block from the linked list}
+      LNextLargeBlockHeader.PreviousLargeBlockHeader := LPreviousLargeBlockHeader;
+      LPreviousLargeBlockHeader.NextLargeBlockHeader := LNextLargeBlockHeader;
+    end;
+    {Unlock the large blocks}
+{$ifdef UseReleaseStack}
+    if Result = 0 then
+    begin
+      LPReleaseStack := @LargeReleaseStack[GetStackSlot];
+      if LPReleaseStack^.IsEmpty or (not LPReleaseStack.Pop(APointer)) then
+        APointer := nil
+      else
+      begin
+{$ifdef ClearLargeBlocksBeforeReturningToOS}
+        FillChar(APointer^,
+          (PLargeBlockHeader(PByte(APointer) - LargeBlockHeaderSize).BlockSizeAndFlags
+            and DropMediumAndLargeFlagsMask) - LargeBlockHeaderSize, 0);
 {$endif}
-  {Success?}
-  if Result = 0 then
-  begin
-    {Remove the large block from the linked list}
-    LNextLargeBlockHeader.PreviousLargeBlockHeader := LPreviousLargeBlockHeader;
-    LPreviousLargeBlockHeader.NextLargeBlockHeader := LNextLargeBlockHeader;
-  end;
-  {Unlock the large blocks}
+      end;
+    end;
+  until (Result <> 0) or (not assigned(APointer));
+{$endif}
   LargeBlocksLocked := False;
 end;
 
@@ -6090,10 +6144,7 @@ begin
         LPPreviousMediumBlockPoolHeader.NextMediumBlockPoolHeader := LPNextMediumBlockPoolHeader;
         LPNextMediumBlockPoolHeader.PreviousMediumBlockPoolHeader := LPPreviousMediumBlockPoolHeader;
         {Unlock medium blocks}
-{$ifndef UseReleaseStack}
         MediumBlocksLocked := False;
-{$endif}
-  // TODO 1 -oPrimoz Gabrijelcic : ??????
 {$ifdef ClearMediumBlockPoolsBeforeReturningToOS}
         FillChar(APointer^, MediumBlockPoolSize, 0);
 {$endif}
@@ -6102,6 +6153,10 @@ begin
           Result := 0
         else
           Result := -1;
+{$ifdef UseReleaseStack}
+        {Blocks are unlocked so we can't continue rewinding release stack}
+        break;
+{$endif UseReleaseStack}
       end;
     end;
 {$endif}
@@ -12238,10 +12293,13 @@ begin
   MediumBlockCollector.Initialize;
   LargeBlockCollector.Initialize;
 {$endif}
-  {Initialize release stacks for medium blocks}
+  {Initialize release stacks for medium and large blocks}
 {$ifdef UseReleaseStack}
   for LSlot := 0 to NumStacksPerBlock-1 do
+  begin
     MediumReleaseStack[LSlot].Initialize(ReleaseStackSize, SizeOf(pointer));
+    LargeReleaseStack[LSlot].Initialize(ReleaseStackSize, SizeOf(pointer));
+  end;
 {$endif}
 end;
 
@@ -12498,10 +12556,17 @@ begin
       SmallBlockTypes[LInd].ReleaseStack[LSlot].Finalize;
   end;
   for LSlot := 0 to NumStacksPerBlock-1 do
+  begin
     while MediumReleaseStack[LSlot].Pop(LMemory) do
       FastFreeMem(LMemory);
+    while LargeReleaseStack[LSlot].Pop(LMemory) do
+      FastFreeMem(LMemory);
+  end;
   for LSlot := 0 to NumStacksPerBlock-1 do
+  begin
     MediumReleaseStack[LSlot].Finalize;
+    LargeReleaseStack[LSlot].Finalize;
+  end;
 end;
 {$endif}
 
