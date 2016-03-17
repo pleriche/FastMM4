@@ -6199,7 +6199,6 @@ var
   LStackTrace: TStackTrace;
 {$endif}
 {$ifdef UseReleaseStack}
-  LReleaseCount: integer;
   LPReleaseStack: ^TLFStack;
 {$endif}
 begin
@@ -6262,9 +6261,6 @@ begin
       LPSmallBlockType.BlockCollector.Add(@LStackTrace[0], StackTraceDepth);
     end;
 {$endif}
-{$ifdef UseReleaseStack}
-  LReleaseCount := 0;
-{$endif}
     repeat
       {Get the old first free block}
       LOldFirstFreeBlock := LPSmallBlockPool.FirstFreeBlock;
@@ -6312,13 +6308,10 @@ begin
 {$endif}
 {$ifdef UseReleaseStack}
         LPReleaseStack := @LPSmallBlockType.ReleaseStack[GetStackSlot];
-        if (LReleaseCount < (ReleaseStackSize div 2)) and
-           (not LPReleaseStack^.IsEmpty) and
-           LPReleaseStack^.Pop(APointer) then
+        if (not LPReleaseStack^.IsEmpty) and LPReleaseStack^.Pop(APointer) then
         begin
           LBlockHeader := PNativeUInt(PByte(APointer) - BlockHeaderSize)^;
           LPSmallBlockPool := PSmallBlockPoolHeader(LBlockHeader);
-          Inc(LReleaseCount);
         end
         else
         begin
