@@ -3286,18 +3286,16 @@ var
 {$endif}
 
 {$ifdef UseReleaseStack }
-function GetStackSlot: DWORD; {$ifdef CONDITIONALEXPRESSIONS}{$if CompilerVersion >= 17}inline;{$ifend}{$endif}
+function GetStackSlot: DWORD;
 begin
-  Result := (GetCurrentThreadID SHR 4) AND (NumStacksPerBlock-1);
-// A bit slower but probably gives better hash:
-//  Result := GetCurrentThreadID;
-//  Result := (Result XOR 61) XOR (Result SHR 16);
-//  Result := Result + (Result SHL 3);
-//  Result := Result XOR (Result SHR 4);
-//  Result := Result * $27d4eb2d;
-//  Result := Result XOR (Result SHR 15);
-//  Result := Result AND (NumStacksPerBlock-1);
 // http://burtleburtle.net/bob/hash/integer.html
+  Result := GetCurrentThreadID;
+  Result := (Result XOR 61) XOR (Result SHR 16);
+  Result := Result + (Result SHL 3);
+  Result := Result XOR (Result SHR 4);
+  Result := Result * $27d4eb2d;
+  Result := Result XOR (Result SHR 15);
+  Result := Result AND (NumStacksPerBlock-1);
 end;
 {$endif}
 
@@ -12112,10 +12110,8 @@ end;
 
 procedure LogReleaseStackUsage;
 var
-  LBlockSize: NativeUInt;
   LCount: integer;
   LInd: Integer;
-  LMemory: Pointer;
   LMessage: array[0..32767] of AnsiChar;
   LMsgPtr: PAnsiChar;
   LSize: NativeUInt;
