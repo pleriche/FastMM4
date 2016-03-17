@@ -138,6 +138,20 @@ const
   LockingReportHeader = 'Top locking contention sites';
 {$endif}
 
+{$ifdef UseReleaseStack}
+{$ifdef DebugReleaseStack}
+  ReleaseStackUsageHeader = 'Release stack usage statistics';
+  ReleaseStackUsageSmallBlocksMsg1 = 'Small blocks [';
+  ReleaseStackUsageSmallBlocksMsg2 = ']: ';
+  ReleaseStackUsageTotalSmallBlocksMsg = 'Total small blocks: ';
+  ReleaseStackUsageMediumBlocksMsg = 'Medium blocks: ';
+  ReleaseStackUsageLargeBlocksMsg = 'Large blocks: ';
+  ReleaseStackUsageTotalMemoryMsg = 'Total memory: ';
+  ReleaseStackUsageBuffers1Msg = ' in ';
+  ReleaseStackUsageBuffers2Msg = ' buffers [';
+{$endif}
+{$endif}
+
 implementation
 
 end.
