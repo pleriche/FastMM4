@@ -2143,6 +2143,8 @@ var
 {$ifdef UseReleaseStack}
   MediumReleaseStack: array [0..NumStacksPerBlock-1] of TLFStack;
   LargeReleaseStack: array [0..NumStacksPerBlock-1] of TLFStack;
+  ReleaseStackCleanupThread: THandle = 0;
+  ReleaseStackCleanupThreadTerminate: THandle = 0;
 {$endif}
 
   {--------------Other info--------------}
@@ -4425,7 +4427,8 @@ begin
 end;
 
 {Frees a large block, returning 0 on success, -1 otherwise}
-function FreeLargeBlock(APointer: Pointer): Integer;
+function FreeLargeBlock(APointer: Pointer
+  {$ifdef UseReleaseStack}; ACleanupOperation: Boolean = False{$endif}): Integer;
 var
   LPreviousLargeBlockHeader, LNextLargeBlockHeader: PLargeBlockHeader;
 {$ifndef POSIX}
@@ -4447,6 +4450,11 @@ begin
     (PLargeBlockHeader(PByte(APointer) - LargeBlockHeaderSize).BlockSizeAndFlags
       and DropMediumAndLargeFlagsMask) - LargeBlockHeaderSize, 0);
 {$endif}
+  {When running a cleanup operation, medium blocks were already locked}
+{$ifdef UseReleaseStack}
+  if not ACleanupOperation then
+  begin
+{$endif}
   LockLargeBlocks({$ifdef LogLockContention}LDidSleep{$endif}
     {$ifdef UseReleaseStack}APointer, @LDelayRelease{$endif});
 {$ifdef UseReleaseStack}
@@ -4456,13 +4464,22 @@ begin
     Exit;
   end;
 {$endif}
-  {$ifdef LogLockContention}
-  if LDidSleep then 
+{$ifdef UseReleaseStack}
+  end
+{$ifdef LogLockContention}
+  else
+    LDidSleep := False;
+{$else}
+  ;
+{$endif}
+{$endif}
+{$ifdef LogLockContention}
+  if LDidSleep then
   begin
     GetStackTrace(@LStackTrace, StackTraceDepth, 1);
     LargeBlockCollector.Add(@LStackTrace[0], StackTraceDepth);
   end;
-  {$endif}
+{$endif}
 {$ifdef UseReleaseStack}
   repeat
 {$endif}
@@ -4517,7 +4534,7 @@ begin
     end;
     {Unlock the large blocks}
 {$ifdef UseReleaseStack}
-    if Result = 0 then
+    if (Result = 0) and (not ACleanupOperation) then
     begin
       LPReleaseStack := @LargeReleaseStack[GetStackSlot];
       if LPReleaseStack^.IsEmpty or (not LPReleaseStack.Pop(APointer)) then
@@ -4531,7 +4548,7 @@ begin
 {$endif}
       end;
     end;
-  until (Result <> 0) or (not assigned(APointer));
+  until (Result <> 0) or ACleanupOperation or (not assigned(APointer));
 {$endif}
   LargeBlocksLocked := False;
 end;
@@ -5974,7 +5991,8 @@ end;
 
 {$ifndef ASMVersion}
 {Frees a medium block, returning 0 on success, -1 otherwise}
-function FreeMediumBlock(APointer: Pointer): Integer;
+function FreeMediumBlock(APointer: Pointer
+  {$ifdef UseReleaseStack}; ACleanupOperation: Boolean = false{$endif}): Integer;
 var
   LNextMediumBlock{$ifndef FullDebugMode}, LPreviousMediumBlock{$endif}: PMediumFreeBlock;
   LNextMediumBlockSizeAndFlags: NativeUInt;
@@ -5996,16 +6014,30 @@ begin
   LBlockHeader := PNativeUInt(PByte(APointer) - BlockHeaderSize)^;
   {Get the medium block size}
   LBlockSize := LBlockHeader and DropMediumAndLargeFlagsMask;
-  {Lock the medium blocks}
-  LockMediumBlocks(
-    {$ifdef LogLockContention}LDidSleep{$endif}
-    {$ifdef UseReleaseStack}APointer, @LDelayRelease{$endif});
+  {When running a cleanup operation, medium blocks were already locked}
 {$ifdef UseReleaseStack}
-  if LDelayRelease then
+  if not ACleanupOperation then
   begin
-    Result := 0;
-    Exit;
-  end;
+{$endif}
+    {Lock the medium blocks}
+    LockMediumBlocks(
+      {$ifdef LogLockContention}LDidSleep{$endif}
+      {$ifdef UseReleaseStack}APointer, @LDelayRelease{$endif});
+{$ifdef UseReleaseStack}
+    if LDelayRelease then
+    begin
+      Result := 0;
+      Exit;
+    end;
+{$endif}
+{$ifdef UseReleaseStack}
+  end
+{$ifdef LogLockContention}
+  else
+    LDidSleep := False;
+{$else}
+  ;
+{$endif}
 {$endif}
 {$ifdef LogLockContention}
   if LDidSleep then
@@ -6166,7 +6198,7 @@ begin
     end;
 {$endif}
 {$ifdef UseReleaseStack}
-    if Result = 0 then
+    if (Result = 0) and (not ACleanupOperation) then
     begin
       LPReleaseStack := @MediumReleaseStack[GetStackSlot];
       if LPReleaseStack^.IsEmpty or (not LPReleaseStack.Pop(APointer)) then
@@ -6179,7 +6211,7 @@ begin
         LBlockSize := LBlockHeader and DropMediumAndLargeFlagsMask;
       end;
     end;
-  until (Result <> 0) or (not assigned(APointer));
+  until (Result <> 0) or ACleanupOperation or (not assigned(APointer));
   MediumBlocksLocked := False;
 {$endif}
 end;
@@ -12742,8 +12774,8 @@ end;
 {$ifdef UseReleaseStack}
 procedure CleanupReleaseStacks;
 var
-  LInd: integer;
-  LMemory: pointer;
+  LInd: Integer;
+  LMemory: Pointer;
   LSlot: Integer;
 begin
   for LInd := 0 to High(SmallBlockTypes) do begin
@@ -12768,6 +12800,59 @@ begin
     LargeReleaseStack[LSlot].Finalize;
   end;
 end;
+
+function ReleaseStackCleanupThreadProc(const param: pointer): Integer;
+var
+  LMemBlock: Pointer;
+  LSlot: Integer;
+begin
+  LSlot := 0;
+  while WaitForSingleObject(ReleaseStackCleanupThreadTerminate, 100) = WAIT_TIMEOUT do
+  begin
+    if LockCmpxchg(0, 1, @MediumBlocksLocked) = 0 then
+    begin
+      if MediumReleaseStack[LSlot].Pop(LMemBlock) then
+        FreeMediumBlock(LMemBlock, True)
+      else
+        MediumBlocksLocked := false;
+    end;
+    if LockCmpxchg(0, 1, @LargeBlocksLocked) = 0 then
+    begin
+      if LargeReleaseStack[LSlot].Pop(LMemBlock) then
+        FreeLargeBlock(LMemBlock, True)
+      else
+        LargeBlocksLocked := false;
+    end;
+    Inc(LSlot);
+    if LSlot = NumStacksPerBlock then
+      LSlot := 0;
+  end;
+  EndThread(0);
+end;
+
+procedure CreateCleanupThread;
+var
+  LThreadID: DWORD;
+begin
+  ReleaseStackCleanupThreadTerminate := CreateEvent(nil, false, false, nil);
+  if ReleaseStackCleanupThreadTerminate = 0 then
+    {$ifdef BCB6OrDelphi7AndUp}System.Error(reInvalidPtr);{$else}System.RunError(reInvalidPtr);{$endif}
+  ReleaseStackCleanupThread := BeginThread(nil, 0, @ReleaseStackCleanupThreadProc, nil, 0, LThreadID);
+  if ReleaseStackCleanupThread = 0 then
+    {$ifdef BCB6OrDelphi7AndUp}System.Error(reInvalidPtr);{$else}System.RunError(reInvalidPtr);{$endif}
+  SetThreadPriority(ReleaseStackCleanupThread, THREAD_PRIORITY_LOWEST);
+end;
+
+procedure DestroyCleanupThread;
+begin
+  if ReleaseStackCleanupThread <> 0 then begin
+    SetEvent(ReleaseStackCleanupThreadTerminate);
+    WaitForSingleObject(ReleaseStackCleanupThread, INFINITE);
+    ReleaseStackCleanupThread := 0;
+    CloseHandle(ReleaseStackCleanupThreadTerminate);
+    ReleaseStackCleanupThreadTerminate := 0;
+  end;
+end;
 {$endif}
 
 procedure FinalizeMemoryManager;
@@ -12777,6 +12862,7 @@ begin
   begin
 {$ifdef UseReleaseStack}
   CleanupReleaseStacks;
+  DestroyCleanupThread;
 {$endif}
 {$ifndef NeverUninstall}
     {Uninstall FastMM}
@@ -12870,6 +12956,10 @@ begin
     {$endif}
       InstallMemoryManager;
     end;
+    {$ifdef UseReleaseStack}
+    {Release stack mechanism needs a cleanup thread}
+    CreateCleanupThread;
+    {$endif}
   end;
 {$endif}
 end;
