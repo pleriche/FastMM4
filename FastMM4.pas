@@ -4531,21 +4531,17 @@ begin
       LPreviousLargeBlockHeader.NextLargeBlockHeader := LNextLargeBlockHeader;
     end;
 {$ifdef UseReleaseStack}
-    if (Result = 0) and (not ACleanupOperation) then
-    begin
-      LPReleaseStack := @LargeReleaseStack[GetStackSlot];
-      if LPReleaseStack^.IsEmpty or (not LPReleaseStack.Pop(APointer)) then
-        APointer := nil
-      else
-      begin
+    if (Result <> 0) or ACleanupOperation then
+      Break;
+    LPReleaseStack := @LargeReleaseStack[GetStackSlot];
+    if LPReleaseStack^.IsEmpty or (not LPReleaseStack.Pop(APointer)) then
+      Break;
   {$ifdef ClearLargeBlocksBeforeReturningToOS}
-        FillChar(APointer^,
-          (PLargeBlockHeader(PByte(APointer) - LargeBlockHeaderSize).BlockSizeAndFlags
-            and DropMediumAndLargeFlagsMask) - LargeBlockHeaderSize, 0);
+    FillChar(APointer^,
+      (PLargeBlockHeader(PByte(APointer) - LargeBlockHeaderSize).BlockSizeAndFlags
+        and DropMediumAndLargeFlagsMask) - LargeBlockHeaderSize, 0);
   {$endif}
-      end;
-    end;
-  until (Result <> 0) or ACleanupOperation or (not Assigned(APointer));
+  until False;
 {$endif}
   {Unlock the large blocks}
   LargeBlocksLocked := False;
@@ -6187,28 +6183,29 @@ begin
         else
           Result := -1;
 {$ifdef UseReleaseStack}
-        {Medium blocks are unlocked so we can't continue unwinding the release stack}
+        {Medium blocks are already unlocked so we can't continue unwinding the release stack.}
         Break;
 {$endif UseReleaseStack}
       end;
     end;
 {$endif}
 {$ifdef UseReleaseStack}
-    if (Result = 0) and (not ACleanupOperation) then
+    if (Result <> 0) or ACleanupOperation then
     begin
-      LPReleaseStack := @MediumReleaseStack[GetStackSlot];
-      if LPReleaseStack^.IsEmpty or (not LPReleaseStack.Pop(APointer)) then
-        APointer := nil
-      else
-      begin
-        {Get the block header}
-        LBlockHeader := PNativeUInt(PByte(APointer) - BlockHeaderSize)^;
-        {Get the medium block size}
-        LBlockSize := LBlockHeader and DropMediumAndLargeFlagsMask;
-      end;
+      MediumBlocksLocked := False;
+      Break;
     end;
-  until (Result <> 0) or ACleanupOperation or (not Assigned(APointer));
-  MediumBlocksLocked := False;
+    LPReleaseStack := @MediumReleaseStack[GetStackSlot];
+    if LPReleaseStack^.IsEmpty or (not LPReleaseStack.Pop(APointer)) then
+    begin
+      MediumBlocksLocked := False;
+      Break;
+    end;
+    {Get the block header}
+    LBlockHeader := PNativeUInt(PByte(APointer) - BlockHeaderSize)^;
+    {Get the medium block size}
+    LBlockSize := LBlockHeader and DropMediumAndLargeFlagsMask;
+  until False;
 {$endif}
 end;
 {$endif}
@@ -6340,12 +6337,7 @@ begin
 {$endif}
 {$ifdef UseReleaseStack}
         LPReleaseStack := @LPSmallBlockType.ReleaseStack[GetStackSlot];
-        if (not LPReleaseStack^.IsEmpty) and LPReleaseStack^.Pop(APointer) then
-        begin
-          LBlockHeader := PNativeUInt(PByte(APointer) - BlockHeaderSize)^;
-          LPSmallBlockPool := PSmallBlockPoolHeader(LBlockHeader);
-        end
-        else
+        if LPReleaseStack^.IsEmpty or (not LPReleaseStack^.Pop(APointer)) then
         begin
 {$endif}
           {Unlock this block type}
@@ -6353,6 +6345,8 @@ begin
 {$ifdef UseReleaseStack}
           Break;
         end;
+        LBlockHeader := PNativeUInt(PByte(APointer) - BlockHeaderSize)^;
+        LPSmallBlockPool := PSmallBlockPoolHeader(LBlockHeader);
 {$endif}
 {$ifndef FullDebugMode}
       end;
