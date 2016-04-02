@@ -12802,26 +12802,28 @@ var
   LMemBlock: Pointer;
   LSlot: Integer;
 begin
-  LSlot := 0;
+  {Clean up 1 medium and 1 large block for every thread slot, every 100ms.}
   while WaitForSingleObject(ReleaseStackCleanupThreadTerminate, 100) = WAIT_TIMEOUT do
   begin
-    if LockCmpxchg(0, 1, @MediumBlocksLocked) = 0 then
+    for LSlot := 0 to NumStacksPerBlock - 1 do
     begin
-      if MediumReleaseStack[LSlot].Pop(LMemBlock) then
-        FreeMediumBlock(LMemBlock, True)
-      else
-        MediumBlocksLocked := False;
+      if (not MediumReleaseStack[LSlot].IsEmpty)
+        and (LockCmpxchg(0, 1, @MediumBlocksLocked) = 0) then
+      begin
+        if MediumReleaseStack[LSlot].Pop(LMemBlock) then
+          FreeMediumBlock(LMemBlock, True)
+        else
+          MediumBlocksLocked := False;
+      end;
+      if (not LargeReleaseStack[LSlot].IsEmpty)
+        and (LockCmpxchg(0, 1, @LargeBlocksLocked) = 0) then
+      begin
+        if LargeReleaseStack[LSlot].Pop(LMemBlock) then
+          FreeLargeBlock(LMemBlock, True)
+        else
+          LargeBlocksLocked := False;
+      end;
     end;
-    if LockCmpxchg(0, 1, @LargeBlocksLocked) = 0 then
-    begin
-      if LargeReleaseStack[LSlot].Pop(LMemBlock) then
-        FreeLargeBlock(LMemBlock, True)
-      else
-        LargeBlocksLocked := False;
-    end;
-    Inc(LSlot);
-    if LSlot = NumStacksPerBlock then
-      LSlot := 0;
   end;
   Result := 0;
 end;
