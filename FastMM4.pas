@@ -6139,8 +6139,8 @@ begin
       end;
 {$endif}
 {$endif}
-      {Unlock medium blocks}
 {$ifndef UseReleaseStack}
+      {Unlock medium blocks}
       MediumBlocksLocked := False;
 {$endif}
       {All OK}
@@ -6161,8 +6161,8 @@ begin
         MediumSequentialFeedBytesLeft := MediumBlockPoolSize - MediumBlockPoolHeaderSize;
         {Set the last sequentially fed block}
         LastSequentiallyFedMediumBlock := Pointer(PByte(APointer) + LBlockSize);
-        {Unlock medium blocks}
 {$ifndef UseReleaseStack}
+        {Unlock medium blocks}
         MediumBlocksLocked := False;
 {$endif}
         {Success}
@@ -6187,7 +6187,7 @@ begin
         else
           Result := -1;
 {$ifdef UseReleaseStack}
-        {Blocks are unlocked so we can't continue unwinding the release stack}
+        {Medium blocks are unlocked so we can't continue unwinding the release stack}
         Break;
 {$endif UseReleaseStack}
       end;
