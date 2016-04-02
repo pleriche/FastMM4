@@ -1818,7 +1818,7 @@ type
     Reserved2: Pointer;
 {$endif}
 {$ifdef UseReleaseStack}
-    ReleaseStack: array [0..NumStacksPerBlock-1] of TLFStack;
+    ReleaseStack: array [0..NumStacksPerBlock - 1] of TLFStack;
 {$endif}
 {$ifdef LogLockContention}
     BlockCollector: TStaticCollector;
@@ -2141,8 +2141,8 @@ var
 
   {---------------------Release stack------------------------}
 {$ifdef UseReleaseStack}
-  MediumReleaseStack: array [0..NumStacksPerBlock-1] of TLFStack;
-  LargeReleaseStack: array [0..NumStacksPerBlock-1] of TLFStack;
+  MediumReleaseStack: array [0..NumStacksPerBlock - 1] of TLFStack;
+  LargeReleaseStack: array [0..NumStacksPerBlock - 1] of TLFStack;
   ReleaseStackCleanupThread: THandle = 0;
   ReleaseStackCleanupThreadTerminate: THandle = 0;
 {$endif}
@@ -3292,12 +3292,12 @@ function GetStackSlot: DWORD;
 begin
 // http://burtleburtle.net/bob/hash/integer.html
   Result := GetCurrentThreadID;
-  Result := (Result XOR 61) XOR (Result SHR 16);
-  Result := Result + (Result SHL 3);
-  Result := Result XOR (Result SHR 4);
+  Result := (Result xor 61) xor (Result shr 16);
+  Result := Result + (Result shl 3);
+  Result := Result xor (Result shr 4);
   Result := Result * $27d4eb2d;
-  Result := Result XOR (Result SHR 15);
-  Result := Result AND (NumStacksPerBlock-1);
+  Result := Result xor (Result shr 15);
+  Result := Result and (NumStacksPerBlock - 1);
 end;
 {$endif}
 
@@ -3804,7 +3804,7 @@ begin
     while LockCmpxchg(0, 1, @MediumBlocksLocked) <> 0 do
     begin
 {$ifdef UseReleaseStack}
-      if assigned(APointer) then
+      if Assigned(APointer) then
       begin
          LPReleaseStack := @MediumReleaseStack[GetStackSlot];
          if (not LPReleaseStack^.IsFull) and LPReleaseStack.Push(APointer) then
@@ -3831,7 +3831,7 @@ begin
     end;
   end;
 {$ifdef UseReleaseStack}
-  if assigned(APDelayRelease) then
+  if Assigned(APDelayRelease) then
     APDelayRelease^ := False;
 {$endif}
 end;
@@ -4351,7 +4351,7 @@ begin
     while LockCmpxchg(0, 1, @LargeBlocksLocked) <> 0 do
     begin
 {$ifdef UseReleaseStack}
-      if assigned(APointer) then
+      if Assigned(APointer) then
       begin
          LPReleaseStack := @LargeReleaseStack[GetStackSlot];
          if (not LPReleaseStack^.IsFull) and LPReleaseStack.Push(APointer) then
@@ -4378,7 +4378,7 @@ begin
     end;
   end;
 {$ifdef UseReleaseStack}
-  if assigned(APDelayRelease) then
+  if Assigned(APDelayRelease) then
     APDelayRelease^ := False;
 {$endif}
 end;
@@ -4441,7 +4441,7 @@ var
   LStackTrace: TStackTrace;
 {$endif}
 {$ifdef UseReleaseStack}
-  LDelayRelease: boolean;
+  LDelayRelease: Boolean;
   LPReleaseStack: ^TLFStack;
 {$endif}
 begin
@@ -4450,28 +4450,26 @@ begin
     (PLargeBlockHeader(PByte(APointer) - LargeBlockHeaderSize).BlockSizeAndFlags
       and DropMediumAndLargeFlagsMask) - LargeBlockHeaderSize, 0);
 {$endif}
-  {When running a cleanup operation, medium blocks were already locked}
+  {When running a cleanup operation, large blocks are already locked}
 {$ifdef UseReleaseStack}
   if not ACleanupOperation then
   begin
 {$endif}
-  LockLargeBlocks({$ifdef LogLockContention}LDidSleep{$endif}
-    {$ifdef UseReleaseStack}APointer, @LDelayRelease{$endif});
+    LockLargeBlocks({$ifdef LogLockContention}LDidSleep{$endif}
+      {$ifdef UseReleaseStack}APointer, @LDelayRelease{$endif});
 {$ifdef UseReleaseStack}
-  if LDelayRelease then
-  begin
-    Result := 0;
-    Exit;
-  end;
-{$endif}
-{$ifdef UseReleaseStack}
+    if LDelayRelease then
+    begin
+      Result := 0;
+      Exit;
+    end;
+  {$ifdef LogLockContention}
   end
-{$ifdef LogLockContention}
   else
     LDidSleep := False;
-{$else}
-  ;
-{$endif}
+  {$else}
+  end;
+  {$endif}
 {$endif}
 {$ifdef LogLockContention}
   if LDidSleep then
@@ -4532,7 +4530,6 @@ begin
       LNextLargeBlockHeader.PreviousLargeBlockHeader := LPreviousLargeBlockHeader;
       LPreviousLargeBlockHeader.NextLargeBlockHeader := LNextLargeBlockHeader;
     end;
-    {Unlock the large blocks}
 {$ifdef UseReleaseStack}
     if (Result = 0) and (not ACleanupOperation) then
     begin
@@ -4541,15 +4538,16 @@ begin
         APointer := nil
       else
       begin
-{$ifdef ClearLargeBlocksBeforeReturningToOS}
+  {$ifdef ClearLargeBlocksBeforeReturningToOS}
         FillChar(APointer^,
           (PLargeBlockHeader(PByte(APointer) - LargeBlockHeaderSize).BlockSizeAndFlags
             and DropMediumAndLargeFlagsMask) - LargeBlockHeaderSize, 0);
-{$endif}
+  {$endif}
       end;
     end;
-  until (Result <> 0) or ACleanupOperation or (not assigned(APointer));
+  until (Result <> 0) or ACleanupOperation or (not Assigned(APointer));
 {$endif}
+  {Unlock the large blocks}
   LargeBlocksLocked := False;
 end;
 
@@ -6006,7 +6004,7 @@ var
   LStackTrace: TStackTrace;
 {$endif}
 {$ifdef UseReleaseStack}
-  LDelayRelease: boolean;
+  LDelayRelease: Boolean;
   LPReleaseStack: ^TLFStack;
 {$endif}
 begin
@@ -6014,7 +6012,7 @@ begin
   LBlockHeader := PNativeUInt(PByte(APointer) - BlockHeaderSize)^;
   {Get the medium block size}
   LBlockSize := LBlockHeader and DropMediumAndLargeFlagsMask;
-  {When running a cleanup operation, medium blocks were already locked}
+  {When running a cleanup operation, medium blocks are already locked.}
 {$ifdef UseReleaseStack}
   if not ACleanupOperation then
   begin
@@ -6029,15 +6027,13 @@ begin
       Result := 0;
       Exit;
     end;
-{$endif}
-{$ifdef UseReleaseStack}
+  {$ifdef LogLockContention}
   end
-{$ifdef LogLockContention}
   else
     LDidSleep := False;
-{$else}
-  ;
-{$endif}
+  {$else}
+  end;
+  {$endif}
 {$endif}
 {$ifdef LogLockContention}
   if LDidSleep then
@@ -6191,8 +6187,8 @@ begin
         else
           Result := -1;
 {$ifdef UseReleaseStack}
-        {Blocks are unlocked so we can't continue rewinding release stack}
-        break;
+        {Blocks are unlocked so we can't continue unwinding the release stack}
+        Break;
 {$endif UseReleaseStack}
       end;
     end;
@@ -6211,7 +6207,7 @@ begin
         LBlockSize := LBlockHeader and DropMediumAndLargeFlagsMask;
       end;
     end;
-  until (Result <> 0) or ACleanupOperation or (not assigned(APointer));
+  until (Result <> 0) or ACleanupOperation or (not Assigned(APointer));
   MediumBlocksLocked := False;
 {$endif}
 end;
@@ -6265,7 +6261,8 @@ begin
       begin
 {$ifdef UseReleaseStack}
         LPReleaseStack := @LPSmallBlockType.ReleaseStack[GetStackSlot];
-        if (not LPReleaseStack^.IsFull) and LPReleaseStack^.Push(APointer) then begin
+        if (not LPReleaseStack^.IsFull) and LPReleaseStack^.Push(APointer) then
+        begin
           {Block will be released later.}
           Result := 0;
           Exit;
@@ -6293,7 +6290,10 @@ begin
       LPSmallBlockType.BlockCollector.Add(@LStackTrace[0], StackTraceDepth);
     end;
 {$endif}
-    repeat
+{$ifdef UseReleaseStack}
+    while True do
+    begin
+{$endif}
       {Get the old first free block}
       LOldFirstFreeBlock := LPSmallBlockPool.FirstFreeBlock;
       {Was the pool manager previously full?}
@@ -6333,7 +6333,7 @@ begin
         {Free the block pool}
         FreeMediumBlock(LPSmallBlockPool);
         {Stop unwinding the release stack.}
-        APointer := nil;
+        Break;
       end
       else
       begin
@@ -6348,16 +6348,18 @@ begin
         else
         begin
 {$endif}
-          APointer := nil;
           {Unlock this block type}
           LPSmallBlockType.BlockTypeLocked := False;
 {$ifdef UseReleaseStack}
+          Break;
         end;
 {$endif}
 {$ifndef FullDebugMode}
       end;
 {$endif}
-    until not assigned(APointer);
+{$ifdef UseReleaseStack}
+    end;
+{$endif}
     {No error}
     Result := 0;
   end
@@ -12369,7 +12371,7 @@ var
     LBlocksPerPool, LPreviousBlockSize: Cardinal;
   LPMediumFreeBlock: PMediumFreeBlock;
 {$ifdef UseReleaseStack}
-  LSlot: integer;
+  LSlot: Integer;
 {$endif}
 begin
 {$ifdef FullDebugMode}
@@ -12454,8 +12456,8 @@ begin
     SmallBlockTypes[LInd].OptimalBlockPoolSize :=
       ((LBlocksPerPool * SmallBlockTypes[LInd].BlockSize + SmallBlockPoolHeaderSize + MediumBlockGranularity - 1 - MediumBlockSizeOffset) and -MediumBlockGranularity) + MediumBlockSizeOffset;
 {$ifdef UseReleaseStack}
-    for LSlot := 0 to NumStacksPerBlock-1 do
-      SmallBlockTypes[LInd].ReleaseStack[LSlot].Initialize(ReleaseStackSize, SizeOf(pointer));
+    for LSlot := 0 to NumStacksPerBlock - 1 do
+      SmallBlockTypes[LInd].ReleaseStack[LSlot].Initialize(ReleaseStackSize, SizeOf(Pointer));
 {$endif}
 {$ifdef CheckHeapForCorruption}
     {Debug checks}
@@ -12527,7 +12529,7 @@ begin
 {$endif}
   {Initialize release stacks for medium and large blocks}
 {$ifdef UseReleaseStack}
-  for LSlot := 0 to NumStacksPerBlock-1 do
+  for LSlot := 0 to NumStacksPerBlock - 1 do
   begin
     MediumReleaseStack[LSlot].Initialize(ReleaseStackSize, SizeOf(pointer));
     LargeReleaseStack[LSlot].Initialize(ReleaseStackSize, SizeOf(pointer));
@@ -12801,7 +12803,7 @@ begin
   end;
 end;
 
-function ReleaseStackCleanupThreadProc(const param: pointer): Integer;
+function ReleaseStackCleanupThreadProc(const AParam: Pointer): Integer;
 var
   LMemBlock: Pointer;
   LSlot: Integer;
@@ -12814,27 +12816,27 @@ begin
       if MediumReleaseStack[LSlot].Pop(LMemBlock) then
         FreeMediumBlock(LMemBlock, True)
       else
-        MediumBlocksLocked := false;
+        MediumBlocksLocked := False;
     end;
     if LockCmpxchg(0, 1, @LargeBlocksLocked) = 0 then
     begin
       if LargeReleaseStack[LSlot].Pop(LMemBlock) then
         FreeLargeBlock(LMemBlock, True)
       else
-        LargeBlocksLocked := false;
+        LargeBlocksLocked := False;
     end;
     Inc(LSlot);
     if LSlot = NumStacksPerBlock then
       LSlot := 0;
   end;
-  EndThread(0);
+  Result := 0;
 end;
 
 procedure CreateCleanupThread;
 var
   LThreadID: DWORD;
 begin
-  ReleaseStackCleanupThreadTerminate := CreateEvent(nil, false, false, nil);
+  ReleaseStackCleanupThreadTerminate := CreateEvent(nil, False, False, nil);
   if ReleaseStackCleanupThreadTerminate = 0 then
     {$ifdef BCB6OrDelphi7AndUp}System.Error(reInvalidPtr);{$else}System.RunError(reInvalidPtr);{$endif}
   ReleaseStackCleanupThread := BeginThread(nil, 0, @ReleaseStackCleanupThreadProc, nil, 0, LThreadID);
@@ -12845,9 +12847,11 @@ end;
 
 procedure DestroyCleanupThread;
 begin
-  if ReleaseStackCleanupThread <> 0 then begin
+  if ReleaseStackCleanupThread <> 0 then
+  begin
     SetEvent(ReleaseStackCleanupThreadTerminate);
     WaitForSingleObject(ReleaseStackCleanupThread, INFINITE);
+    CloseHandle(ReleaseStackCleanupThread);
     ReleaseStackCleanupThread := 0;
     CloseHandle(ReleaseStackCleanupThreadTerminate);
     ReleaseStackCleanupThreadTerminate := 0;
