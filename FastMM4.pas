@@ -6329,8 +6329,10 @@ begin
         LPSmallBlockType.BlockTypeLocked := False;
         {Free the block pool}
         FreeMediumBlock(LPSmallBlockPool);
+{$ifdef UseReleaseStack}
         {Stop unwinding the release stack.}
         Break;
+{$endif}
       end
       else
       begin
