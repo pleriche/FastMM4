@@ -844,6 +844,11 @@ Change log:
   - Added the LogLockContention option which may be used to track down areas
     in the application that lead to frequent lock contentions in the memory
     manager. (Primoz Gabrijelcic)
+  - Support for release stacks added by Primoz Gabrijelcic. Define
+    "UseReleaseStack" to use this new feature: If a block cannot be released
+    immediately during a FreeMem call the block will added to a list of blocks
+    that will be freed later, either in the background cleanup thread or during
+    the next call to FreeMem.
 
 *)
 
