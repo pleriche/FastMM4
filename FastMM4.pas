@@ -2336,7 +2336,6 @@ asm
 {$endif}
 end;
 
-{$ifndef ASMVersion}
 {Gets the first set bit in the 32-bit number, returning the bit index}
 function FindFirstSetBit(ACardinal: Cardinal): Cardinal; {$ifdef fpc64bit} nostackframe; {$endif}
 asm
@@ -2350,7 +2349,6 @@ asm
 {$endif}
   bsf eax, eax
 end;
-{$endif}
 
 {$ifdef MACOS_OR_KYLIX}
 
