@@ -1,15 +1,14 @@
 (*
 
-Fast Memory Manager 4.991
+Fast Memory Manager 5.x
 
 Description:
- A fast replacement memory manager for Embarcadero Delphi Win32 applications
- that scales well under multi-threaded usage, is not prone to memory
- fragmentation, and supports shared memory without the use of external .DLL
- files.
+ A fork of a FastMM - fast replacement memory manager for Embarcadero Delphi.
+ This fork focuses on a multiprocessing performance on Win32/Win64. All of
+ original FastMM features are supported.
 
 Homepage:
- https://github.com/pleriche/FastMM4
+ https://github.com/gabr42/FastMM4-MP
 
 Advantages:
  - Fast
@@ -958,10 +957,6 @@ interface
   {$undef ASMVersion}
 {$endif}
 
-{$ifdef FullDebugMode}
-{$message error 'UseReleaseStack is not compatible with FullDebugMode'}
-{$endif}
-
 {IDE debug mode always enables FullDebugMode and dynamic loading of the FullDebugMode DLL.}
 {$ifdef FullDebugModeInIDE}
   {$define InstallOnlyIfRunningInIDE}
@@ -1121,8 +1116,10 @@ interface
   {$endif}
 {$endif}
 
-{Release stack mechanism is at the moment supported only on Windows.}
-{$ifdef MSWindows}{$define UseReleaseStack}{$else}{$undef UseReleaseStack}{$endif}
+{Release stack mechanism is at the moment supported only on Windows when}
+{FullDebugMode is not enabled.                                          }
+{$undef UseReleaseStack}
+{$ifndef FullDebugMode}{$ifdef MSWindows}{$define UseReleaseStack}{$endif}{$endif}
 
 {Stack tracer is needed for LogLockContention and for FullDebugMode.}
 {$undef _StackTracer}
@@ -1134,7 +1131,7 @@ interface
 {-------------------------Public constants-----------------------------}
 const
   {The current version of FastMM}
-  FastMMVersion = '4.991';
+  FastMMVersion = '5.x';
   {The number of small block types}
 {$ifdef Align16Bytes}
   NumSmallBlockTypes = 46;
