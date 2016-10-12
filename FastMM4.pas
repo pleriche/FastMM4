@@ -959,9 +959,6 @@ interface
   {$ifdef FullDebugMode}
   {$message error 'UseReleaseStack is not compatible with FullDebugMode'}
   {$endif}
-  {$ifdef LogLockContention}
-  {$message error 'UseReleaseStack is not compatible with LogLockContention'}
-  {$endif}
 {$endif}
 
 {IDE debug mode always enables FullDebugMode and dynamic loading of the FullDebugMode DLL.}
@@ -3791,7 +3788,7 @@ end;
  preserve all registers except eax.}
 {$ifndef Use32BitAsm}
 procedure LockMediumBlocks(
-  {$ifdef LogLockContention}var ADidSleep: Boolean{$endif}
+  {$ifdef LogLockContention}var ADidSleep: Boolean{$ifdef UseReleaseStack};{$endif}{$endif}
   {$ifdef UseReleaseStack}APointer: Pointer = nil; APDelayRelease: PBoolean = nil{$endif});
 {$ifdef UseReleaseStack}
 var
@@ -4338,7 +4335,7 @@ end;
 {-----------------Large Block Management------------------}
 
 {Locks the large blocks}
-procedure LockLargeBlocks({$ifdef LogLockContention}var ADidSleep: Boolean{$endif}
+procedure LockLargeBlocks({$ifdef LogLockContention}var ADidSleep: Boolean{$ifdef UseReleaseStack};{$endif}{$endif}
   {$ifdef UseReleaseStack}APointer: Pointer = nil; APDelayRelease: PBoolean = nil{$endif});
 {$ifdef UseReleaseStack}
 var
@@ -4460,7 +4457,7 @@ begin
   if not ACleanupOperation then
   begin
 {$endif}
-    LockLargeBlocks({$ifdef LogLockContention}LDidSleep{$endif}
+    LockLargeBlocks({$ifdef LogLockContention}LDidSleep{$ifdef UseReleaseStack},{$endif}{$endif}
       {$ifdef UseReleaseStack}APointer, @LDelayRelease{$endif});
 {$ifdef UseReleaseStack}
     if LDelayRelease then
@@ -6020,7 +6017,7 @@ begin
 {$endif}
     {Lock the medium blocks}
     LockMediumBlocks(
-      {$ifdef LogLockContention}LDidSleep{$endif}
+      {$ifdef LogLockContention}LDidSleep{$ifdef UseReleaseStack},{$endif}{$endif}
       {$ifdef UseReleaseStack}APointer, @LDelayRelease{$endif});
 {$ifdef UseReleaseStack}
     if LDelayRelease then
@@ -12868,8 +12865,8 @@ begin
   if FastMMIsInstalled then
   begin
 {$ifdef UseReleaseStack}
-  CleanupReleaseStacks;
   DestroyCleanupThread;
+  CleanupReleaseStacks;
 {$endif}
 {$ifndef NeverUninstall}
     {Uninstall FastMM}
