@@ -1,14 +1,17 @@
 (*
 
-Fast Memory Manager 5.x
+Fast Memory Manager 4.x - MultiProcessing edition
 
 Description:
  A fork of a FastMM - fast replacement memory manager for Embarcadero Delphi.
  This fork focuses on a multiprocessing performance on Win32/Win64. All of
  original FastMM features are supported.
 
+ This fork tries to stay in sync with https://github.com/pleriche/FastMM4
+ as much as it makes sense. At the least, all bug fixes are ported.
+
 Homepage:
- https://github.com/gabr42/FastMM4-MP
+  https://github.com/gabr42/FastMM4-MP
 
 Advantages:
  - Fast
@@ -849,7 +852,7 @@ Change log:
     that will be freed later, either in the background cleanup thread or during
     the next call to FreeMem.
   /// FastMM-MP fork
-  Version 5.0 <<unreleased>>
+  Version 4.MP.1
   - Release stacks are compiled in by default.
   - Removed assembler versions of code in all places that support release stacks.
     I don't want to support combined pascal+assembler code.
