@@ -49,6 +49,14 @@ implementation
 uses
   Windows;
 
+{$IF CompilerVersion < 23}
+{$IFNDEF CPUX64}
+type
+  NativeInt = integer;
+  NativeUInt = cardinal;
+{$ENDIF}
+{$IFEND}
+
 var
   CASAlignment: integer; //required alignment for the CAS function - 8 or 16, depending on the platform
 
