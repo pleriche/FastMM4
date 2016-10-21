@@ -1,6 +1,6 @@
 (*
 
-Fast Memory Manager 4.991
+Fast Memory Manager 4.992
 
 Description:
  A fast replacement memory manager for Embarcadero Delphi Win32 applications
@@ -835,7 +835,7 @@ Change log:
     do linger longer than they should.
   - OS X support added by Sebastian Zierer
   - Compatible with Delphi XE3
-  Version 4.??? (? ??? 2016)
+  Version 4.992 (21 October 2016)
   - OS X full debug mode added by Sebastian Zierer
   - Included the average block size in the memory state log file. (Thanks to
     Hallvard Vassbotn)
