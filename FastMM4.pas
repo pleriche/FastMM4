@@ -5136,7 +5136,7 @@ begin
   if Assigned(ACollector) then 
   begin
     GetStackTrace(@LStackTrace, StackTraceDepth, 1);
-    MediumBlockCollector.Add(@LStackTrace[0], StackTraceDepth);
+    ACollector.Add(@LStackTrace[0], StackTraceDepth);
   end;
 {$endif}
 {$endif}
