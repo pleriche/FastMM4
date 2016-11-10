@@ -10332,8 +10332,8 @@ begin
   if FastMMIsInstalled then
   begin
 {$ifdef UseReleaseStack}
-  CleanupReleaseStacks;
   DestroyCleanupThread;
+  CleanupReleaseStacks;
 {$endif}
 {$ifndef NeverUninstall}
     {Uninstall FastMM}
