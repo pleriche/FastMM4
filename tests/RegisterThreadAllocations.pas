@@ -41,22 +41,20 @@ type
 
 procedure TForm5.Button1Click(Sender: TObject);
 begin
+//  RegisterAllThreadAllocationsAsExpectedLeaks;
   RegisterPropertyEditor(TypeInfo(TStrings), TMyDataset, 'Test', TMyEditor);
+//  StopRegisteringAllThreadAllocationsAsExpectedLeaks;
 end;
 
 { TMyEditor }
 
 procedure TMyEditor.Initialize;
 begin
-  inherited;
-
 end;
 
 procedure TMyEditor.SetPropEntry(Index: Integer; AInstance: TPersistent;
   APropInfo: PPropInfo);
 begin
-  inherited;
-
 end;
 
 end.
