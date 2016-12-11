@@ -56,10 +56,3 @@ __history/
 
 # Castalia statistics file
 *.stat
-
-# OmniThreadLibrary specifics
-*.skincfg
-unittests/Debug/
-unittests/OSX32/
-unittests/Win32/
-*.xml
