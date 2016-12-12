@@ -8,8 +8,7 @@ uses
 
 type
   TForm5 = class(TForm)
-    Button1: TButton;
-    procedure Button1Click(Sender: TObject);
+    procedure FormCreate(Sender: TObject);
   private
     { Private declarations }
   public
@@ -22,6 +21,7 @@ var
 implementation
 
 uses
+  FastMM4,
   TypInfo,
   DesignIntf,
   DesignEditors;
@@ -39,11 +39,18 @@ type
 
 {$R *.dfm}
 
-procedure TForm5.Button1Click(Sender: TObject);
+procedure TForm5.FormCreate(Sender: TObject);
 begin
-//  RegisterAllThreadAllocationsAsExpectedLeaks;
+  //Will not be reported (1x TList, 2x Unknown, 1x UnicodeString)
+  StartRegisteringAllThreadAllocationsAsExpectedLeaks;
   RegisterPropertyEditor(TypeInfo(TStrings), TMyDataset, 'Test', TMyEditor);
-//  StopRegisteringAllThreadAllocationsAsExpectedLeaks;
+  StopRegisteringAllThreadAllocationsAsExpectedLeaks;
+
+  //Will be reported (2x Unknown, 2x UnicodeString);
+  RegisterPropertyEditor(TypeInfo(TStrings), TMyDataset, 'Test', TMyEditor);
+  RegisterPropertyEditor(TypeInfo(TStrings), TMyDataset, 'Test', TMyEditor);
+
+  Application.Terminate;
 end;
 
 { TMyEditor }
