@@ -1393,20 +1393,6 @@ procedure GetMemoryMap(var AMemoryMap: TMemoryMap);
 function RegisterExpectedMemoryLeak(ALeakedPointer: Pointer): Boolean; overload;
 function RegisterExpectedMemoryLeak(ALeakedObjectClass: TClass; ACount: Integer = 1): Boolean; overload;
 function RegisterExpectedMemoryLeak(ALeakedBlockSize: NativeInt; ACount: Integer = 1): Boolean; overload;
-
-{$ifdef MSWINDOWS}
-{Start registering all allocations in the current thread as expected memory leaks.
- Only one thread in the program can be in this state. While the program is registering
- all memory allocations in a thread as expected leaks any other call to this function
- will block and will only continue when the original thread calls
- StopRegisteringAllThreadAllocationsAsExpectedLeaks;
-}
-procedure StartRegisteringAllThreadAllocationsAsExpectedLeaks;
-{Stops registering all allocations in the current thread as expected memory leaks.
-}
-procedure StopRegisteringAllThreadAllocationsAsExpectedLeaks;
-{$endif}
-
 {$ifdef CheckCppObjectTypeEnabled}
 {Registers expected memory leaks by virtual object's typeId pointer.
  Usage: RegisterExpectedMemoryLeak(typeid(ACppObject).tpp, Count);}
@@ -2150,12 +2136,6 @@ var
   end;
   {$ifdef CatchUseOfFreedInterfaces}
   VMTBadInterface: array[0..MaxFakeVMTEntries - 1] of Pointer;
-  {$endif}
-  {$ifdef MSWINDOWS}
-  {Thread ID of a thread that is registering all allocations as expected leaks.
-   (see StartRegisteringAllThreadAllocationsAsExpectedLeaks)
-   Zero if this mode is not active.}
-  RegisterAllAsLeakForThread: Cardinal;
   {$endif}
 {$endif}
 
@@ -7129,11 +7109,6 @@ begin
     {Leaving the memory manager routine: Block scans may be performed again.}
     DoneChangingFullDebugModeBlock;
   end;
-  if Result <> nil then
-  begin
-    if (RegisterAllAsLeakForThread <> 0) and (RegisterAllAsLeakForThread = GetCurrentThreadID) then
-      RegisterExpectedMemoryLeak(Result);
-  end;
 end;
 
 function CheckBlockBeforeFreeOrRealloc(APBlock: PFullDebugBlockHeader;
@@ -7974,31 +7949,6 @@ begin
     and UpdateExpectedLeakList(@ExpectedMemoryLeaks.FirstEntryBySizeOnly, @LNewEntry);
   ExpectedMemoryLeaksListLocked := False;
 end;
-
-{$ifdef MSWINDOWS}
-procedure StartRegisteringAllThreadAllocationsAsExpectedLeaks;
-var
-  LThreadID: Cardinal;
-begin
-  LThreadID := GetCurrentThreadID;
-  while LockCmpxchg32(0, LThreadID, @RegisterAllAsLeakForThread) <> 0 do
-  begin
-    Sleep(InitialSleepTime);
-    if LockCmpxchg(0, LThreadID, @RegisterAllAsLeakForThread) = 0 then
-      Break;
-    Sleep(AdditionalSleepTime);
-  end;
-end;
-
-procedure StopRegisteringAllThreadAllocationsAsExpectedLeaks;
-var
-  LThreadID: Cardinal;
-begin
-  LThreadID := GetCurrentThreadID;
-  if LockCmpxchg32(LThreadID, 0, @RegisterAllAsLeakForThread) <> LThreadID then
-    {$ifdef BCB6OrDelphi7AndUp}System.Error(reInvalidPtr);{$else}System.RunError(reInvalidPtr);{$endif}
-end;
-{$endif}
 
 function UnregisterExpectedMemoryLeak(ALeakedPointer: Pointer): Boolean; overload;
 var
