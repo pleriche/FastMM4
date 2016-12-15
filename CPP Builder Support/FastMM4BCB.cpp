@@ -504,8 +504,8 @@ bool terminatePatched = false;
 
 //#ifndef _RTLDLL
 
-#if __BORLANDC__ < 0x0560
-#if defined(PURE_CPLUSPLUS)
+#if (__BORLANDC__ < 0x0560) || (__BORLANDC__ > 0x0711)
+#if defined(PURE_CPLUSPLUS) || defined(__clang__)
 
 void * _RTLENTRY Cpp_malloc_Stub(size_t size)
 {
