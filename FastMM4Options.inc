@@ -166,6 +166,9 @@ Set the default options for FastMM here.
      install itself. No effect unless FullDebugMode and LoadDebugDLLDynamically
      are also defined.}
 
+    {.$define RestrictDebugDLLLoadPath}
+    {Allow to load debug dll only from host module directory.}
+
   {FastMM usually allocates large blocks from the topmost available address and
    medium and small blocks from the lowest available address (This reduces
    fragmentation somewhat). With this option set all blocks are always

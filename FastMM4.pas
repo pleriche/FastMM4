@@ -12377,6 +12377,14 @@ var
   LInd, LSizeInd, LMinimumPoolSize, LOptimalPoolSize, LGroupNumber,
     LBlocksPerPool, LPreviousBlockSize: Cardinal;
   LPMediumFreeBlock: PMediumFreeBlock;
+{$ifdef FullDebugMode}
+  {$ifdef LoadDebugDLLDynamically}
+    {$ifdef RestrictDebugDLLLoadPath}
+    LModuleHandle: HModule;
+    LFullFileName: array[0..2047] of Char;
+    {$endif}
+  {$endif}
+{$endif}
 {$ifdef UseReleaseStack}
   LSlot: Integer;
 {$endif}
@@ -12384,7 +12392,35 @@ begin
 {$ifdef FullDebugMode}
   {$ifdef LoadDebugDLLDynamically}
   {Attempt to load the FullDebugMode DLL dynamically.}
+
+{$ifdef RestrictDebugDLLLoadPath}
+  FullDebugModeDLL := 0;
+  LModuleHandle := 0;
+{$ifndef borlndmmdll}
+  if IsLibrary then
+    LModuleHandle := HInstance;
+{$endif}
+
+  LSizeInd := GetModuleFileName(LModuleHandle, LFullFileName, Sizeof(LFullFileName) div SizeOf(Char));
+  while LSizeInd > 0 do
+  begin
+    Dec(LSizeInd);
+    if LFullFileName[LSizeInd] = '\' then
+      Break;
+  end;
+  if (LSizeInd > 0) and (LSizeInd + Cardinal(Length(FullDebugModeLibraryName)) + 1 < Sizeof(LFullFileName) div SizeOf(Char)) then
+  begin
+    LInd := 1;
+    repeat
+      LFullFileName[LSizeInd + LInd] := FullDebugModeLibraryName[LInd];
+      Inc(LInd);
+    until LInd > Cardinal(Length(FullDebugModeLibraryName));
+    LFullFileName[LSizeInd + LInd] := #0;
+    FullDebugModeDLL := LoadLibrary(LFullFileName);
+  end;
+{$else}
   FullDebugModeDLL := LoadLibrary(FullDebugModeLibraryName);
+{$endif}
   if FullDebugModeDLL <> 0 then
   begin
     GetStackTrace := GetProcAddress(FullDebugModeDLL,
