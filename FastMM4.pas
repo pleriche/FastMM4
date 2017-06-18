@@ -1675,8 +1675,20 @@ function InvalidRegisterAndUnRegisterMemoryLeak(APointer: Pointer): Boolean; for
 
 const
   AVX1Bit      = 1 shl 28;
+  {The distinction between AVX1 and AVX2 is on how it clears the registers
+  and how it avoids AVX-SSE transition penalties.
+  AVX2 uses the VPXOR instruction, not available on AVX1. On most Intel
+  processors, VPXOR is faster is VXORPS. For example, on Sandybridge, VPXOR can
+  run on any of the 3 ALU execution ports, p0/p1/p5.  VXORPS can only run on p5.
+  Also, AVX1 uses the VZEROUPPER instruction, while AVX2 does not. Newer CPU
+  doesn't have such a huge transition penaly, and VZEROUPPER is not needed,
+  moreover, it can make subsequent SSE code slower}
   AVX2Bit      = 1 shl 5;
-  ERMSBBit     = 1 shl 9;
+
+  ERMSBBit     = 1 shl 9; { Enhanced REP MOVSB and STOSB operation (ERMSB)}
+  {On ERMSB, see p. 3.7.6 of the
+  Intel 64 and IA-32 Architectures Optimization Reference Manual}
+
 
   CpuIdBasicFeatures    = 1;
   CpuIdExtendedFeatures = 7;
