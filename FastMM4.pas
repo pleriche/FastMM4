@@ -1681,10 +1681,11 @@ const
   CpuIdBasicFeatures    = 1;
   CpuIdExtendedFeatures = 7;
 
+{$IFDEF XE2AndUp}
   AVX1Offset   = CpuIdBasicFeatures {eax=1}    * SizeOf(TCPUIDRec) + SizeOf(UInt32) * 2 {2 - ecx};
   ERMSBOffset  = CpuIdExtendedFeatures {eax=7} * SizeOf(TCPUIDRec) + SizeOf(UInt32) * 1 {1 - ebx};
   AVX2Offset   = CpuIdExtendedFeatures {eax=7} * SizeOf(TCPUIDRec) + SizeOf(UInt32) * 1 {1 - ebx};
-
+{$ENDIF}
 
 
 const
@@ -2084,10 +2085,12 @@ const
 
   SmallBlockTypeRecSize = 1 shl SmallBlockTypeRecSizeBits;
 
-{$if SmallBlockTypeRecSize = SizeOf(TSmallBlockType)}
-  // OK - our SmallBlockTypeRecSizeBits constant is correct
-{$else}
-{$Message Fatal 'Invalid SmallBlockTypeRecSizeBits constant or SizeOf(TSmallBlockType) is not a power of 2'}
+{$ifdef XE2AndUp}
+  {$if SmallBlockTypeRecSize = SizeOf(TSmallBlockType)}
+    // OK - our SmallBlockTypeRecSizeBits constant is correct
+  {$else}
+  {$Message Fatal 'Invalid SmallBlockTypeRecSizeBits constant or SizeOf(TSmallBlockType) is not a power of 2'}
+  {$ifend}
 {$endif}
 
 {$ifndef BCB6OrDelphi7AndUp}
@@ -13873,13 +13876,13 @@ begin
       end;
     end;
     {$else}
+      {$ifdef XE2AndUp}
       if (CPUIDTable[CpuIdExtendedFeatures].EBX and ERMSBBit <> 0) then
-      begin
-        SmallBlockTypes[LInd].UpsizeMoveProcedure := MoveWithErms;
-      end else
-      begin
-        SmallBlockTypes[LInd].UpsizeMoveProcedure := MoveX16LP;
-      end;
+        SmallBlockTypes[LInd].UpsizeMoveProcedure := MoveWithErms
+      else
+      {$endif}
+        SmallBlockTypes[LInd].UpsizeMoveProcedure := MoveX16LP
+      ;
     {$endif}
   {$else}
       SmallBlockTypes[LInd].UpsizeMoveProcedure := @System.Move;
