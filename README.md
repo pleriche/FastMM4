@@ -1,3 +1,45 @@
+# FastMM4AVX
+
+FastMM4AVX (AVX1/AVX2/ERMS support for FastMM4)
+
+This is a fork of the Fast Memory Manager 4.992 by Pierre le Riche
+(see below for the The original FastMM4 description)
+
+What was added to the fork:
+ - if the CPU supports Enhanced REP MOVSB/STOSB (ERMS), use this feature
+   for faster memory copy (under 32 bit or 64-bit);
+ - if the CPU supports AVX or AVX2, use the 32-byte YMM registers
+   for faster memory copy, but only if EnableAVX is defined (Off by default)
+ - if EnableAVX is defined, all memory blocks are aligned by 32 bytes;
+ - memory copy is secure - all XMM/YMM registers used to copy memory
+   are cleared by vxorps/vpxor, so the leftovers of the copied memory are not
+   exposed in the XMM/YMM registers;
+ - properly handle AVX-SSE transitions to not incur the transition penalties,
+   only call vzeroupper under AVX1, but not under AVX2 since it slows down
+   subsequent SSE code under Kaby Lake;
+ - names assigned to a couple of magic constants.
+
+
+AVX1/AVX2/ERMS support Copyright (C) 2017 RITLABS S.R.L. All rights reserved.
+https://www.ritlabs.com/
+AVX1/AVX2/ERMS support is written by Maxim Masiutin <max@ritlabs.com>
+
+FastMM4AVX is free software: you can redistribute it and/or modify
+it under the terms of the GNU Lesser General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+FastMM4AVX is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Lesser General Public License for more details.
+
+You should have received a copy of the GNU Lesser General Public License
+along with FastMM4AVX (see license_lgpl.txt and license_gpl.txt)
+If not, see <http://www.gnu.org/licenses/>.
+
+The original FastMM4 description follows:
+
 # FastMM4
 Fast Memory Manager
 

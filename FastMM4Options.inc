@@ -198,9 +198,12 @@ Set the default options for FastMM here.
 
 {---------------------------Memory Leak Reporting-----------------------------}
 
-{Set this option to enable reporting of memory leaks. Combine it with the two
- options below for further fine-tuning.}
+{Set the option EnableMemoryLeakReporting to enable reporting of memory leaks.
+Combine it with the two options below for further fine-tuning.}
+
+{$ifndef DisableMemoryLeakReporting}
 {$define EnableMemoryLeakReporting}
+{$endif}
 
   {Set this option to suppress the display and logging of expected memory leaks
    that were registered by pointer. Leaks registered by size or class are often
@@ -246,11 +249,28 @@ Set the default options for FastMM here.
  this option has no effect.}
 {.$define EnableMMX}
 
+{$ifndef DontForceMMX}
   {Set this option to force the use of MMX instructions without checking
    whether the CPU supports it. If this option is disabled then the CPU will be
    checked for compatibility first, and if MMX is not supported it will fall
    back to the FPU move code. Has no effect unless EnableMMX is also set.}
   {$define ForceMMX}
+{$endif}
+
+{Set this option to enable use of AVX instructions under 64-bit mode.
+This option has no effect under 32-bit mode. If enalbed, the code will check
+whether the CPU supports AVX or AVX2, and, if yes, will use the 32-byte YMM
+registers for faster memory copy. Besides that, if this option is enabled,
+all allocated memory blocks will be aligned by 32 bytes, that will incur
+addition memory consumption overhead. Besides that, with this option, memory
+copy will be slightly more secure, because all XMM/YMM registers used to copy
+memory will be cleared by vxorps/vpxor at the end of a copy routine, so the
+leftovers of the copied memory data will not be kept in the XMM/YMM registers
+and will not be exposed. This option properly handles AVX-SSE transitions to not
+incur the transition penalties, only calls vzeroupper under AVX1, but not under
+AVX2, since it slows down subsequent SSE code under Kaby Lake}
+
+{.$define EnableAVX}
 
 {-----------------------Memory Manager Sharing Options------------------------}
 

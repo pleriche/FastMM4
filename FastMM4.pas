@@ -1,4 +1,49 @@
+
 (*
+
+FastMM4AVX (AVX1/AVX2/ERMS support for FastMM4)
+
+Version 1.0
+
+This is a fork of the Fast Memory Manager 4.992 by Pierre le Riche
+(see below for the The original FastMM4 description)
+
+What was added to the fork:
+ - if the CPU supports Enhanced REP MOVSB/STOSB (ERMS), use this feature
+   for faster memory copy (under 32 bit or 64-bit);
+ - if the CPU supports AVX or AVX2, use the 32-byte YMM registers
+   for faster memory copy, but only if EnableAVX is defined (Off by default)
+ - if EnableAVX is defined, all memory blocks are aligned by 32 bytes;
+ - memory copy is secure - all XMM/YMM registers used to copy memory
+   are cleared by vxorps/vpxor, so the leftovers of the copied memory are not
+   exposed in the XMM/YMM registers;
+ - properly handle AVX-SSE transitions to not incur the transition penalties,
+   only call vzeroupper under AVX1, but not under AVX2 since it slows down
+   subsequent SSE code under Kaby Lake;
+ - names assigned to a couple of magic constants.
+
+
+AVX1/AVX2/ERMS support Copyright (C) 2017 RITLABS S.R.L. All rights reserved.
+https://www.ritlabs.com/
+AVX1/AVX2/ERMS support is written by Maxim Masiutin <max@ritlabs.com>
+
+FastMM4AVX is free software: you can redistribute it and/or modify
+it under the terms of the GNU Lesser General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+FastMM4AVX is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Lesser General Public License for more details.
+
+You should have received a copy of the GNU Lesser General Public License
+along with FastMM4AVX (see license_lgpl.txt and license_gpl.txt)
+If not, see <http://www.gnu.org/licenses/>.
+
+
+
+The original FastMM4 description follows:
 
 Fast Memory Manager 4.992
 
@@ -18,8 +63,8 @@ Advantages:
  - Supports up to 3GB of user mode address space under Windows 32-bit and 4GB
    under Windows 64-bit. Add the "$SetPEFlags $20" option (in curly braces)
    to your .dpr to enable this.
- - Highly aligned memory blocks. Can be configured for either 8-byte or 16-byte
-   alignment.
+ - Highly aligned memory blocks. Can be configured for either 8-byte, 16-byte
+   or 32-byte alignment.
  - Good scaling under multi-threaded applications
  - Intelligent reallocations. Avoids slow memory move operations through
    not performing unneccesary downsizes and by having a minimum percentage
@@ -937,9 +982,22 @@ interface
   {$endif}
 {$endif}
 
+{$ifndef 64Bit}
+  {do not support AVX unless we are in the 64-bit mode}
+  {$undef EnableAVX}
+{$endif}
+
 {$ifdef 64Bit}
-  {Under 64 bit memory blocks must always be 16-byte aligned}
-  {$define Align16Bytes}
+  {$ifdef EnableAVX}
+    {Under 64 bit with AVX, memory blocks must always be 16-byte aligned,
+    since we are using 32-bit load/store, and they have to be aligned,
+    a store across page boundary invokes 150-cycle penalty on Sandy Bridge}
+    {$define Align32Bytes}
+  {$else}
+    {Under 64 bit memory blocks must always be 16-byte aligned}
+    {$define Align16Bytes}
+  {$endif}
+
   {No need for MMX under 64-bit, since SSE2 is available}
   {$undef EnableMMX}
   {There is little need for raw stack traces under 64-bit, since frame based
@@ -1132,10 +1190,15 @@ const
   {The current version of FastMM}
   FastMMVersion = '4.991';
   {The number of small block types}
+
+{$ifdef Align32Bytes}
+  NumSmallBlockTypes = 44;
+{$else}
 {$ifdef Align16Bytes}
   NumSmallBlockTypes = 46;
 {$else}
   NumSmallBlockTypes = 56;
+{$endif}
 {$endif}
 
 {----------------------------Public types------------------------------}
@@ -1609,30 +1672,81 @@ function InvalidRegisterAndUnRegisterMemoryLeak(APointer: Pointer): Boolean; for
 {$endif}
 
 {-------------------------Private constants----------------------------}
+
+const
+  AVX1Bit      = 1 shl 28;
+  AVX2Bit      = 1 shl 5;
+  ERMSBBit     = 1 shl 9;
+
+  CpuIdBasicFeatures    = 1;
+  CpuIdExtendedFeatures = 7;
+
+  AVX1Offset   = CpuIdBasicFeatures {eax=1}    * SizeOf(TCPUIDRec) + SizeOf(UInt32) * 2 {2 - ecx};
+  ERMSBOffset  = CpuIdExtendedFeatures {eax=7} * SizeOf(TCPUIDRec) + SizeOf(UInt32) * 1 {1 - ebx};
+  AVX2Offset   = CpuIdExtendedFeatures {eax=7} * SizeOf(TCPUIDRec) + SizeOf(UInt32) * 1 {1 - ebx};
+
+
+
 const
   {The size of a medium block pool. This is allocated through VirtualAlloc and
-   is used to serve medium blocks. The size must be a multiple of 16 and at
+   is used to serve medium blocks. The size must be a multiple of 16 (or 32, depending on alignment) and at
    least 4 bytes less than a multiple of 4K (the page size) to prevent a
    possible read access violation when reading past the end of a memory block
-   in the optimized move routine (MoveX16LP). In Full Debug mode we leave a
+   in the optimized move routine (MoveX16LP/MoveX32LP). In Full Debug mode we leave a
    trailing 256 bytes to be able to safely do a memory dump.}
-  MediumBlockPoolSize = 20 * 64 * 1024{$ifndef FullDebugMode} - 16{$else} - 256{$endif};
+  MediumBlockPoolSize = 20 * 64 * 1024 -
+  {$ifndef FullDebugMode}
+    {$ifdef Align32Bytes}
+      32
+    {$else}
+      16
+    {$endif}
+  {$else}
+      256
+  {$endif};
+
+  {According to the Intel 64 and IA-32 Architectures Software Developer’s Manual,
+  p. 3.7.5 (Specifying an Offset) and 3.7.5.1 (Specifying an Offset in 64-Bit Mode):
+  "Scale factor — A value of 2, 4, or 8 that is multiplied by the index value";
+  The value of MaximumCpuScaleFactor is determined by the processor architecture}
+  MaximumCpuScaleFactorBits = 3;
+  MaximumCpuScaleFactor = 1 shl MaximumCpuScaleFactorBits;
+
   {The granularity of small blocks}
-{$ifdef Align16Bytes}
-  SmallBlockGranularity = 16;
+{$ifdef Align32Bytes}
+  SmallBlockGranularityBits = 5;
 {$else}
-  SmallBlockGranularity = 8;
+{$ifdef Align16Bytes}
+  SmallBlockGranularityBits = 4;
+{$else}
+  SmallBlockGranularityBits = 3;
 {$endif}
+{$endif}
+  SmallBlockGranularity = 1 shl SmallBlockGranularityBits;
+
+
   {The granularity of medium blocks. Newly allocated medium blocks are
    a multiple of this size plus MediumBlockSizeOffset, to avoid cache line
    conflicts}
   MediumBlockGranularity = 256;
+{$ifdef Align32Bytes}
+  MediumBlockSizeOffset = 64;
+{$else}
   MediumBlockSizeOffset = 48;
+{$endif}
+
   {The granularity of large blocks}
   LargeBlockGranularity = 65536;
   {The maximum size of a small block. Blocks Larger than this are either
    medium or large blocks.}
+
+
+{$ifdef Align32Bytes}
+  MaximumSmallBlockSize = 2624;
+{$else}
   MaximumSmallBlockSize = 2608;
+{$endif}
+
   {The smallest medium block size. (Medium blocks are rounded up to the nearest
    multiple of MediumBlockGranularity plus MediumBlockSizeOffset)}
   MinimumMediumBlockSize = 11 * 256 + MediumBlockSizeOffset;
@@ -1681,8 +1795,13 @@ const
   DropSmallFlagsMask = -8;
   ExtractSmallFlagsMask = 7;
   {The flags masks for medium and large blocks}
+{$ifdef Align32Bytes}
+  DropMediumAndLargeFlagsMask = -32;
+  ExtractMediumAndLargeFlagsMask = 31;
+{$else}
   DropMediumAndLargeFlagsMask = -16;
   ExtractMediumAndLargeFlagsMask = 15;
+{$endif}
   {-------------Block resizing constants---------------}
   SmallBlockDownsizeCheckAdder = 64;
   SmallBlockUpsizeAdder = 32;
@@ -1833,7 +1952,8 @@ type
 {$endif}
   end;
 
-  {Small block pool (Size = 32 bytes for 32-bit, 48 bytes for 64-bit).}
+  {Small block pool (Size = 32 bytes for 32-bit, 48 bytes for 64-bit,
+  or 64 bytes when we have Align32Bytes).}
   TSmallBlockPoolHeader = record
     {BlockType}
     BlockType: PSmallBlockType;
@@ -1856,6 +1976,9 @@ type
     Reserved2: Cardinal;
     {The pool pointer and flags of the first block}
     FirstBlockPoolPointerAndFlags: NativeUInt;
+{$ifdef Align32Bytes}
+    Reserver3, Reserved4: Int64;
+{$endif}
   end;
 
   {Small block layout:
@@ -1951,6 +2074,22 @@ type
 
 {-------------------------Private constants----------------------------}
 const
+{$ifdef 32bit}
+  SmallBlockTypeRecSizeBits = 5;
+{$endif}
+
+{$ifdef 64bit}
+  SmallBlockTypeRecSizeBits = 6;
+{$endif}
+
+  SmallBlockTypeRecSize = 1 shl SmallBlockTypeRecSizeBits;
+
+{$if SmallBlockTypeRecSize = SizeOf(TSmallBlockType)}
+  // OK - our SmallBlockTypeRecSizeBits constant is correct
+{$else}
+{$Message Fatal 'Invalid SmallBlockTypeRecSizeBits constant or SizeOf(TSmallBlockType) is not a power of 2'}
+{$endif}
+
 {$ifndef BCB6OrDelphi7AndUp}
   reOutOfMemory = 1;
   reInvalidPtr = 2;
@@ -1977,6 +2116,8 @@ var
    less) where possible.}
   SmallBlockTypes: array[0..NumSmallBlockTypes - 1] of TSmallBlockType =(
     {8/16 byte jumps}
+
+{$ifndef Align32Bytes}
 {$ifndef Align16Bytes}
     (BlockSize: 8 {$ifdef UseCustomFixedSizeMoveRoutines}; UpsizeMoveProcedure: Move4{$endif}),
 {$endif}
@@ -1984,7 +2125,11 @@ var
 {$ifndef Align16Bytes}
     (BlockSize: 24 {$ifdef UseCustomFixedSizeMoveRoutines}; UpsizeMoveProcedure: Move20{$endif}),
 {$endif}
+{$endif}
+
     (BlockSize: 32 {$ifdef UseCustomFixedSizeMoveRoutines}; UpsizeMoveProcedure: {$ifdef 32Bit}Move28{$else}Move24{$endif}{$endif}),
+
+{$ifndef Align32Bytes}
 {$ifndef Align16Bytes}
     (BlockSize: 40 {$ifdef UseCustomFixedSizeMoveRoutines}; UpsizeMoveProcedure: Move36{$endif}),
 {$endif}
@@ -1992,7 +2137,11 @@ var
 {$ifndef Align16Bytes}
     (BlockSize: 56 {$ifdef UseCustomFixedSizeMoveRoutines}; UpsizeMoveProcedure: Move52{$endif}),
 {$endif}
+{$endif}
+
     (BlockSize: 64 {$ifdef UseCustomFixedSizeMoveRoutines}; UpsizeMoveProcedure: {$ifdef 32Bit}Move60{$else}Move56{$endif}{$endif}),
+
+{$ifndef Align32Bytes}
 {$ifndef Align16Bytes}
     (BlockSize: 72 {$ifdef UseCustomFixedSizeMoveRoutines}; UpsizeMoveProcedure: Move68{$endif}),
 {$endif}
@@ -2000,7 +2149,12 @@ var
 {$ifndef Align16Bytes}
     (BlockSize: 88),
 {$endif}
+{$endif}
+
     (BlockSize: 96),
+
+{$ifndef Align32Bytes}
+
 {$ifndef Align16Bytes}
     (BlockSize: 104),
 {$endif}
@@ -2008,7 +2162,11 @@ var
 {$ifndef Align16Bytes}
     (BlockSize: 120),
 {$endif}
+{$endif}
+
     (BlockSize: 128),
+
+{$ifndef Align32Bytes}
 {$ifndef Align16Bytes}
     (BlockSize: 136),
 {$endif}
@@ -2016,17 +2174,29 @@ var
 {$ifndef Align16Bytes}
     (BlockSize: 152),
 {$endif}
+{$endif}
+
     (BlockSize: 160),
     {16 byte jumps}
+{$ifndef Align32Bytes}
     (BlockSize: 176),
+{$endif}
     (BlockSize: 192),
+{$ifndef Align32Bytes}
     (BlockSize: 208),
+{$endif}
     (BlockSize: 224),
+{$ifndef Align32Bytes}
     (BlockSize: 240),
+{$endif}
     (BlockSize: 256),
+{$ifndef Align32Bytes}
     (BlockSize: 272),
+{$endif}
     (BlockSize: 288),
+{$ifndef Align32Bytes}
     (BlockSize: 304),
+{$endif}
     (BlockSize: 320),
     {32 byte jumps}
     (BlockSize: 352),
@@ -2034,7 +2204,8 @@ var
     (BlockSize: 416),
     (BlockSize: 448),
     (BlockSize: 480),
-    {48 byte jumps}
+{$ifndef Align32Bytes}
+    {48 byte jumps if alignment is less than 32 bytes}
     (BlockSize: 528),
     (BlockSize: 576),
     (BlockSize: 624),
@@ -2042,7 +2213,7 @@ var
     {64 byte jumps}
     (BlockSize: 736),
     (BlockSize: 800),
-    {80 byte jumps}
+    {80 byte jumps if alignment is less than 32 bytes}
     (BlockSize: 880),
     (BlockSize: 960),
     {96 byte jumps}
@@ -2064,6 +2235,38 @@ var
     {208 byte jumps}
     (BlockSize: 2384),
     {224 byte jumps}
+{$else}
+    {keep 32-byte jumps if alignment is 32 bytes}
+    (BlockSize:  512),
+    (BlockSize:  544),
+    (BlockSize:  576),
+    (BlockSize:  608),
+    (BlockSize:  640),
+    (BlockSize:  672),
+    (BlockSize:  704),
+    (BlockSize:  736),
+    (BlockSize:  768),
+    (BlockSize:  800),
+    (BlockSize:  832),
+    {64 byte jumps}
+    (BlockSize:  896),
+    (BlockSize:  960),
+    (BlockSize:  1024),
+    (BlockSize:  1088),
+    (BlockSize:  1152),
+    (BlockSize:  1216),
+    (BlockSize:  1280),
+    (BlockSize:  1344),
+    (BlockSize:  1408),
+    {128 byte jumps}
+    (BlockSize:  1536),
+    (BlockSize:  1664),
+    (BlockSize:  1792),
+    (BlockSize:  1920),
+    (BlockSize:  2048),
+    {256 byte jumps}
+    (BlockSize:   2304),
+{$endif}
     (BlockSize: MaximumSmallBlockSize),
     {The last block size occurs three times. If, during a GetMem call, the
      requested block size is already locked by another thread then up to two
@@ -2071,8 +2274,39 @@ var
      three times avoids the need to have a size overflow check.}
     (BlockSize: MaximumSmallBlockSize),
     (BlockSize: MaximumSmallBlockSize));
-  {Size to small block type translation table}
-  AllocSize2SmallBlockTypeIndX4: array[0..(MaximumSmallBlockSize - 1) div SmallBlockGranularity] of Byte;
+
+  {Size to small block type translation table.
+   This table helps us to quickly access a corresponding TSmallBlockType entry in the
+   SmallBlockTypes array.}
+
+{$ifdef 32Bit}
+{$ifdef ASMVersion}
+
+   {Since the size of TSmallBlockType is 32 bytes in 32-bit mode,
+   but the maximum scale factor of an index is 8 when calculating an offset on Intel CPUs,
+   this table contains precomputed offsets from the start of the SmallBlockTypes ararray,
+   divided by the maximum CPU scale factor, so we don't need to do shl, we just take a value from
+   this table a and then use *8 scale factor to calculate the effective address and get the value}
+
+   {$DEFINE AllocSize2SmallBlockTypesPrecomputedOffsets}
+
+{$endif}
+{$endif}
+
+{$ifdef AllocSize2SmallBlockTypesPrecomputedOffsets}
+
+  AllocSize2SmallBlockTypesOfsDivScaleFactor: array[0..(MaximumSmallBlockSize - 1) div SmallBlockGranularity] of Byte;
+
+{$else}
+
+   {Since the size of TSmallBlockType is 64 bytes in 64-bit mode and 32 bytes in 32-bit mode,
+   but the maximum scale factor of an index is 8 when calculating an offset on Intel CPUs,
+   and the table contains more than 40 elements, one byte in the table is not enough to hold any
+   offfset value divided by 8, so, for 64-bit mode, we keep here just indexes, and use one additional shl command,
+   no offsets are precomputed}
+  AllocSize2SmallBlockTypesIdx: array[0..(MaximumSmallBlockSize - 1) div SmallBlockGranularity] of Byte;
+{$endif}
+
   {-----------------Medium block management------------------}
   {A dummy medium block pool header: Maintains a circular list of all medium
    block pools to enable memory leak detection on program shutdown.}
@@ -2583,7 +2817,47 @@ asm
 {$endif}
 end;
 
+
 {$ifdef 64Bit}
+
+{$ifdef EnableAVX}
+procedure Move20AVX1(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
+asm
+  db $C5, $F8, $77      // vzeroupper
+  {$ifndef unix}
+.noframe
+  db $C5, $F9, $6F, $01 // vmovdqa xmm0, xmmword ptr[rcx]
+  mov ecx, [rcx + 16]
+  db $C5, $F9, $7F, $02 // vmovdqa xmmword ptr[rdx], xmm0
+  mov [rdx + 16], ecx
+  {$else}
+  db $C5, $F9, $6F, $07 // vmovdqa xmm0, xmmword ptr[rdi]
+  mov edi, [rdi + 16]
+  db $C5, $F9, $7F, $06 // vmovdqa xmmword ptr[rsi], xmm0
+  mov [rsi + 16], edi
+  {$endif}
+  db $C5, $F8, $57, $C0 // vxorps xmm0,xmm0,xmm0
+  db $C5, $F8, $77      // vzeroupper
+end;
+
+procedure Move20AVX2(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
+asm
+  {$ifndef unix}
+.noframe
+  db $C5, $F9, $6F, $01 // vmovdqa xmm0, xmmword ptr[rcx]
+  mov ecx, [rcx + 16]
+  db $C5, $F9, $7F, $02 // vmovdqa xmmword ptr[rdx], xmm0
+  mov [rdx + 16], ecx
+  {$else}
+  db $C5, $F9, $6F, $07 // vmovdqa xmm0, xmmword ptr[rdi]
+  mov edi, [rdi + 16]
+  db $C5, $F9, $7F, $06 // vmovdqa xmmword ptr[rsi], xmm0
+  mov [rsi + 16], edi
+  {$endif}
+  db $C5, $F9, $EF, $C0 // vpxor xmm0,xmm0,xmm0
+end;
+{$endif}
+
 procedure Move24(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
 asm
   {$ifndef unix}
@@ -2599,6 +2873,45 @@ asm
   mov [rsi + 16], rdx
   {$endif}
 end;
+
+{$ifdef EnableAVX}
+procedure Move24AVX1(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
+asm
+  db $C5, $F8, $77      // vzeroupper
+  {$ifndef unix}
+.noframe
+  db $C5, $F9, $6F, $01 // vmovdqa xmm0, xmmword ptr[rcx]
+  mov r8, [rcx + 16]
+  db $C5, $F9, $7F, $02 // vmovdqa xmmword ptr[rdx], xmm0
+  mov [rdx + 16], r8
+  {$else}
+  db $C5, $F9, $6F, $07 // vmovdqa xmm0, xmmword ptr[rdi]
+  mov rdx, [rdi + 16]
+  db $C5, $F9, $7F, $06 // vmovdqa xmmword ptr[rsi], xmm0
+  mov [rsi + 16], rdx
+  {$endif}
+  db $C5, $F8, $57, $C0 // vxorps xmm0,xmm0,xmm0
+  db $C5, $F8, $77      // vzeroupper
+end;
+
+procedure Move24AVX2(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
+asm
+  {$ifndef unix}
+.noframe
+  db $C5, $F9, $6F, $01 // vmovdqa xmm0, xmmword ptr[rcx]
+  mov r8, [rcx + 16]
+  db $C5, $F9, $7F, $02 // vmovdqa xmmword ptr[rdx], xmm0
+  mov [rdx + 16], r8
+  {$else}
+  db $C5, $F9, $6F, $07 // vmovdqa xmm0, xmmword ptr[rdi]
+  mov rdx, [rdi + 16]
+  db $C5, $F9, $7F, $06 // vmovdqa xmmword ptr[rsi], xmm0
+  mov [rsi + 16], rdx
+  {$endif}
+  db $C5, $F9, $EF, $C0 // vpxor xmm0,xmm0,xmm0
+end;
+{$endif}
+
 {$endif}
 
 procedure Move28(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
@@ -2638,6 +2951,55 @@ asm
 {$endif}
 end;
 
+
+{$IFDEF 64bit}
+{$ifdef EnableAVX}
+procedure Move28AVX1(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
+asm
+  db $C5, $F8, $77      // vzeroupper
+  {$ifndef unix}
+.noframe
+  db $C5, $F9, $6F, $01 // vmovdqa xmm0, xmmword ptr[rcx]
+  mov r8, [rcx + 16]
+  mov ecx, [rcx + 24]
+  db $C5, $F9, $7F, $02 // vmovdqa xmmword ptr[rdx], xmm0
+  mov [rdx + 16], r8
+  mov [rdx + 24], ecx
+  {$else}
+  db $C5, $F9, $6F, $07 // vmovdqa xmm0, xmmword ptr[rdi]
+  mov rdx, [rdi + 16]
+  mov edi, [rdi + 24]
+  db $C5, $F9, $7F, $06 // vmovdqa xmmword ptr[rsi], xmm0
+  mov [rsi + 16], rdx
+  mov [rsi + 24], edi
+  {$endif}
+  db $C5, $F8, $57, $C0 // vxorps xmm0,xmm0,xmm0
+  db $C5, $F8, $77      // vzeroupper
+end;
+
+procedure Move28AVX2(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
+asm
+  {$ifndef unix}
+.noframe
+  db $C5, $F9, $6F, $01 // vmovdqa xmm0, xmmword ptr[rcx]
+  mov r8, [rcx + 16]
+  mov ecx, [rcx + 24]
+  db $C5, $F9, $7F, $02 // vmovdqa xmmword ptr[rdx], xmm0
+  mov [rdx + 16], r8
+  mov [rdx + 24], ecx
+  {$else}
+  db $C5, $F9, $6F, $07 // vmovdqa xmm0, xmmword ptr[rdi]
+  mov rdx, [rdi + 16]
+  mov edi, [rdi + 24]
+  db $C5, $F9, $7F, $06 // vmovdqa xmmword ptr[rsi], xmm0
+  mov [rsi + 16], rdx
+  mov [rsi + 24], edi
+  {$endif}
+  db $C5, $F9, $EF, $C0 // vpxor xmm0,xmm0,xmm0
+end;
+{$endif}
+{$endif}
+
 procedure Move36(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
 asm
 {$ifdef 32Bit}
@@ -2671,7 +3033,46 @@ asm
 {$endif}
 end;
 
-{$ifdef 64Bit}
+{$IFDEF 64bit}
+{$ifdef EnableAVX}
+
+procedure Move36AVX1(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
+asm
+  db $C5, $F8, $77      // vzeroupper
+  {$ifndef unix}
+.noframe
+  db $C5, $FD, $6F, $01 // vmovdqa ymm0, ymmword ptr [rcx]
+  mov ecx, [rcx + 32]
+  db $C5, $FD, $7F, $02 // vmovdqa ymmword ptr [rdx], ymm0
+  mov [rdx + 32], ecx
+  {$else}
+  db $C5, $FD, $6F, $07 // vmovdqa ymm0, ymmword ptr [rdi]
+  mov edi, [rdi + 32]
+  db $C5, $FD, $7F, $06 // vmovdqa ymmword ptr [rsi], ymm0
+  mov [rsi + 32], edi
+  {$endif}
+  db $C5, $FC, $57, $C0 // vxorps ymm0,ymm0,ymm0
+  db $C5, $F8, $77      // vzeroupper
+end;
+
+procedure Move36AVX2(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
+asm
+  {$ifndef unix}
+.noframe
+  db $C5, $FF, $6F, $01 // vmovdqa ymm0, ymmword ptr [rcx]
+  mov ecx, [rcx + 32]
+  db $C5, $FD, $7F, $02 // vmovdqa ymmword ptr [rdx], ymm0
+  mov [rdx + 32], ecx
+  {$else}
+  db $C5, $FD, $6F, $07 // vmovdqa ymm0, ymmword ptr [rdi]
+  mov edi, [rdi + 32]
+  db $C5, $FD, $7F, $06 // vmovdqa ymmword ptr [rsi], ymm0
+  mov [rsi + 32], edi
+  {$endif}
+  db $C5, $FD, $EF, $C0 // vpxor ymm0, ymm0, ymm0
+end;
+{$endif}
+
 procedure Move40(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
 asm
   {$ifndef unix}
@@ -2691,6 +3092,44 @@ asm
   mov [rsi + 32], rdx
   {$endif}
 end;
+
+{$ifdef EnableAVX}
+procedure Move40AVX1(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
+asm
+  db $C5, $F8, $77      // vzeroupper
+  {$ifndef unix}
+.noframe
+  db $C5, $FF, $6F, $01 // vmovdqa ymm0, ymmword ptr [rcx]
+  mov r8, [rcx + 32]
+  db $C5, $FD, $7F, $02 // vmovdqa ymmword ptr [rdx], ymm0
+  mov [rdx + 32], r8
+  {$else}
+  db $C5, $FD, $6F, $07 // vmovdqa ymm0, ymmword ptr [rdi]
+  mov rdx, [rdi + 32]
+  db $C5, $FD, $7F, $06 // vmovdqa ymmword ptr [rsi], ymm0
+  mov [rsi + 32], rdx
+  {$endif}
+  db $C5, $FC, $57, $C0 // vxorps ymm0,ymm0,ymm0
+  db $C5, $F8, $77      // vzeroupper
+end;
+
+procedure Move40AVX2(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
+asm
+  {$ifndef unix}
+.noframe
+  db $C5, $FF, $6F, $01 // vmovdqa ymm0, ymmword ptr [rcx]
+  mov r8, [rcx + 32]
+  db $C5, $FD, $7F, $02 // vmovdqa ymmword ptr [rdx], ymm0
+  mov [rdx + 32], r8
+  {$else}
+  db $C5, $FD, $6F, $07 // vmovdqa ymm0, ymmword ptr [rdi]
+  mov rdx, [rdi + 32]
+  db $C5, $FD, $7F, $06 // vmovdqa ymmword ptr [rsi], ymm0
+  mov [rsi + 32], rdx
+  {$endif}
+  db $C5, $FD, $EF, $C0 // vpxor ymm0, ymm0, ymm0
+end;
+{$endif}
 {$endif}
 
 procedure Move44(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
@@ -2731,6 +3170,57 @@ asm
   {$endif}
 {$endif}
 end;
+
+
+
+{$ifdef 64Bit}
+{$ifdef EnableAVX}
+procedure Move44AVX1(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
+asm
+  db $C5, $F8, $77      // vzeroupper
+  {$ifndef unix}
+.noframe
+  db $C5, $FF, $6F, $01 // vmovdqa ymm0, ymmword ptr [rcx]
+  mov r8, [rcx + 32]
+  mov ecx, [rcx + 40]
+  db $C5, $FD, $7F, $02 // vmovdqa ymmword ptr [rdx], ymm0
+  mov [rdx + 32], r8
+  mov [rdx + 40], ecx
+  {$else}
+  db $C5, $FD, $6F, $07 // vmovdqa ymm0, ymmword ptr [rdi]
+  mov rdx, [rdi + 32]
+  mov edi, [rdi + 40]
+  db $C5, $FD, $7F, $06 // vmovdqa ymmword ptr [rsi], ymm0
+  mov [rsi + 32], rdx
+  mov [rsi + 40], edi
+  {$endif}
+  db $C5, $FC, $57, $C0 // vxorps ymm0,ymm0,ymm0
+  db $C5, $F8, $77      // vzeroupper
+end;
+
+procedure Move44AVX2(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
+asm
+  {$ifndef unix}
+.noframe
+  db $C5, $FF, $6F, $01 // vmovdqa ymm0, ymmword ptr [rcx]
+  mov r8, [rcx + 32]
+  mov ecx, [rcx + 40]
+  db $C5, $FD, $7F, $02 // vmovdqa ymmword ptr [rdx], ymm0
+  mov [rdx + 32], r8
+  mov [rdx + 40], ecx
+  {$else}
+  db $C5, $FD, $6F, $07 // vmovdqa ymm0, ymmword ptr [rdi]
+  mov rdx, [rdi + 32]
+  mov edi, [rdi + 40]
+  db $C5, $FD, $7F, $06 // vmovdqa ymmword ptr [rsi], ymm0
+  mov [rsi + 32], rdx
+  mov [rsi + 40], edi
+  {$endif}
+  db $C5, $FD, $EF, $C0 // vpxor ymm0, ymm0, ymm0
+end;
+{$endif}
+{$endif}
+
 
 procedure Move52(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
 asm
@@ -2774,6 +3264,54 @@ asm
 end;
 
 {$ifdef 64Bit}
+{$ifdef EnableAVX}
+procedure Move52AVX1(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
+asm
+  db $C5, $F8, $77           // vzeroupper
+  {$ifndef unix}
+.noframe
+  db $C5, $FD, $6F, $01      // vmovdqa ymm0, ymmword ptr [rcx]
+  db $C5, $F9, $6F, $49, $20 // vmovdqa xmm1, xmmword ptr [rcx+20h]
+  mov ecx, [rcx + 48]
+  db $C5, $FD, $7F, $02      // vmovdqa ymmword ptr [rdx], ymm0
+  db $C5, $F9, $7F, $4A, $20 // vmovdqa xmmword ptr [rdx+20h], xmm1
+  mov [rdx + 48], ecx
+  {$else}
+  db $C5, $FD, $6F, $07      // vmovdqa ymm0, ymmword ptr [rdi]
+  db $C5, $F9, $6F, $4F, $20 // vmovdqa xmm1, xmmword ptr [rdi+20h]
+  mov edi, [rdi + 48]
+  db $C5, $FD, $7F, $06      // vmovdqa ymmword ptr [rsi], ymm0
+  db $C5, $F9, $7F, $4E, $20 // vmovdqa xmmword ptr [rsi+20h], xmm1
+  mov [rsi + 48], edi
+  {$endif}
+  db $C5, $FC, $57, $C0      // vxorps ymm0,ymm0,ymm0
+  db $C5, $F0, $57, $C9      // vxorps xmm1,xmm1,xmm1
+  db $C5, $F8, $77           // vzeroupper
+end;
+
+procedure Move52AVX2(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
+asm
+  {$ifndef unix}
+.noframe
+  db $C5, $FD, $6F, $01      // vmovdqa ymm0, ymmword ptr [rcx]
+  db $C5, $F9, $6F, $49, $20 // vmovdqa xmm1, xmmword ptr [rcx+20h]
+  mov ecx, [rcx + 48]
+  db $C5, $FD, $7F, $02      // vmovdqa ymmword ptr [rdx], ymm0
+  db $C5, $F9, $7F, $4A, $20 // vmovdqa xmmword ptr [rdx+20h], xmm1
+  mov [rdx + 48], ecx
+  {$else}
+  db $C5, $FD, $6F, $07      // vmovdqa ymm0, ymmword ptr [rdi]
+  db $C5, $F9, $6F, $4F, $20 // vmovdqa xmm1, xmmword ptr [rdi+20h]
+  mov edi, [rdi + 48]
+  db $C5, $FD, $7F, $06      // vmovdqa ymmword ptr [rsi], ymm0
+  db $C5, $F9, $7F, $4E, $20 // vmovdqa xmmword ptr [rsi+20h], xmm1
+  mov [rsi + 48], edi
+  {$endif}
+  db $C5, $FD, $EF, $C0      // vpxor ymm0, ymm0, ymm0
+  db $C5, $F1, $EF, $C9      // vpxor xmm1, xmm1, xmm1
+end;
+{$endif}
+
 procedure Move56(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
 asm
   {$ifndef unix}
@@ -2797,6 +3335,56 @@ asm
   mov [rsi + 48], rdx
   {$endif}
 end;
+
+{$ifdef EnableAVX}
+procedure Move56AVX1(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
+asm
+  db $C5, $F8, $77           // vzeroupper
+  {$ifndef unix}
+.noframe
+  db $C5, $FD, $6F, $01      // vmovdqa ymm0, ymmword ptr [rcx]
+  db $C5, $F9, $6F, $49, $20 // vmovdqa xmm1, xmmword ptr [rcx+20h]
+  mov r8, [rcx + 48]
+  db $C5, $FD, $7F, $02      // vmovdqa ymmword ptr [rdx], ymm0
+  db $C5, $F9, $7F, $4A, $20 // vmovdqa xmmword ptr [rdx+20h], xmm1
+  mov [rdx + 48], r8
+  {$else}
+  db $C5, $FD, $6F, $07      // vmovdqa ymm0, ymmword ptr [rdi]
+  db $C5, $F9, $6F, $4F, $20 // vmovdqa xmm1, xmmword ptr [rdi+20h]
+  mov rdx, [rdi + 48]
+  db $C5, $FD, $7F, $06      // vmovdqa ymmword ptr [rsi], ymm0
+  db $C5, $F9, $7F, $4E, $20 // vmovdqa xmmword ptr [rsi+20h], xmm1
+  mov [rsi + 48], rdx
+  {$endif}
+
+  db $C5, $FC, $57, $C0      // vxorps ymm0, ymm0, ymm0
+  db $C5, $F0, $57, $C9      // vxorps xmm1, xmm1, xmm1
+  db $C5, $F8, $77           // vzeroupper
+end;
+
+procedure Move56AVX2(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
+asm
+  {$ifndef unix}
+.noframe
+  db $C5, $FD, $6F, $01      // vmovdqa ymm0, ymmword ptr [rcx]
+  db $C5, $F9, $6F, $49, $20 // vmovdqa xmm1, xmmword ptr [rcx+20h]
+  mov r8, [rcx + 48]
+  db $C5, $FD, $7F, $02      // vmovdqa ymmword ptr [rdx], ymm0
+  db $C5, $F9, $7F, $4A, $20 // vmovdqa xmmword ptr [rdx+20h], xmm1
+  mov [rdx + 48], r8
+  {$else}
+  db $C5, $FD, $6F, $07      // vmovdqa ymm0, ymmword ptr [rdi]
+  db $C5, $F9, $6F, $4F, $20 // vmovdqa xmm1, xmmword ptr [rdi+20h]
+  mov rdx, [rdi + 48]
+  db $C5, $FD, $7F, $06      // vmovdqa ymmword ptr [rsi], ymm0
+  db $C5, $F9, $7F, $4E, $20 // vmovdqa xmmword ptr [rsi+20h], xmm1
+  mov [rsi + 48], rdx
+  {$endif}
+  db $C5, $FD, $EF, $C0      // vpxor ymm0, ymm0, ymm0
+  db $C5, $F1, $EF, $C9      // vpxor xmm1, xmm1, xmm1
+end;
+{$endif}
+
 {$endif}
 
 procedure Move60(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
@@ -2846,6 +3434,66 @@ asm
 {$endif}
 end;
 
+
+{$ifdef 64Bit}
+{$ifdef EnableAVX}
+procedure Move60AVX1(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
+asm
+  db $C5, $F8, $77           // vzeroupper
+  {$ifndef unix}
+.noframe
+  db $C5, $FD, $6F, $01      // vmovdqa ymm0, ymmword ptr [rcx]
+  db $C5, $F9, $6F, $49, $20 // vmovdqa xmm1, xmmword ptr [rcx+20h]
+  mov r8, [rcx + 48]
+  mov ecx, [rcx + 56]
+  db $C5, $FD, $7F, $02      // vmovdqa ymmword ptr [rdx], ymm0
+  db $C5, $F9, $7F, $4A, $20 // vmovdqa xmmword ptr [rdx+20h], xmm1
+  mov [rdx + 48], r8
+  mov [rdx + 56], ecx
+  {$else}
+  db $C5, $FD, $6F, $07      // vmovdqa ymm0, ymmword ptr [rdi]
+  db $C5, $F9, $6F, $4F, $20 // vmovdqa xmm1, xmmword ptr [rdi+20h]
+  mov rdx, [rdi + 48]
+  mov edi, [rdi + 56]
+  db $C5, $FD, $7F, $06      // vmovdqa ymmword ptr [rsi], ymm0
+  db $C5, $F9, $7F, $4E, $20 // vmovdqa xmmword ptr [rsi+20h], xmm1
+  mov [rsi + 48], rdx
+  mov [rsi + 56], edi
+  {$endif}
+  db $C5, $FC, $57, $C0      // vxorps ymm0,ymm0,ymm0
+  db $C5, $F0, $57, $C9      // vxorps xmm1,xmm1,xmm1
+  db $C5, $F8, $77           // vzeroupper
+end;
+
+procedure Move60AVX2(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
+asm
+  {$ifndef unix}
+.noframe
+  db $C5, $FD, $6F, $01      // vmovdqa ymm0, ymmword ptr [rcx]
+  db $C5, $F9, $6F, $49, $20 // vmovdqa xmm1, xmmword ptr [rcx+20h]
+  mov r8, [rcx + 48]
+  mov ecx, [rcx + 56]
+  db $C5, $FD, $7F, $02      // vmovdqa ymmword ptr [rdx], ymm0
+  db $C5, $F9, $7F, $4A, $20 // vmovdqa xmmword ptr [rdx+20h], xmm1
+  mov [rdx + 48], r8
+  mov [rdx + 56], ecx
+  {$else}
+  db $C5, $FD, $6F, $07      // vmovdqa ymm0, ymmword ptr [rdi]
+  db $C5, $F9, $6F, $4F, $20 // vmovdqa xmm1, xmmword ptr [rdi+20h]
+  mov rdx, [rdi + 48]
+  mov edi, [rdi + 56]
+  db $C5, $FD, $7F, $06      // vmovdqa ymmword ptr [rsi], ymm0
+  db $C5, $F9, $7F, $4E, $20 // vmovdqa xmmword ptr [rsi+20h], xmm1
+  mov [rsi + 48], rdx
+  mov [rsi + 56], edi
+  {$endif}
+  db $C5, $FD, $EF, $C0      // vpxor ymm0, ymm0, ymm0
+  db $C5, $F1, $EF, $C9      // vpxor xmm1, xmm1, xmm1
+end;
+{$endif}
+{$endif}
+
+
 procedure Move68(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
 asm
 {$ifdef 32Bit}
@@ -2894,6 +3542,369 @@ asm
   {$endif}
 {$endif}
 end;
+
+
+{$ifdef 64Bit}
+{$ifdef EnableAVX}
+procedure Move68AVX1(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
+asm
+  db $C5, $F8, $77      // vzeroupper
+  {$ifndef unix}
+.noframe
+  db $C5, $FD, $6F, $01      // vmovdqa ymm0, ymmword ptr [rcx]
+  db $C5, $FD, $6F, $49, $20 // vmovdqa ymm1, ymmword ptr [rcx+20h]
+  mov ecx, [rcx + 64]
+  db $C5, $FD, $7F, $02      // vmovdqa ymmword ptr [rdx], ymm0
+  db $C5, $FD, $7F, $4A, $20 // vmovdqa ymmword ptr [rdx+20h], ymm1
+  mov [rdx + 64], ecx
+  {$else}
+  db $C5, $FD, $6F, $07      // vmovdqa ymm0, ymmword ptr [rdi]
+  db $C5, $FD, $6F, $4F, $20 // vmovdqa ymm1, ymmword ptr [rdi+20h]
+  mov edi, [rdi + 64]
+  db $C5, $FD, $7F, $06      // vmovdqa ymmword ptr [rsi], ymm0
+  db $C5, $FD, $7F, $4E, $20 // vmovdqa ymmword ptr [rsi+20h], ymm1
+  mov [rsi + 64], edi
+  {$endif}
+  db $C5, $FC, $57, $C0      // vxorps ymm0,ymm0,ymm0
+  db $C5, $F4, $57, $C9      // vxorps ymm1,ymm1,ymm1
+  db $C5, $F8, $77           // vzeroupper
+end;
+
+procedure Move68AVX2(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
+asm
+  {$ifndef unix}
+.noframe
+  db $C5, $FD, $6F, $01      // vmovdqa ymm0, ymmword ptr [rcx]
+  db $C5, $FD, $6F, $49, $20 // vmovdqa ymm1, ymmword ptr [rcx+20h]
+  mov ecx, [rcx + 64]
+  db $C5, $FD, $7F, $02      // vmovdqa ymmword ptr [rdx], ymm0
+  db $C5, $FD, $7F, $4A, $20 // vmovdqa ymmword ptr [rdx+20h], ymm1
+  mov [rdx + 64], ecx
+  {$else}
+  db $C5, $FD, $6F, $07      // vmovdqa ymm0, ymmword ptr [rdi]
+  db $C5, $FD, $6F, $4F, $20 // vmovdqa ymm1, ymmword ptr [rdi+20h]
+  mov edi, [rdi + 64]
+  db $C5, $FD, $7F, $06      // vmovdqa ymmword ptr [rsi], ymm0
+  db $C5, $FD, $7F, $4E, $20 // vmovdqa ymmword ptr [rsi+20h], ymm1
+  mov [rsi + 64], edi
+  {$endif}
+  db $C5, $FD, $EF, $C0      // vpxor       ymm0,ymm0,ymm0
+  db $C5, $F5, $EF, $C9      // vpxor       ymm1,ymm1,ymm1
+end;
+{$endif}
+{$endif}
+
+{$ifdef 64Bit}
+{$ifdef EnableAVX}
+procedure Move72AVX1(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
+asm
+  db $C5, $F8, $77           // vzeroupper
+  {$ifndef unix}
+.noframe
+  db $C5, $FD, $6F, $01      // vmovdqa ymm0, ymmword ptr [rcx]
+  db $C5, $FD, $6F, $49, $20 // vmovdqa ymm1, ymmword ptr [rcx+20h]
+  mov rcx, [rcx + 64]
+  db $C5, $FD, $7F, $02      // vmovdqa ymmword ptr [rdx], ymm0
+  db $C5, $FD, $7F, $4A, $20 // vmovdqa ymmword ptr [rdx+20h], ymm1
+  mov [rdx + 64], rcx
+  {$else}
+  db $C5, $FD, $6F, $07      // vmovdqa ymm0, ymmword ptr [rdi]
+  db $C5, $FD, $6F, $4F, $20 // vmovdqa ymm1, ymmword ptr [rdi+20h]
+  mov rdi, [rdi + 64]
+  db $C5, $FD, $7F, $06      // vmovdqa ymmword ptr [rsi], ymm0
+  db $C5, $FD, $7F, $4E, $20 // vmovdqa ymmword ptr [rsi+20h], ymm1
+  mov [rsi + 64], rdi
+  {$endif}
+  db $C5, $FC, $57, $C0      // vxorps ymm0,ymm0,ymm0
+  db $C5, $F4, $57, $C9      // vxorps ymm1,ymm1,ymm1
+  db $C5, $F8, $77           // vzeroupper
+end;
+
+procedure Move72AVX2(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
+asm
+  {$ifndef unix}
+.noframe
+  db $C5, $FD, $6F, $01      // vmovdqa ymm0, ymmword ptr [rcx]
+  db $C5, $FD, $6F, $49, $20 // vmovdqa ymm1, ymmword ptr [rcx+20h]
+  mov rcx, [rcx + 64]
+  db $C5, $FD, $7F, $02      // vmovdqa ymmword ptr [rdx], ymm0
+  db $C5, $FD, $7F, $4A, $20 // vmovdqa ymmword ptr [rdx+20h], ymm1
+  mov [rdx + 64], rcx
+  {$else}
+  db $C5, $FD, $6F, $07      // vmovdqa ymm0, ymmword ptr [rdi]
+  db $C5, $FD, $6F, $4F, $20 // vmovdqa ymm1, ymmword ptr [rdi+20h]
+  mov rdi, [rdi + 64]
+  db $C5, $FD, $7F, $06      // vmovdqa ymmword ptr [rsi], ymm0
+  db $C5, $FD, $7F, $4E, $20 // vmovdqa ymmword ptr [rsi+20h], ymm1
+  mov [rsi + 64], rdi
+  {$endif}
+  db $C5, $FD, $EF, $C0      // vpxor ymm0,ymm0,ymm0
+  db $C5, $F5, $EF, $C9      // vpxor ymm1,ymm1,ymm1
+end;
+{$endif}
+{$endif}
+
+
+{$ifdef 64Bit}
+{$ifdef EnableAVX}
+procedure Move88AVX1(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
+asm
+  db $C5, $F8, $77           // vzeroupper
+  {$ifndef unix}
+.noframe
+  db $C5, $FD, $6F, $01      // vmovdqa ymm0, ymmword ptr [rcx]
+  db $C5, $FD, $6F, $49, $20 // vmovdqa ymm1, ymmword ptr [rcx+20h]
+  db $C5, $F9, $6F, $51, $40 // vmovdqa xmm2, xmmword ptr [rcx+40h]
+  mov rcx, [rcx + 50h]
+  db $C5, $FD, $7F, $02      // vmovdqa ymmword ptr [rdx], ymm0
+  db $C5, $FD, $7F, $4A, $20 // vmovdqa ymmword ptr [rdx+20h], ymm1
+  db $C5, $F9, $7F, $52, $40 // vmovdqa xmmword ptr [rdx+40h], xmm2
+  mov [rdx + 50h], rcx
+  {$else}
+  db $C5, $FD, $6F, $07      // vmovdqa ymm0, ymmword ptr [rdi]
+  db $C5, $FD, $6F, $4F, $20 // vmovdqa ymm1, ymmword ptr [rdi+20h]
+  db $C5, $F9, $6F, $57, $40 // vmovdqa xmm2, xmmword ptr [rdi+40h]
+  mov rdi, [rdi + 50h]
+  db $C5, $FD, $7F, $06      // vmovdqa ymmword ptr [rsi], ymm0
+  db $C5, $FD, $7F, $4E, $20 // vmovdqa ymmword ptr [rsi+20h], ymm1
+  db $C5, $F9, $7F, $56, $40 // vmovdqa xmmword ptr [rsi+40h], xmm2
+  mov [rsi + 50h], rdi
+  {$endif}
+  db $C5, $FC, $57, $C0      // vxorps ymm0,ymm0,ymm0
+  db $C5, $F4, $57, $C9      // vxorps ymm1,ymm1,ymm1
+  db $C5, $E8, $57, $D2      // vxorps xmm2,xmm2,xmm2
+  db $C5, $F8, $77           // vzeroupper
+end;
+
+procedure Move88AVX2(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
+asm
+  {$ifndef unix}
+.noframe
+  db $C5, $FD, $6F, $01      // vmovdqa ymm0, ymmword ptr [rcx]
+  db $C5, $FD, $6F, $49, $20 // vmovdqa ymm1, ymmword ptr [rcx+20h]
+  db $C5, $F9, $6F, $51, $40 // vmovdqa xmm2, xmmword ptr [rcx+40h]
+  mov rcx, [rcx + 50h]
+  db $C5, $FD, $7F, $02      // vmovdqa ymmword ptr [rdx], ymm0
+  db $C5, $FD, $7F, $4A, $20 // vmovdqa ymmword ptr [rdx+20h], ymm1
+  db $C5, $F9, $7F, $52, $40 // vmovdqa xmmword ptr [rdx+40h], xmm2
+  mov [rdx + 50h], rcx
+  {$else}
+  db $C5, $FD, $6F, $07      // vmovdqa ymm0, ymmword ptr [rdi]
+  db $C5, $FD, $6F, $4F, $20 // vmovdqa ymm1, ymmword ptr [rdi+20h]
+  db $C5, $F9, $6F, $57, $40 // vmovdqa xmm2, xmmword ptr [rdi+40h]
+  mov rdi, [rdi + 50h]
+  db $C5, $FD, $7F, $06      // vmovdqa ymmword ptr [rsi], ymm0
+  db $C5, $FD, $7F, $4E, $20 // vmovdqa ymmword ptr [rsi+20h], ymm1
+  db $C5, $F9, $7F, $56, $40 // vmovdqa xmmword ptr [rsi+40h], xmm2
+  mov [rsi + 50h], rdi
+  {$endif}
+  db $C5, $FD, $EF, $C0      // vpxor ymm0,ymm0,ymm0
+  db $C5, $F5, $EF, $C9      // vpxor ymm1,ymm1,ymm1
+  db $C5, $E9, $EF, $D2      // vpxor xmm2,xmm2,xmm2
+end;
+{$endif}
+{$endif}
+
+{$ifdef 64Bit}
+{$ifdef EnableAVX}
+procedure Move104AVX1(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
+asm
+  db $C5, $F8, $77           // vzeroupper
+  {$ifndef unix}
+.noframe
+  db $C5, $FD, $6F, $01      // vmovdqa ymm0, ymmword ptr [rcx]
+  db $C5, $FD, $6F, $49, $20 // vmovdqa ymm1, ymmword ptr [rcx+20h]
+  db $C5, $FD, $6F, $51, $40 // vmovdqa ymm2, ymmword ptr [rcx+40h]
+  mov rcx, [rcx + 60h]
+  db $C5, $FD, $7F, $02      // vmovdqa ymmword ptr [rdx], ymm0
+  db $C5, $FD, $7F, $4A, $20 // vmovdqa ymmword ptr [rdx+20h], ymm1
+  db $C5, $FD, $7F, $52, $40 // vmovdqa ymmword ptr [rdx+40h], ymm2
+  mov [rdx + 60h], rcx
+  {$else}
+  db $C5, $FD, $6F, $07      // vmovdqa ymm0, ymmword ptr [rdi]
+  db $C5, $FD, $6F, $4F, $20 // vmovdqa ymm1, ymmword ptr [rdi+20h]
+  db $C5, $FD, $6F, $57, $40 // vmovdqa ymm2, ymmword ptr [rdi+40h]
+  mov rdi, [rdi + 60h]
+  db $C5, $FD, $7F, $06      // vmovdqa ymmword ptr [rsi], ymm0
+  db $C5, $FD, $7F, $4E, $20 // vmovdqa ymmword ptr [rsi+20h], ymm1
+  db $C5, $FD, $7F, $56, $40 // vmovdqa ymmword ptr [rsi+40h], ymm2
+  mov [rsi + 60h], rdi
+  {$endif}
+  db $C5, $FC, $57, $C0      // vxorps ymm0,ymm0,ymm0
+  db $C5, $F4, $57, $C9      // vxorps ymm1,ymm1,ymm1
+  db $C5, $EC, $57, $D2      // vxorps ymm2,ymm2,ymm2
+  db $C5, $F8, $77           // vzeroupper
+end;
+
+procedure Move104AVX2(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
+asm
+  {$ifndef unix}
+.noframe
+  db $C5, $FD, $6F, $01      // vmovdqa ymm0, ymmword ptr [rcx]
+  db $C5, $FD, $6F, $49, $20 // vmovdqa ymm1, ymmword ptr [rcx+20h]
+  db $C5, $FD, $6F, $51, $40 // vmovdqa ymm2, ymmword ptr [rcx+40h]
+  mov rcx, [rcx + 60h]
+  db $C5, $FD, $7F, $02      // vmovdqa ymmword ptr [rdx], ymm0
+  db $C5, $FD, $7F, $4A, $20 // vmovdqa ymmword ptr [rdx+20h], ymm1
+  db $C5, $FD, $7F, $52, $40 // vmovdqa ymmword ptr [rdx+40h], ymm2
+  mov [rdx + 60h], rcx
+  {$else}
+  db $C5, $FD, $6F, $07      // vmovdqa ymm0, ymmword ptr [rdi]
+  db $C5, $FD, $6F, $4F, $20 // vmovdqa ymm1, ymmword ptr [rdi+20h]
+  db $C5, $FD, $6F, $57, $40 // vmovdqa ymm2, ymmword ptr [rdi+40h]
+  mov rdi, [rdi + 60h]
+  db $C5, $FD, $7F, $06      // vmovdqa ymmword ptr [rsi], ymm0
+  db $C5, $FD, $7F, $4E, $20 // vmovdqa ymmword ptr [rsi+20h], ymm1
+  db $C5, $FD, $7F, $56, $40 // vmovdqa ymmword ptr [rsi+40h], ymm2
+  mov [rsi + 60h], rdi
+  {$endif}
+  db $C5, $FD, $EF, $C0      // vpxor       ymm0,ymm0,ymm0
+  db $C5, $F5, $EF, $C9      // vpxor       ymm1,ymm1,ymm1
+  db $C5, $ED, $EF, $D2      // vpxor       ymm2,ymm2,ymm2
+end;
+{$endif}
+{$endif}
+
+{$ifdef 64Bit}
+{$ifdef EnableAVX}
+procedure Move120AVX1(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
+asm
+  db $C5, $F8, $77           // vzeroupper
+  {$ifndef unix}
+.noframe
+  db $C5, $FD, $6F, $01      // vmovdqa ymm0, ymmword ptr [rcx]
+  db $C5, $FD, $6F, $49, $20 // vmovdqa ymm1, ymmword ptr [rcx+20h]
+  db $C5, $FD, $6F, $51, $40 // vmovdqa ymm2, ymmword ptr [rcx+40h]
+  db $C5, $F9, $6F, $59, $60 // vmovdqa xmm3, xmmword ptr [rcx+60h]
+  mov rcx, [rcx + 70h]
+  db $C5, $FD, $7F, $02      // vmovdqa ymmword ptr [rdx], ymm0
+  db $C5, $FD, $7F, $4A, $20 // vmovdqa ymmword ptr [rdx+20h], ymm1
+  db $C5, $FD, $7F, $52, $40 // vmovdqa ymmword ptr [rdx+40h], ymm2
+  db $C5, $F9, $7F, $5A, $60 // vmovdqa xmmword ptr [rdx+60h], xmm3
+  mov [rdx + 70h], rcx
+  {$else}
+  db $C5, $FD, $6F, $07      // vmovdqa ymm0, ymmword ptr [rdi]
+  db $C5, $FD, $6F, $4F, $20 // vmovdqa ymm1, ymmword ptr [rdi+20h]
+  db $C5, $FD, $6F, $57, $40 // vmovdqa ymm2, ymmword ptr [rdi+40h]
+  db $C5, $F9, $6F, $5F, $60 // vmovdqa xmm3, xmmword ptr [rdi+60h]
+  mov rdi, [rdi + 70h]
+  db $C5, $FD, $7F, $06      // vmovdqa ymmword ptr [rsi], ymm0
+  db $C5, $FD, $7F, $4E, $20 // vmovdqa ymmword ptr [rsi+20h], ymm1
+  db $C5, $FD, $7F, $56, $40 // vmovdqa ymmword ptr [rsi+40h], ymm2
+  db $C5, $F9, $7F, $5E, $60 // vmovdqa ymmword ptr [rsi+60h], xmm3
+  mov [rsi + 70h], rdi
+  {$endif}
+  db $C5, $FC, $57, $C0      // vxorps ymm0,ymm0,ymm0
+  db $C5, $F4, $57, $C9      // vxorps ymm1,ymm1,ymm1
+  db $C5, $EC, $57, $D2      // vxorps ymm2,ymm2,ymm2
+  db $C5, $E0, $57, $DB      // vxorps xmm3,xmm3,xmm3
+  db $C5, $F8, $77           // vzeroupper
+end;
+
+procedure Move120AVX2(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
+asm
+  {$ifndef unix}
+.noframe
+  db $C5, $FD, $6F, $01      // vmovdqa ymm0, ymmword ptr [rcx]
+  db $C5, $FD, $6F, $49, $20 // vmovdqa ymm1, ymmword ptr [rcx+20h]
+  db $C5, $FD, $6F, $51, $40 // vmovdqa ymm2, ymmword ptr [rcx+40h]
+  db $C5, $F9, $6F, $59, $60 // vmovdqa xmm3, xmmword ptr [rcx+60h]
+  mov rcx, [rcx + 70h]
+  db $C5, $FD, $7F, $02      // vmovdqa ymmword ptr [rdx], ymm0
+  db $C5, $FD, $7F, $4A, $20 // vmovdqa ymmword ptr [rdx+20h], ymm1
+  db $C5, $FD, $7F, $52, $40 // vmovdqa ymmword ptr [rdx+40h], ymm2
+  db $C5, $F9, $7F, $5A, $60 // vmovdqa xmmword ptr [rdx+60h], xmm3
+  mov [rdx + 70h], rcx
+  {$else}
+  db $C5, $FD, $6F, $07      // vmovdqa ymm0, ymmword ptr [rdi]
+  db $C5, $FD, $6F, $4F, $20 // vmovdqa ymm1, ymmword ptr [rdi+20h]
+  db $C5, $FD, $6F, $57, $40 // vmovdqa ymm2, ymmword ptr [rdi+40h]
+  db $C5, $F9, $6F, $5F, $60 // vmovdqa xmm3, xmmword ptr [rdi+60h]
+  mov rdi, [rdi + 70h]
+  db $C5, $FD, $7F, $06      // vmovdqa ymmword ptr [rsi], ymm0
+  db $C5, $FD, $7F, $4E, $20 // vmovdqa ymmword ptr [rsi+20h], ymm1
+  db $C5, $FD, $7F, $56, $40 // vmovdqa ymmword ptr [rsi+40h], ymm2
+  db $C5, $F9, $7F, $5E, $60 // vmovdqa ymmword ptr [rsi+60h], xmm3
+  mov [rsi + 70h], rdi
+  {$endif}
+  db $C5, $FD, $EF, $C0      // vpxor ymm0,ymm0,ymm0
+  db $C5, $F5, $EF, $C9      // vpxor ymm1,ymm1,ymm1
+  db $C5, $ED, $EF, $D2      // vpxor ymm2,ymm2,ymm2
+  db $C5, $E1, $EF, $DB      // vpxor xmm3,xmm3,xmm3
+end;
+{$endif}
+{$endif}
+
+{$ifdef 64Bit}
+{$ifdef EnableAVX}
+procedure Move136AVX1(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
+asm
+  db $C5, $F8, $77           // vzeroupper
+  {$ifndef unix}
+.noframe
+  db $C5, $FD, $6F, $01      // vmovdqa ymm0, ymmword ptr [rcx]
+  db $C5, $FD, $6F, $49, $20 // vmovdqa ymm1, ymmword ptr [rcx+20h]
+  db $C5, $FD, $6F, $51, $40 // vmovdqa ymm2, ymmword ptr [rcx+40h]
+  db $C5, $FD, $6F, $59, $60 // vmovdqa ymm3, ymmword ptr [rcx+60h]
+  mov rcx, [rcx + 80h]
+  db $C5, $FD, $7F, $02      // vmovdqa ymmword ptr [rdx], ymm0
+  db $C5, $FD, $7F, $4A, $20 // vmovdqa ymmword ptr [rdx+20h], ymm1
+  db $C5, $FD, $7F, $52, $40 // vmovdqa ymmword ptr [rdx+40h], ymm2
+  db $C5, $FD, $7F, $5A, $60 // vmovdqa ymmword ptr [rdx+60h], ymm3
+  mov [rdx + 80h], rcx
+  {$else}
+  db $C5, $FD, $6F, $07      // vmovdqa ymm0, ymmword ptr [rdi]
+  db $C5, $FD, $6F, $4F, $20 // vmovdqa ymm1, ymmword ptr [rdi+20h]
+  db $C5, $FD, $6F, $57, $40 // vmovdqa ymm2, ymmword ptr [rdi+40h]
+  db $C5, $FD, $6F, $5F, $60 // vmovdqa ymm3, ymmword ptr [rdi+60h]
+  mov rdi, [rdi + 80h]
+  db $C5, $FD, $7F, $06      // vmovdqa ymmword ptr [rsi], ymm0
+  db $C5, $FD, $7F, $4E, $20 // vmovdqa ymmword ptr [rsi+20h], ymm1
+  db $C5, $FD, $7F, $56, $40 // vmovdqa ymmword ptr [rsi+40h], ymm2
+  db $C5, $FD, $7F, $5E, $60 // vmovdqa ymmword ptr [rsi+60h], ymm3
+  mov [rsi + 80h], rdi
+  {$endif}
+  db $C5, $FC, $57, $C0      // vxorps ymm0,ymm0,ymm0
+  db $C5, $F4, $57, $C9      // vxorps ymm1,ymm1,ymm1
+  db $C5, $EC, $57, $D2      // vxorps ymm2,ymm2,ymm2
+  db $C5, $E4, $57, $DB      // vxorps ymm3,ymm3,ymm3
+  db $C5, $F8, $77           // vzeroupper
+end;
+
+procedure Move136AVX2(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
+asm
+  {$ifndef unix}
+.noframe
+  db $C5, $FD, $6F, $01      // vmovdqa ymm0, ymmword ptr [rcx]
+  db $C5, $FD, $6F, $49, $20 // vmovdqa ymm1, ymmword ptr [rcx+20h]
+  db $C5, $FD, $6F, $51, $40 // vmovdqa ymm2, ymmword ptr [rcx+40h]
+  db $C5, $FD, $6F, $59, $60 // vmovdqa ymm3, ymmword ptr [rcx+60h]
+  mov rcx, [rcx + 80h]
+  db $C5, $FD, $7F, $02      // vmovdqa ymmword ptr [rdx], ymm0
+  db $C5, $FD, $7F, $4A, $20 // vmovdqa ymmword ptr [rdx+20h], ymm1
+  db $C5, $FD, $7F, $52, $40 // vmovdqa ymmword ptr [rdx+40h], ymm2
+  db $C5, $FD, $7F, $5A, $60 // vmovdqa ymmword ptr [rdx+60h], ymm3
+  mov [rdx + 80h], rcx
+  {$else}
+  db $C5, $FD, $6F, $07      // vmovdqa ymm0, ymmword ptr [rdi]
+  db $C5, $FD, $6F, $4F, $20 // vmovdqa ymm1, ymmword ptr [rdi+20h]
+  db $C5, $FD, $6F, $57, $40 // vmovdqa ymm2, ymmword ptr [rdi+40h]
+  db $C5, $FD, $6F, $5F, $60 // vmovdqa ymm3, ymmword ptr [rdi+60h]
+  mov rdi, [rdi + 80h]
+  db $C5, $FD, $7F, $06      // vmovdqa ymmword ptr [rsi], ymm0
+  db $C5, $FD, $7F, $4E, $20 // vmovdqa ymmword ptr [rsi+20h], ymm1
+  db $C5, $FD, $7F, $56, $40 // vmovdqa ymmword ptr [rsi+40h], ymm2
+  db $C5, $FD, $7F, $5E, $60 // vmovdqa ymmword ptr [rsi+60h], ymm3
+  mov [rsi + 80h], rdi
+  {$endif}
+  db $C5, $FD, $EF, $C0      // vpxor ymm0,ymm0,ymm0
+  db $C5, $F5, $EF, $C9      // vpxor ymm1,ymm1,ymm1
+  db $C5, $ED, $EF, $D2      // vpxor ymm2,ymm2,ymm2
+  db $C5, $E5, $EF, $DB      // vpxor ymm3,ymm3,ymm3
+end;
+{$endif}
+{$endif}
+
 
 {Variable size move procedure: Rounds ACount up to the next multiple of 16 less
  SizeOf(Pointer). Important note: Always moves at least 16 - SizeOf(Pointer)
@@ -2987,7 +3998,7 @@ asm
   add rcx, r8
   add rdx, r8
   neg r8
-  jns @MoveLast12
+  jns @MoveLast8
 @MoveLoop:
   {Move a 16 byte block}
   movdqa xmm0, [rcx + r8]
@@ -2995,7 +4006,7 @@ asm
   {Are there another 16 bytes to move?}
   add r8, 16
   js @MoveLoop
-@MoveLast12:
+@MoveLast8:
   {Do the last 8 bytes}
   mov r9, [rcx + r8]
   mov [rdx + r8], r9
@@ -3005,7 +4016,7 @@ asm
   add rdi, rdx
   add rsi, rdx
   neg rdx
-  jns @MoveLast12
+  jns @MoveLast8
 @MoveLoop:
   {Move a 16 byte block}
   movdqa xmm0, [rdi + rdx]
@@ -3013,13 +4024,274 @@ asm
   {Are there another 16 bytes to move?}
   add rdx, 16
   js @MoveLoop
-@MoveLast12:
+@MoveLast8:
   {Do the last 8 bytes}
   mov rcx, [rdi + rdx]
   mov [rsi + rdx], rcx
   {$endif}
 {$endif}
 end;
+
+
+{Variable size move procedure: Rounds ACount up to the next multiple of 32 less
+ SizeOf(Pointer). Important note: Always moves at least 32 - SizeOf(Pointer)
+ bytes (the minimum small block size with 16 byte alignment), irrespective of
+ ACount.}
+
+{$ifdef EnableAVX}
+
+procedure MoveX32LpAvx1NoErms(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
+asm
+  {$ifndef unix}
+.noframe
+  {Make the counter negative based: The last 24 bytes are moved separately}
+  sub r8, 8
+  add rcx, r8
+  add rdx, r8
+  neg r8
+  jns @MoveLast8
+
+  db $C5, $F8, $77      // vzeroupper
+
+  cmp r8, -128
+  jg  @SmallAvxMove
+
+@AvxBigMoveAlignedAll:
+  db $C4, $C1, $7D, $6F, $04, $08          // vmovdqa ymm0, ymmword ptr [rcx+r8]
+  db $C4, $C1, $7D, $6F, $4C, $08, $20     // vmovdqa ymm1, ymmword ptr [rcx+r8+20h]
+  db $C4, $C1, $7D, $6F, $54, $08, $40     // vmovdqa ymm2, ymmword ptr [rcx+r8+40h]
+  db $C4, $C1, $7D, $6F, $5C, $08, $60     // vmovdqa ymm3, ymmword ptr [rcx+r8+60h]
+  db $C4, $C1, $7D, $7F, $04, $10          // vmovdqa ymmword ptr [rdx+r8], ymm0
+  db $C4, $C1, $7D, $7F, $4C, $10, $20     // vmovdqa ymmword ptr [rdx+r8+20h], ymm1
+  db $C4, $C1, $7D, $7F, $54, $10, $40     // vmovdqa ymmword ptr [rdx+r8+40h], ymm2
+  db $C4, $C1, $7D, $7F, $5C, $10, $60     // vmovdqa ymmword ptr [rdx+r8+60h], ymm3
+  add r8, 128
+  cmp r8, -128
+  jl  @AvxBigMoveAlignedAll
+
+@SmallAvxMove:
+
+@MoveLoopAvx:
+  {Move a 16 byte block}
+  db $C4, $A1, $79, $6F, $04, $01  // vmovdqa xmm0,xmmword ptr [rcx+r8]
+  db $C4, $A1, $79, $7F, $04, $02  // vmovdqa xmmword ptr [rdx+r8],xmm0
+  {Are there another 16 bytes to move?}
+  add r8, 16
+  js @MoveLoopAvx
+
+@AvxFinish:
+  db $C5, $FC, $57, $C0          // vxorps      ymm0,ymm0,ymm0
+  db $C5, $F4, $57, $C9          // vxorps      ymm1,ymm1,ymm1
+  db $C5, $EC, $57, $D2          // vxorps      ymm2,ymm2,ymm2
+  db $C5, $E4, $57, $DB          // vxorps      ymm3,ymm3,ymm3
+  db $C5, $F8, $77               // vzeroupper
+
+@MoveLast8:
+  {Do the last 8 bytes}
+  mov rcx, [rcx + r8]
+  mov [rdx + r8], rcx
+  {$else unix}
+  {MoveX32LP is not implemented for Unix yet, call the 16-byte version}
+  call MoveX16LP
+  {$endif unix}
+@exit:
+end;
+
+procedure MoveX32LpAvx2NoErms(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
+asm
+  {$ifndef unix}
+.noframe
+  {Make the counter negative based: The last 24 bytes are moved separately}
+  sub r8, 8
+  add rcx, r8
+  add rdx, r8
+  neg r8
+  jns @MoveLast8
+
+  cmp r8, -128
+  jg  @SmallAvxMove
+
+@AvxBigMoveAlignedAll:
+  db $C4, $C1, $7D, $6F, $04, $08          // vmovdqa ymm0, ymmword ptr [rcx+r8]
+  db $C4, $C1, $7D, $6F, $4C, $08, $20     // vmovdqa ymm1, ymmword ptr [rcx+r8+20h]
+  db $C4, $C1, $7D, $6F, $54, $08, $40     // vmovdqa ymm2, ymmword ptr [rcx+r8+40h]
+  db $C4, $C1, $7D, $6F, $5C, $08, $60     // vmovdqa ymm3, ymmword ptr [rcx+r8+60h]
+  db $C4, $C1, $7D, $7F, $04, $10          // vmovdqa ymmword ptr [rdx+r8], ymm0
+  db $C4, $C1, $7D, $7F, $4C, $10, $20     // vmovdqa ymmword ptr [rdx+r8+20h], ymm1
+  db $C4, $C1, $7D, $7F, $54, $10, $40     // vmovdqa ymmword ptr [rdx+r8+40h], ymm2
+  db $C4, $C1, $7D, $7F, $5C, $10, $60     // vmovdqa ymmword ptr [rdx+r8+60h], ymm3
+  add r8, 128
+  cmp r8, -128
+  jl  @AvxBigMoveAlignedAll
+
+@SmallAvxMove:
+
+@MoveLoopAvx:
+  {Move a 16 byte block}
+  db $C4, $A1, $79, $6F, $04, $01  // vmovdqa xmm0,xmmword ptr [rcx+r8]
+  db $C4, $A1, $79, $7F, $04, $02  // vmovdqa xmmword ptr [rdx+r8],xmm0
+  {Are there another 16 bytes to move?}
+  add r8, 16
+  js @MoveLoopAvx
+
+@AvxFinish:
+  db $C5, $FD, $EF, $C0          // vpxor       ymm0,ymm0,ymm0
+  db $C5, $F5, $EF, $C9          // vpxor       ymm1,ymm1,ymm1
+  db $C5, $ED, $EF, $D2          // vpxor       ymm2,ymm2,ymm2
+  db $C5, $E5, $EF, $DB          // vpxor       ymm3,ymm3,ymm3
+
+@MoveLast8:
+  {Do the last 8 bytes}
+  mov rcx, [rcx + r8]
+  mov [rdx + r8], rcx
+  {$else unix}
+  {MoveX32LP is not implemented for Unix yet, call the 16-byte version}
+  call MoveX16LP
+  {$endif unix}
+@exit:
+end;
+
+procedure MoveX32LpAvx2WithErms(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
+asm
+  {$ifndef unix}
+.noframe
+  {Make the counter negative based: The last 24 bytes are moved separately}
+  sub r8, 8
+  add rcx, r8
+  add rdx, r8
+  neg r8
+  jns @MoveLast8
+
+  cmp r8, -2048  // According to the Intel Manual, rep movsb outperforms AVX copy on blocks of 2048 bytes and above
+  jg @DontDoRepMovsb
+
+@DoRepMovsb:
+  mov rax, rsi
+  mov r9, rdi
+  lea rsi, [rcx+r8]
+  lea rdi, [rdx+r8]
+  neg r8
+  add r8, 8
+  mov rcx, r8
+  cld
+  rep movsb
+  mov rdi, r9
+  mov rsi, rax
+  jmp @exit
+
+@DontDoRepMovsb:
+  cmp r8, -128
+  jg  @SmallAvxMove
+
+@AvxBigMoveAlignedAll:
+  db $C4, $C1, $7D, $6F, $04, $08          // vmovdqa ymm0, ymmword ptr [rcx+r8]
+  db $C4, $C1, $7D, $6F, $4C, $08, $20     // vmovdqa ymm1, ymmword ptr [rcx+r8+20h]
+  db $C4, $C1, $7D, $6F, $54, $08, $40     // vmovdqa ymm2, ymmword ptr [rcx+r8+40h]
+  db $C4, $C1, $7D, $6F, $5C, $08, $60     // vmovdqa ymm3, ymmword ptr [rcx+r8+60h]
+  db $C4, $C1, $7D, $7F, $04, $10          // vmovdqa ymmword ptr [rdx+r8], ymm0
+  db $C4, $C1, $7D, $7F, $4C, $10, $20     // vmovdqa ymmword ptr [rdx+r8+20h], ymm1
+  db $C4, $C1, $7D, $7F, $54, $10, $40     // vmovdqa ymmword ptr [rdx+r8+40h], ymm2
+  db $C4, $C1, $7D, $7F, $5C, $10, $60     // vmovdqa ymmword ptr [rdx+r8+60h], ymm3
+  add r8, 128
+  cmp r8, -128
+  jl  @AvxBigMoveAlignedAll
+
+@SmallAvxMove:
+
+@MoveLoopAvx:
+  {Move a 16 byte block}
+  db $C4, $A1, $79, $6F, $04, $01  // vmovdqa xmm0,xmmword ptr [rcx+r8]
+  db $C4, $A1, $79, $7F, $04, $02  // vmovdqa xmmword ptr [rdx+r8],xmm0
+  {Are there another 16 bytes to move?}
+  add r8, 16
+  js @MoveLoopAvx
+
+@AvxFinish:
+
+  db $C5, $FD, $EF, $C0          // vpxor       ymm0,ymm0,ymm0
+  db $C5, $F5, $EF, $C9          // vpxor       ymm1,ymm1,ymm1
+  db $C5, $ED, $EF, $D2          // vpxor       ymm2,ymm2,ymm2
+  db $C5, $E5, $EF, $DB          // vpxor       ymm3,ymm3,ymm3
+
+@MoveLast8:
+  {Do the last 8 bytes}
+  mov rcx, [rcx + r8]
+  mov [rdx + r8], rcx
+  {$else unix}
+  {MoveX32LP is not implemented for Unix yet, call the 16-byte version}
+  call MoveX16LP
+  {$endif unix}
+@exit:
+end;
+{$endif}
+
+{This routine is only called with the CPU supports "Enhanced REP MOVSB/STOSB",
+see "Intel 64 and IA-32 Architectures Optimization Reference Manual
+p. 3.7.7 (Enhanced REP MOVSB and STOSB operation (ERMSB)).
+We first check the corresponding bit in the CPUID, and, if it is supported,
+call this routine.}
+
+procedure MoveWithErms(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
+asm
+{$ifdef 32Bit}
+// Under 32-bit Windows or Unix, the call passes first parametr in EAX, second in EDX, third in ECX
+  xchg    esi, eax // save esi
+  xchg    edi, edx // save edi
+  cld
+  rep     movsb
+  xchg    esi, eax // restore esi
+  xchg    edi, edx // restore edi
+{$else}
+  {$ifndef unix}
+.noframe
+// under Win64, first - RCX, second - RDX, third R8; the caller must preserve RSI and RDI
+  mov    r9, rsi
+  mov    r10, rdi
+  mov    rsi, rcx
+  mov    rdi, rdx
+  mov    rcx, r8
+  cld
+  rep    movsb
+  mov    rsi, r9
+  mov    rdi, r10
+  {$else}
+// Under Unix 64 the first 3 arguments are passed in RDI, RSI, RDX
+  xchg   rsi, rdi
+  mov    rcx, rdx
+  cld
+  rep    movsb
+  {$endif}
+{$endif}
+end;
+
+{$ifdef Align32Bytes}
+procedure MoveX32LpUniversal(const ASource; var ADest; ACount: NativeInt);
+begin
+  if (CPUIDTable[CpuIdExtendedFeatures].EBX and AVX2Bit <> 0) then
+  begin
+    if (CPUIDTable[CpuIdExtendedFeatures].EBX and ERMSBBit <> 0) then
+    begin
+      MoveX32LpAvx2WithErms(ASource, ADest, ACount)
+    end else
+    begin
+      MoveX32LpAvx2NoErms(ASource, ADest, ACount)
+    end;
+  end else
+  if (CPUIDTable[CpuIdBasicFeatures].ECX and AVX1Bit) <> 0 then
+  begin
+    MoveX32LpAvx1NoErms(ASource, ADest, ACount)
+  end else
+  begin
+    if (CPUIDTable[CpuIdExtendedFeatures].EBX and ERMSBBit <> 0) then
+    begin
+      MoveWithErms(ASource, ADest, ACount)
+    end else
+    begin
+      MoveX16LP(ASource, ADest, ACount)
+    end;
+  end;
+end;
+{$endif}
 
 {Variable size move procedure: Rounds ACount up to the next multiple of 8 less
  SizeOf(Pointer). Important note: Always moves at least 8 - SizeOf(Pointer)
@@ -3912,10 +5184,10 @@ begin
   begin
     {Get the bin number for this block size}
     LBinNumber := (UIntPtr(LNextFreeBlock) - UIntPtr(@MediumBlockBins)) div SizeOf(TMediumFreeBlock);
-    LBinGroupNumber := LBinNumber div 32;
+    LBinGroupNumber := LBinNumber div 32 {magic};
     {Flag this bin as empty}
     MediumBlockBinBitmaps[LBinGroupNumber] := MediumBlockBinBitmaps[LBinGroupNumber]
-      and (not (1 shl (LBinNumber and 31)));
+      and (not (1 shl (LBinNumber and 31 {magic})));
     {Is the group now entirely empty?}
     if MediumBlockBinBitmaps[LBinGroupNumber] = 0 then
     begin
@@ -3949,13 +5221,13 @@ asm
   {Get the bin number for this block size in ecx}
   sub ecx, offset MediumBlockBins
   mov edx, ecx
-  shr ecx, 3
+  shr ecx, 3 {magic}
   {Get the group number in edx}
   movzx edx, dh
   {Flag this bin as empty}
   mov eax, -2
   rol eax, cl
-  and dword ptr [MediumBlockBinBitmaps + edx * 4], eax
+  and dword ptr [MediumBlockBinBitmaps + edx * 4], eax {magic}
   jnz @Done
   {Flag this group as empty}
   mov eax, -2
@@ -3983,14 +5255,14 @@ asm
   lea r8, MediumBlockBins
   sub rcx, r8
   mov edx, ecx
-  shr ecx, 4
+  shr ecx, 4 {magic}
   {Get the group number in edx}
-  shr edx, 9
+  shr edx, 9 {magic}
   {Flag this bin as empty}
   mov eax, -2
   rol eax, cl
   lea r8, MediumBlockBinBitmaps
-  and dword ptr [r8 + rdx * 4], eax
+  and dword ptr [r8 + rdx * 4], eax {magic}
   jnz @Done
   {Flag this group as empty}
   mov eax, -2
@@ -4026,10 +5298,10 @@ begin
   if LPFirstFreeBlock = LPBin then
   begin
     {Get the group number}
-    LBinGroupNumber := LBinNumber div 32;
+    LBinGroupNumber := LBinNumber div 32 {magic};
     {Flag this bin as used}
     MediumBlockBinBitmaps[LBinGroupNumber] := MediumBlockBinBitmaps[LBinGroupNumber]
-      or (1 shl (LBinNumber and 31));
+      or (1 shl (LBinNumber and 31 {magic}));
     {Flag the group as used}
     MediumBlockBinGroupBitmap := MediumBlockBinGroupBitmap
       or (1 shl LBinGroupNumber);
@@ -4042,14 +5314,14 @@ asm
   {Get the bin number for this block size. Get the bin that holds blocks of at
    least this size.}
   sub edx, MinimumMediumBlockSize
-  shr edx, 8
+  shr edx, 8 {magic}
   {Validate the bin number}
   sub edx, MediumBlockBinCount - 1
   sbb ecx, ecx
   and edx, ecx
   add edx, MediumBlockBinCount - 1
   {Get the bin in ecx}
-  lea ecx, [MediumBlockBins + edx * 8]
+  lea ecx, [MediumBlockBins + edx * 8] {magic}
   {Bins are LIFO, se we insert this block as the first free block in the bin}
   mov edx, TMediumFreeBlock[ecx].NextFreeBlock
   {Was this bin empty?}
@@ -4068,13 +5340,13 @@ asm
   {Get the bin number in ecx}
   sub ecx, offset MediumBlockBins
   mov edx, ecx
-  shr ecx, 3
+  shr ecx, 3 {magic}
   {Get the group number in edx}
   movzx edx, dh
   {Flag this bin as not empty}
   mov eax, 1
   shl eax, cl
-  or dword ptr [MediumBlockBinBitmaps + edx * 4], eax
+  or dword ptr [MediumBlockBinBitmaps + edx * 4], eax {magic}
   {Flag the group as not empty}
   mov eax, 1
   mov ecx, edx
@@ -4088,7 +5360,7 @@ asm
   {Get the bin number for this block size. Get the bin that holds blocks of at
    least this size.}
   sub edx, MinimumMediumBlockSize
-  shr edx, 8
+  shr edx, 8 {magic}
   {Validate the bin number}
   sub edx, MediumBlockBinCount - 1
   sbb ecx, ecx
@@ -4097,7 +5369,7 @@ asm
   mov r9, rdx
   {Get the bin address in rcx}
   lea rcx, MediumBlockBins
-  shl edx, 4
+  shl edx, 4 {magic}
   add rcx, rdx
   {Bins are LIFO, se we insert this block as the first free block in the bin}
   mov rdx, TMediumFreeBlock[rcx].NextFreeBlock
@@ -4113,12 +5385,12 @@ asm
   mov rcx, r9
   {Get the group number in edx}
   mov rdx, r9
-  shr edx, 5
+  shr edx, 5 {magic}
   {Flag this bin as not empty}
   mov eax, 1
   shl eax, cl
   lea r8, MediumBlockBinBitmaps
-  or dword ptr [r8 + rdx * 4], eax
+  or dword ptr [r8 + rdx * 4], eax {magic}
   {Flag the group as not empty}
   mov eax, 1
   mov ecx, edx
@@ -4632,7 +5904,11 @@ begin
       LOldUserSize := PLargeBlockHeader(PByte(APointer) - LargeBlockHeaderSize).UserAllocatedSize;
       {The number of bytes to move is the old user size.}
 {$ifdef UseCustomVariableSizeMoveRoutines}
+   {$ifdef Align32Bytes}
+      MoveX32LPUniversal(APointer^, Result^, LOldUserSize);
+   {$else}
       MoveX16LP(APointer^, Result^, LOldUserSize);
+   {$endif}
 {$else}
       System.Move(APointer^, Result^, LOldUserSize);
 {$endif}
@@ -4663,10 +5939,14 @@ begin
           PLargeBlockHeader(PByte(APointer) - LargeBlockHeaderSize).UserAllocatedSize := ANewSize;
         {Move the data across}
 {$ifdef UseCustomVariableSizeMoveRoutines}
+{$ifdef Align32Bytes}
+        MoveX32LPUniversal(APointer^, Result^, ANewSize);
+{$else}
 {$ifdef Align16Bytes}
         MoveX16LP(APointer^, Result^, ANewSize);
 {$else}
         MoveX8LP(APointer^, Result^, ANewSize);
+{$endif}
 {$endif}
 {$else}
         System.Move(APointer^, Result^, ANewSize);
@@ -4717,10 +5997,11 @@ begin
   begin
     {-------------------------Allocate a small block---------------------------}
     {Get the block type from the size}
-    LPSmallBlockType := PSmallBlockType(AllocSize2SmallBlockTypeIndX4[
-      (NativeUInt(ASize) + (BlockHeaderSize - 1)) div SmallBlockGranularity]
-      * (SizeOf(TSmallBlockType) div 4)
-      + UIntPtr(@SmallBlockTypes));
+    LPSmallBlockType := PSmallBlockType(
+      AllocSize2SmallBlockTypesIdx[(NativeUInt(ASize) + (BlockHeaderSize - 1)) div SmallBlockGranularity]
+        * (SmallBlockTypeRecSize)
+        + UIntPtr(@SmallBlockTypes)
+    );
 {$ifdef UseReleaseStack}
     LPReleaseStack := @LPSmallBlockType.ReleaseStack[GetStackSlot];
     if (not LPReleaseStack^.IsEmpty) and LPReleaseStack^.Pop(Result) then
@@ -4737,15 +6018,15 @@ begin
         if LockCmpxchg(0, 1, @LPSmallBlockType.BlockTypeLocked) = 0 then
           Break;
         {Try the next block type}
-        Inc(PByte(LPSmallBlockType), SizeOf(TSmallBlockType));
+        Inc(PByte(LPSmallBlockType), SmallBlockTypeRecSize);
         if LockCmpxchg(0, 1, @LPSmallBlockType.BlockTypeLocked) = 0 then
           Break;
         {Try up to two sizes past the requested size}
-        Inc(PByte(LPSmallBlockType), SizeOf(TSmallBlockType));
+        Inc(PByte(LPSmallBlockType), SmallBlockTypeRecSize);
         if LockCmpxchg(0, 1, @LPSmallBlockType.BlockTypeLocked) = 0 then
           Break;
         {All three sizes locked - given up and sleep}
-        Dec(PByte(LPSmallBlockType), 2 * SizeOf(TSmallBlockType));
+        Dec(PByte(LPSmallBlockType), 2 * SmallBlockTypeRecSize);
 {$ifdef LogLockContention}
         ACollector := @LPSmallBlockType.BlockCollector;
 {$endif}
@@ -4827,7 +6108,7 @@ begin
           LBinGroupNumber := FindFirstSetBit(LBinGroupsMasked);
           {Get the bin in the group with free blocks}
           LBinNumber := FindFirstSetBit(MediumBlockBinBitmaps[LBinGroupNumber])
-            + LBinGroupNumber * 32;
+            + LBinGroupNumber * 32 {magic};
           LPMediumBin := @MediumBlockBins[LBinNumber];
           {Get the first block in the bin}
           LMediumBlock := LPMediumBin.NextFreeBlock;
@@ -4840,7 +6121,7 @@ begin
           begin
             {Flag this bin as empty}
             MediumBlockBinBitmaps[LBinGroupNumber] := MediumBlockBinBitmaps[LBinGroupNumber]
-              and (not (1 shl (LBinNumber and 31)));
+              and (not (1 shl (LBinNumber and 31 {magic})));
             {Is the group now entirely empty?}
             if MediumBlockBinBitmaps[LBinGroupNumber] = 0 then
             begin
@@ -4981,13 +6262,13 @@ begin
         ACollector := @MediumBlockCollector;
 {$endif}
       {Calculate the bin group}
-      LBinGroupNumber := LBinNumber div 32;
+      LBinGroupNumber := LBinNumber div 32{magic};
       {Is there a suitable block inside this group?}
-      LBinGroupMasked := MediumBlockBinBitmaps[LBinGroupNumber] and -(1 shl (LBinNumber and 31));
+      LBinGroupMasked := MediumBlockBinBitmaps[LBinGroupNumber] and -(1 shl (LBinNumber and 31 {magic}));
       if LBinGroupMasked <> 0 then
       begin
         {Get the actual bin number}
-        LBinNumber := FindFirstSetBit(LBinGroupMasked) + LBinGroupNumber * 32;
+        LBinNumber := FindFirstSetBit(LBinGroupMasked) + LBinGroupNumber * 32 {magic};
       end
       else
       begin
@@ -5000,7 +6281,7 @@ begin
           LBinGroupNumber := FindFirstSetBit(LBinGroupsMasked);
           {Get the bin in the group with free blocks}
           LBinNumber := FindFirstSetBit(MediumBlockBinBitmaps[LBinGroupNumber])
-            + LBinGroupNumber * 32;
+            + LBinGroupNumber * 32 {magic};
         end
         else
         begin
@@ -5164,11 +6445,8 @@ asm
   {Since most allocations are for small blocks, determine the small block type
    index so long}
   lea edx, [eax + BlockHeaderSize - 1]
-{$ifdef Align16Bytes}
-  shr edx, 4
-{$else}
-  shr edx, 3
-{$endif}
+  {Divide edx by SmallBlockGranularity which is always power of 2}
+  shr edx, SmallBlockGranularityBits
   {Is it a small block?}
   cmp eax, (MaximumSmallBlockSize - BlockHeaderSize)
   {Save ebx}
@@ -5188,8 +6466,8 @@ asm
   test cl, cl
 {$endif}
   {Get the small block type in ebx}
-  movzx eax, byte ptr [AllocSize2SmallBlockTypeIndX4 + edx]
-  lea ebx, [SmallBlockTypes + eax * 8]
+  movzx eax, byte ptr [AllocSize2SmallBlockTypesOfsDivScaleFactor + edx]
+  lea ebx, [SmallBlockTypes + eax * MaximumCpuScaleFactor]
   {Do we need to lock the block type?}
 {$ifndef AssumeMultiThreaded}
   jnz @LockBlockTypeLoop
@@ -5337,12 +6615,12 @@ asm
   {Get the bin group number with free blocks in eax}
   bsf eax, esi
   {Get the bin number in ecx}
-  lea esi, [eax * 8]
-  mov ecx, dword ptr [MediumBlockBinBitmaps + eax * 4]
+  lea esi, [eax * 8] {magic}
+  mov ecx, dword ptr [MediumBlockBinBitmaps + eax * 4]  {magic}
   bsf ecx, ecx
-  lea ecx, [ecx + esi * 4]
+  lea ecx, [ecx + esi * 4]  {magic}
   {Get a pointer to the bin in edi}
-  lea edi, [MediumBlockBins + ecx * 8]
+  lea edi, [MediumBlockBins + ecx * 8]  {magic}
   {Get the free block in esi}
   mov esi, TMediumFreeBlock[edi].NextFreeBlock
   {Remove the first block from the linked list (LIFO)}
@@ -5356,7 +6634,7 @@ asm
   {Flag this bin as empty}
   mov edx, -2
   rol edx, cl
-  and dword ptr [MediumBlockBinBitmaps + eax * 4], edx
+  and dword ptr [MediumBlockBinBitmaps + eax * 4], edx  {magic}
   jnz @MediumBinNotEmpty
   {Flag the group as empty}
   btr MediumBlockBinGroupBitmap, eax
@@ -5481,12 +6759,12 @@ asm
   {Get the bin number in ecx and the group number in edx}
   lea edx, [ebx - MinimumMediumBlockSize]
   mov ecx, edx
-  shr edx, 8 + 5
-  shr ecx, 8
+  shr edx, 8 + 5 {magic}
+  shr ecx, 8 {magic}
   {Is there a suitable block inside this group?}
   mov eax, -1
   shl eax, cl
-  and eax, dword ptr [MediumBlockBinBitmaps + edx * 4]
+  and eax, dword ptr [MediumBlockBinBitmaps + edx * 4]  {magic}
   jz @GroupIsEmpty
   {Get the actual bin number}
   and ecx, -32
@@ -5505,10 +6783,10 @@ asm
   {There is a suitable group with space: get the bin number}
   bsf edx, eax
   {Get the bin in the group with free blocks}
-  mov eax, dword ptr [MediumBlockBinBitmaps + edx * 4]
+  mov eax, dword ptr [MediumBlockBinBitmaps + edx * 4]  {magic}
   bsf ecx, eax
   mov eax, edx
-  shl eax, 5
+  shl eax, 5 {magic}
   or ecx, eax
   jmp @GotBinAndGroup
   {Align branch target}
@@ -5542,7 +6820,7 @@ asm
   push esi
   push edi
   {Get a pointer to the bin in edi}
-  lea edi, [MediumBlockBins + ecx * 8]
+  lea edi, [MediumBlockBins + ecx * 8]  {magic}
   {Get the free block in esi}
   mov esi, TMediumFreeBlock[edi].NextFreeBlock
   {Remove the first block from the linked list (LIFO)}
@@ -5556,7 +6834,7 @@ asm
   {Flag this bin as empty}
   mov eax, -2
   rol eax, cl
-  and dword ptr [MediumBlockBinBitmaps + edx * 4], eax
+  and dword ptr [MediumBlockBinBitmaps + edx * 4], eax  {magic}
   jnz @MediumBinNotEmptyForMedium
   {Flag the group as empty}
   btr MediumBlockBinGroupBitmap, edx
@@ -5616,15 +6894,14 @@ asm
   .pushnv rsi
   .pushnv rdi
   {Since most allocations are for small blocks, determine the small block type
-   index so long}
-  lea edx, [ecx + BlockHeaderSize - 1]
-{$ifdef Align16Bytes}
-  shr edx, 4
-{$else}
-  shr edx, 3
-{$endif}
+   index so long.
+  Because the argument is a 64-bit value, we should operate 64-bit registers here }
+  lea rdx, [rcx + BlockHeaderSize - 1]
+  {Divide rdx by SmallBlockGranularity which is always power of 2}
+  shr rdx, SmallBlockGranularityBits
+
   {Preload the addresses of some small block structures}
-  lea r8, AllocSize2SmallBlockTypeIndX4
+  lea r8, AllocSize2SmallBlockTypesIdx
   lea rbx, SmallBlockTypes
 {$ifndef AssumeMultiThreaded}
   {Get the IsMultiThread variable so long}
@@ -5635,7 +6912,8 @@ asm
   ja @NotASmallBlock
   {Get the small block type pointer in rbx}
   movzx ecx, byte ptr [r8 + rdx]
-  shl ecx, 4 //SizeOf(TSmallBlockType) = 64
+  {The offset in the array wan't be bigger than 2^32 anyway, but an ecx instruction takes one byte less than the rcx one}
+  shl ecx, SmallBlockTypeRecSizeBits
   add rbx, rcx
   {Do we need to lock the block type?}
 {$ifndef AssumeMultiThreaded}
@@ -5749,13 +7027,13 @@ asm
   bsf eax, esi
   {Get the bin number in ecx}
   lea r8, MediumBlockBinBitmaps
-  lea r9, [rax * 4]
+  lea r9, [rax * 4]  {magic}
   mov ecx, [r8 + r9]
   bsf ecx, ecx
-  lea ecx, [ecx + r9d * 8]
+  lea ecx, [ecx + r9d * 8]  {magic}
   {Get a pointer to the bin in edi}
   lea rdi, MediumBlockBins
-  lea esi, [ecx * 8]
+  lea esi, [ecx * 8]  {magic}
   lea rdi, [rdi + rsi * 2] //SizeOf(TMediumBlockBin) = 16
   {Get the free block in rsi}
   mov rsi, TMediumFreeBlock[rdi].NextFreeBlock
@@ -5868,7 +7146,10 @@ asm
   cmp rcx, (MaximumMediumBlockSize - BlockHeaderSize)
   ja @IsALargeBlockRequest
   {Get the bin size for this block size. Block sizes are
-   rounded up to the next bin size.}
+   rounded up to the next bin size.
+   Now we have a designed block size in ecx, it is for sure smaller than 32 bits,
+   because it is less than the value of the MaximumMediumBlockSize constant,
+   so we just use ecx/ebx here for smaller opcodes, not rcx/rbx  }
   lea ebx, [ecx + MediumBlockGranularity - 1 + BlockHeaderSize - MediumBlockSizeOffset]
   and ebx, -MediumBlockGranularity
   add ebx, MediumBlockSizeOffset
@@ -5882,13 +7163,13 @@ asm
   {Get the bin number in ecx and the group number in edx}
   lea edx, [ebx - MinimumMediumBlockSize]
   mov ecx, edx
-  shr edx, 8 + 5
-  shr ecx, 8
+  shr edx, 8 + 5 {magic}
+  shr ecx, 8 {magic}
   {Is there a suitable block inside this group?}
   mov eax, -1
   shl eax, cl
   lea r8, MediumBlockBinBitmaps
-  and eax, [r8 + rdx * 4]
+  and eax, [r8 + rdx * 4]  {magic}
   jz @GroupIsEmpty
   {Get the actual bin number}
   and ecx, -32
@@ -5905,10 +7186,10 @@ asm
   {There is a suitable group with space: get the bin number}
   bsf edx, eax
   {Get the bin in the group with free blocks}
-  mov eax, [r8 + rdx * 4]
+  mov eax, [r8 + rdx * 4]  {magic}
   bsf ecx, eax
   mov eax, edx
-  shl eax, 5
+  shl eax, 5 {magic}
   or ecx, eax
   jmp @GotBinAndGroup
 @TrySequentialFeedMedium:
@@ -5938,7 +7219,7 @@ asm
   {Get a pointer to the bin in edi}
   lea rdi, MediumBlockBins
   lea eax, [ecx + ecx]
-  lea rdi, [rdi + rax * 8]
+  lea rdi, [rdi + rax * 8]  {magic}
   {Get the free block in esi}
   mov rsi, TMediumFreeBlock[rdi].NextFreeBlock
   {Remove the first block from the linked list (LIFO)}
@@ -5953,7 +7234,7 @@ asm
   mov eax, -2
   rol eax, cl
   lea r8, MediumBlockBinBitmaps
-  and [r8 + rdx * 4], eax
+  and [r8 + rdx * 4], eax  {magic}
   jnz @MediumBinNotEmptyForMedium
   {Flag the group as empty}
   btr MediumBlockBinGroupBitmap, edx
@@ -5971,7 +7252,7 @@ asm
   lea rax, [rdx + IsMediumBlockFlag + IsFreeBlockFlag]
   mov [rcx - BlockHeaderSize], rax
   {Store the size of the second split as the second last dword}
-  mov [rcx + rdx - BlockHeaderSize * 2], rdx
+  mov [rcx + rdx - BlockHeaderSize * 2], rdx  {magic}
   {Put the remainder in a bin}
   cmp edx, MinimumMediumBlockSize
   jb @GotMediumBlockForMedium
@@ -7213,7 +8494,7 @@ begin
       {It's a downsize. Do we need to allocate a smaller block? Only if the new
        block size is less than a quarter of the available size less
        SmallBlockDownsizeCheckAdder bytes}
-      if (NativeUInt(ANewSize) * 4 + SmallBlockDownsizeCheckAdder) >= LOldAvailableSize then
+      if (NativeUInt(ANewSize) * 4 {magic} + SmallBlockDownsizeCheckAdder) >= LOldAvailableSize then
       begin
         {In-place downsize - return the pointer}
         Result := APointer;
@@ -7228,10 +8509,14 @@ begin
         begin
           {Move the data across}
 {$ifdef UseCustomVariableSizeMoveRoutines}
+  {$ifdef Align32Bytes}
+          MoveX32LPUniversal(APointer^, Result^, ANewSize);
+  {$else}
   {$ifdef Align16Bytes}
           MoveX16LP(APointer^, Result^, ANewSize);
   {$else}
           MoveX8LP(APointer^, Result^, ANewSize);
+  {$endif}
   {$endif}
 {$else}
           System.Move(APointer^, Result^, ANewSize);
@@ -7367,7 +8652,11 @@ begin
             PLargeBlockHeader(PByte(Result) - LargeBlockHeaderSize).UserAllocatedSize := ANewSize;
           {Move the data across}
 {$ifdef UseCustomVariableSizeMoveRoutines}
+   {$ifdef Align32Bytes}
+          MoveX32LPUniversal(APointer^, Result^, LOldAvailableSize);
+   {$else}
           MoveX16LP(APointer^, Result^, LOldAvailableSize);
+   {$endif}
 {$else}
           System.Move(APointer^, Result^, LOldAvailableSize);
 {$endif}
@@ -7418,10 +8707,14 @@ begin
               begin
                 {Move the data across}
 {$ifdef UseCustomVariableSizeMoveRoutines}
+  {$ifdef Align32Bytes}
+                MoveX32LPUniversal(APointer^, Result^, ANewSize);
+  {$else}
   {$ifdef Align16Bytes}
                 MoveX16LP(APointer^, Result^, ANewSize);
   {$else}
                 MoveX8LP(APointer^, Result^, ANewSize);
+  {$endif}
   {$endif}
 {$else}
                 System.Move(APointer^, Result^, ANewSize);
@@ -7521,7 +8814,7 @@ asm
   {It's a downsize. Do we need to allocate a smaller block? Only if the new
    size is less than a quarter of the available size less
    SmallBlockDownsizeCheckAdder bytes}
-  lea ebx, [edx * 4 + SmallBlockDownsizeCheckAdder]
+  lea ebx, [edx * 4 + SmallBlockDownsizeCheckAdder] {magic}
   cmp ebx, ecx
   jb @NotSmallInPlaceDownsize
   {In-place downsize - return the original pointer}
@@ -7554,10 +8847,14 @@ asm
   mov eax, esi
   {Move the data across}
 {$ifdef UseCustomVariableSizeMoveRoutines}
+  {$ifdef Align32Bytes}
+  call MoveX32LPUniversal
+  {$else}
   {$ifdef Align16Bytes}
   call MoveX16LP
   {$else}
   call MoveX8LP
+  {$endif}
   {$endif}
 {$else}
   call System.Move
@@ -7802,10 +9099,14 @@ asm
   mov ecx, edi
   {Move the data across}
 {$ifdef UseCustomVariableSizeMoveRoutines}
+  {$ifdef Align32Bytes}
+  call MoveX32LPUniversal
+  {$else}
   {$ifdef Align16Bytes}
   call MoveX16LP
   {$else}
   call MoveX8LP
+  {$endif}
   {$endif}
 {$else}
   call System.Move
@@ -7980,7 +9281,11 @@ asm
   mov eax, esi
   mov ecx, edi
 {$ifdef UseCustomVariableSizeMoveRoutines}
+{$ifdef Align32Bytes}
+  call MoveX32LPUniversal
+{$else}
   call MoveX16LP
+{$endif}
 {$else}
   call System.Move
 {$endif}
@@ -8058,7 +9363,7 @@ asm
   {It's a downsize. Do we need to allocate a smaller block? Only if the new
    size is less than a quarter of the available size less
    SmallBlockDownsizeCheckAdder bytes}
-  lea ebx, [edx * 4 + SmallBlockDownsizeCheckAdder]
+  lea ebx, [edx * 4 + SmallBlockDownsizeCheckAdder] {magic}
   cmp ebx, ecx
   jb @NotSmallInPlaceDownsize
   {In-place downsize - return the original pointer}
@@ -8083,10 +9388,14 @@ asm
   mov rcx, rsi
   {Move the data across}
 {$ifdef UseCustomVariableSizeMoveRoutines}
+  {$ifdef Align32Bytes}
+  call MoveX32LPUniversal
+  {$else}
   {$ifdef Align16Bytes}
   call MoveX16LP
   {$else}
   call MoveX8LP
+  {$endif}
   {$endif}
 {$else}
   call System.Move
@@ -8274,10 +9583,14 @@ asm
   mov r8, rdi
   {Move the data across}
 {$ifdef UseCustomVariableSizeMoveRoutines}
+  {$ifdef Align32Bytes}
+  call MoveX32LPUniversal
+  {$else}
   {$ifdef Align16Bytes}
   call MoveX16LP
   {$else}
   call MoveX8LP
+  {$endif}
   {$endif}
 {$else}
   call System.Move
@@ -8430,7 +9743,11 @@ asm
   mov rcx, rsi
   mov r8, rdi
 {$ifdef UseCustomVariableSizeMoveRoutines}
+{$ifdef Align32Bytes}
+  call MoveX32LPUniversal
+{$else}
   call MoveX16LP
+{$endif}
 {$else}
   call System.Move
 {$endif}
@@ -9206,7 +10523,7 @@ begin
   end;
   {Compare the byte value}
   Result := Byte(PByte(PByte(APointer) + SizeOf(TFullDebugBlockHeader) + AUserOffset)^) <>
-    Byte(RotateRight(LFillPattern, (AUserOffset and (SizeOf(Pointer) - 1)) * 8));
+    Byte(RotateRight(LFillPattern, (AUserOffset and (SizeOf(Pointer) - 1)) * 8 {magic}));
 end;
 
 function LogBlockChanges(APointer: PFullDebugBlockHeader; ABuffer: PAnsiChar): PAnsiChar;
@@ -9559,7 +10876,7 @@ begin
     {$ifndef CatchUseOfFreedInterfaces}
       DebugFillPattern;
     {$else}
-      RotateRight(NativeUInt(@VMTBadInterface), (APBlock.UserSize and (SizeOf(Pointer) - 1)) * 8);
+      RotateRight(NativeUInt(@VMTBadInterface), (APBlock.UserSize and (SizeOf(Pointer) - 1)) * 8 {magic});
     {$endif}
     {Check that all the filler bytes are valid inside the block, except for
      the "dummy" class header}
@@ -9623,7 +10940,7 @@ begin
         {$ifndef CatchUseOfFreedInterfaces}
           DebugFillPattern;
         {$else}
-          RotateRight(NativeUInt(@VMTBadInterface), (PFullDebugBlockHeader(Result).UserSize and (SizeOf(Pointer) - 1)) * 8);
+          RotateRight(NativeUInt(@VMTBadInterface), (PFullDebugBlockHeader(Result).UserSize and (SizeOf(Pointer) - 1)) * 8 {magic});
         {$endif}
         {Set the user size for the block}
         PFullDebugBlockHeader(Result).UserSize := ASize;
@@ -9870,7 +11187,7 @@ begin
 {$ifndef CatchUseOfFreedInterfaces}
           DebugFillPattern);
 {$else}
-          RotateRight(NativeUInt(@VMTBadInterface), (ANewSize and (SizeOf(Pointer) - 1)) * 8));
+          RotateRight(NativeUInt(@VMTBadInterface), (ANewSize and (SizeOf(Pointer) - 1)) * 8 {magic}));
 {$endif}
         {Update the user size}
         LActualBlock.UserSize := ANewSize;
@@ -11244,7 +12561,7 @@ var
     Dec(LSmallBlockSize, FullDebugBlockOverhead);
   {$endif}
     {Get the block type index}
-    LBlockTypeIndex := (UIntPtr(APSmallBlockPool.BlockType) - UIntPtr(@SmallBlockTypes[0])) div SizeOf(TSmallBlockType);
+    LBlockTypeIndex := (UIntPtr(APSmallBlockPool.BlockType) - UIntPtr(@SmallBlockTypes[0])) shr SmallBlockTypeRecSizeBits;
     LPLeakedClasses := @LSmallBlockLeaks[LBlockTypeIndex];
     {Get the first and last pointer for the pool}
     GetFirstAndLastSmallBlockInPool(APSmallBlockPool, LCurPtr, LEndPtr);
@@ -11696,7 +13013,7 @@ begin
         if (LMediumBlockHeader and IsSmallBlockPoolInUseFlag) <> 0 then
         begin
           {Get the block type index}
-          LBlockTypeIndex := (UIntPtr(PSmallBlockPoolHeader(LPMediumBlock).BlockType) - UIntPtr(@SmallBlockTypes[0])) div SizeOf(TSmallBlockType);
+          LBlockTypeIndex := (UIntPtr(PSmallBlockPoolHeader(LPMediumBlock).BlockType) - UIntPtr(@SmallBlockTypes[0])) shr SmallBlockTypeRecSizeBits;
           {Subtract from medium block usage}
           Dec(AMemoryManagerState.ReservedMediumBlockAddressSpace, LMediumBlockSize);
           {Add it to the reserved space for the block size}
@@ -11824,13 +13141,13 @@ begin
   LargeBlocksLocked := False;
   {Fill in the rest of the map}
   LInd := 0;
-  while LInd <= 65535 do
+  while LInd <= 65535 {magic} do
   begin
     {If the chunk is not allocated by this MM, what is its status?}
     if AMemoryMap[LInd] = csUnallocated then
     begin
       {Query the address space starting at the chunk boundary}
-      if VirtualQuery(Pointer(LInd * 65536), LMBI, SizeOf(LMBI)) = 0 then
+      if VirtualQuery(Pointer(LInd * 65536 {magic}), LMBI, SizeOf(LMBI)) = 0 then
       begin
         {VirtualQuery may fail for addresses >2GB if a large address space is
          not enabled.}
@@ -11908,7 +13225,7 @@ begin
         if (LMediumBlockHeader and IsSmallBlockPoolInUseFlag) <> 0 then
         begin
           {Get the block type index}
-          LBlockTypeIndex := (UIntPtr(PSmallBlockPoolHeader(LPMediumBlock).BlockType) - UIntPtr(@SmallBlockTypes[0])) div SizeOf(TSmallBlockType);
+          LBlockTypeIndex := (UIntPtr(PSmallBlockPoolHeader(LPMediumBlock).BlockType) - UIntPtr(@SmallBlockTypes[0])) shr SmallBlockTypeRecSizeBits;
           {Get the usage in the block}
           LSmallBlockUsage := PSmallBlockPoolHeader(LPMediumBlock).BlocksInUse
             * SmallBlockTypes[LBlockTypeIndex].BlockSize;
@@ -12443,6 +13760,9 @@ begin
   {Initialize the memory manager}
   {-------------Set up the small block types-------------}
   LPreviousBlockSize := 0;
+
+
+
   for LInd := 0 to High(SmallBlockTypes) do
   begin
     {Set the move procedure}
@@ -12450,9 +13770,117 @@ begin
     {The upsize move procedure may move chunks in 16 bytes even with 8-byte
     alignment, since the new size will always be at least 8 bytes bigger than
     the old size.}
+
+{$ifdef 64Bit}
+{$ifdef EnableAVX}
+    if (CPUIDTable[CpuIdExtendedFeatures].EBX and AVX2Bit <> 0) then
+    begin
+      case SmallBlockTypes[LInd].BlockSize of
+{$ifndef Align32Bytes}
+{$ifndef Align16Bytes}
+         24: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move20AVX2;
+{$endif}
+{$endif}
+         32: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move24AVX2;
+{$ifndef Align32Bytes}
+{$ifndef Align16Bytes}
+         40: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move36AVX2;
+{$endif}
+         48: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move40AVX2;
+{$ifndef Align16Bytes}
+         56: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move52AVX2;
+{$endif}
+{$endif}
+         64: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move56AVX2;
+{$ifndef Align32Bytes}
+{$ifndef Align16Bytes}
+         72: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move68AVX2;
+{$endif}
+         80: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move72AVX2;
+{$endif}
+         96: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move88AVX2;
+{$ifndef Align32Bytes}
+         112: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move104AVX2;
+{$endif}
+         128: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move120AVX2;
+{$ifndef Align32Bytes}
+         144: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move136AVX2;
+{$endif}
+     end;
+    end else
+    if (CPUIDTable[CpuIdBasicFeatures].ECX and AVX1Bit) <> 0 then
+    begin
+      case SmallBlockTypes[LInd].BlockSize of
+{$ifndef Align32Bytes}
+{$ifndef Align16Bytes}
+         24: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move20AVX1;
+{$endif}
+{$endif}
+         32: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move24AVX1;
+{$ifndef Align32Bytes}
+{$ifndef Align16Bytes}
+         40: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move36AVX1;
+{$endif}
+         48: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move40AVX1;
+{$ifndef Align16Bytes}
+         56: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move52AVX1;
+{$endif}
+{$endif}
+         64: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move56AVX1;
+{$ifndef Align32Bytes}
+{$ifndef Align16Bytes}
+         72: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move68AVX1;
+{$endif}
+         80: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move72AVX1;
+{$endif}
+         96: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move88AVX1;
+{$ifndef Align32Bytes}
+         112: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move104AVX1;
+{$endif}
+         128: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move120AVX1;
+{$ifndef Align32Bytes}
+         144: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move136AVX1;
+{$endif}
+     end;
+    end;
+{$endif}
+{$endif}
+
     if not Assigned(SmallBlockTypes[LInd].UpsizeMoveProcedure) then
   {$ifdef UseCustomVariableSizeMoveRoutines}
-      SmallBlockTypes[LInd].UpsizeMoveProcedure := MoveX16LP;
+    {$ifdef Align32Bytes}
+    if (CPUIDTable[CpuIdExtendedFeatures].EBX and AVX2Bit <> 0) then
+    begin
+      if (CPUIDTable[CpuIdExtendedFeatures].EBX and ERMSBBit <> 0) then
+      begin
+        SmallBlockTypes[LInd].UpsizeMoveProcedure := MoveX32LpAvx2WithErms;
+      end else
+      begin
+        SmallBlockTypes[LInd].UpsizeMoveProcedure := MoveX32LpAvx2NoErms;
+      end;
+    end else
+    if (CPUIDTable[CpuIdBasicFeatures].ECX and AVX1Bit) <> 0 then
+    begin
+      SmallBlockTypes[LInd].UpsizeMoveProcedure := MoveX32LpAvx1NoErms;
+    end else
+    begin
+      if (CPUIDTable[CpuIdExtendedFeatures].EBX and ERMSBBit <> 0) then
+      begin
+        SmallBlockTypes[LInd].UpsizeMoveProcedure := MoveWithErms;
+      end else
+      begin
+        SmallBlockTypes[LInd].UpsizeMoveProcedure := MoveX16LP;
+      end;
+    end;
+    {$else}
+      if (CPUIDTable[CpuIdExtendedFeatures].EBX and ERMSBBit <> 0) then
+      begin
+        SmallBlockTypes[LInd].UpsizeMoveProcedure := MoveWithErms;
+      end else
+      begin
+        SmallBlockTypes[LInd].UpsizeMoveProcedure := MoveX16LP;
+      end;
+    {$endif}
   {$else}
       SmallBlockTypes[LInd].UpsizeMoveProcedure := @System.Move;
   {$endif}
@@ -12467,7 +13895,11 @@ begin
     SmallBlockTypes[LInd].NextPartiallyFreePool := @SmallBlockTypes[LInd];
     {Set the block size to block type index translation table}
     for LSizeInd := (LPreviousBlockSize div SmallBlockGranularity) to ((SmallBlockTypes[LInd].BlockSize - 1) div SmallBlockGranularity) do
-      AllocSize2SmallBlockTypeIndX4[LSizeInd] := LInd * 4;
+   {$ifdef AllocSize2SmallBlockTypesPrecomputedOffsets}
+      AllocSize2SmallBlockTypesOfsDivScaleFactor[LSizeInd] := LInd shl (SmallBlockTypeRecSizeBits - MaximumCpuScaleFactorBits);
+   {$else}
+      AllocSize2SmallBlockTypesIdx[LSizeInd] := LInd;
+   {$endif}
     {Cannot sequential feed yet: Ensure that the next address is greater than
      the maximum address}
     SmallBlockTypes[LInd].MaxSequentialFeedBlockAddress := Pointer(0);
