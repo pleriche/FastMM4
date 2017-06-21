@@ -1887,9 +1887,11 @@ type
   {Move procedure type}
   TMoveProc = procedure(const ASource; var ADest; ACount: NativeInt);
 
-  {Registers structure (for GetCPUID)}
-  TRegisters = record
-    RegEAX, RegEBX, RegECX, RegEDX: Integer;
+  {Registers structure (for GetCPUID)
+  The registers are used solely for the CPUID instruction,
+  thus they are always 32-bit, even under 64-bit mode}
+  TCpuIdRegisters = record
+    RegEAX, RegEBX, RegECX, RegEDX: Cardinal;
   end;
 
   {The layout of a string allocation. Used to detect string leaks.}
@@ -2122,6 +2124,12 @@ const
    size (only used by freed medium blocks).}
   FullDebugBlockOverhead = SizeOf(TFullDebugBlockHeader) + SizeOf(NativeUInt) + SizeOf(Pointer);
 {$endif}
+
+  FastMMCpuFeatureMMX  = 1 shl 0;
+  FastMMCpuFeatureAVX1 = 1 shl 1;
+  FastMMCpuFeatureAVX2 = 1 shl 2;
+  FastMMCpuFeatureERMS = 1 shl 3;
+
 
 {-------------------------Private variables----------------------------}
 var
@@ -2447,12 +2455,25 @@ var
   FastMMIsInstalled: Boolean;
   {Is the MM in place a shared memory manager?}
   IsMemoryManagerOwner: Boolean;
-  {Must MMX be used for move operations?}
+
+
 {$ifdef EnableMMX}
   {$ifndef ForceMMX}
-  UseMMX: Boolean;
+    {$define USE_CPUID}
   {$endif}
 {$endif}
+
+{$ifdef EnableAVX}
+  {$define USE_CPUID}
+{$endif}
+
+{$IFDEF USE_CPUID}
+  {See FastMMCpuFeature... constants.
+  We have packe the most interesting CPUID bits in one byte for faster comparison
+  These features are mostly used for faster memory move operations}
+  FastMMCpuFeatures: Byte;
+{$ENDIF}
+
   {Is a MessageBox currently showing? If so, do not show another one.}
   ShowingMessageBox: Boolean;
   {True if RunInitializationCode has been called already.}
@@ -2499,14 +2520,27 @@ asm
 end;
 {$endif}
 
-{$ifdef EnableMMX}
-{$ifndef ForceMMX}
+{$ifdef USE_CPUID}
 {Returns true if the CPUID instruction is supported}
 function CPUID_Supported: Boolean;
+{$IFDEF 32bit} assembler;
+
+{QUOTE from the Intel 64 and IA-32 Architectures Software Developer’s Manual
+
+22.16.1 Using EFLAGS Flags to Distinguish Between 32-Bit IA-32 Processors
+The following bits in the EFLAGS register that can be used to differentiate between the 32-bit IA-32 processors:
+- Bit 21 (the ID flag) indicates whether an application can execute the CPUID instruction. The ability to set and
+clear this bit indicates that the processor is a P6 family or Pentium processor. The CPUID instruction can then
+be used to determine which processor.
+
+ENDQUOTE}
+
+
 asm
   pushfd
   pop eax
   mov edx, eax
+{Test the bit 21 (the ID flag}
   xor eax, $200000
   push eax
   popfd
@@ -2515,13 +2549,25 @@ asm
   xor eax, edx
   setnz al
 end;
+{$ELSE} inline;
+begin
+  Result := True;
+end;
+{$ENDIF}
+
 
 {Gets the CPUID}
-function GetCPUID(AInfoRequired: Integer): TRegisters;
+function GetCPUID(AEax, AEcx: Cardinal): TCpuIdRegisters; assembler;
+{$ifndef unix}
+{$ifdef 32bit}
 asm
   push ebx
   push esi
-  mov esi, edx
+  mov  esi, ecx
+  mov  ecx, edx
+  {Clear the registers, not really needed, justs for sure/safe}
+  xor  ebx, ebx
+  xor  edx, edx
   {cpuid instruction}
 {$ifdef Delphi4or5}
   db $0f, $a2
@@ -2529,31 +2575,37 @@ asm
   cpuid
 {$endif}
   {Save registers}
-  mov TRegisters[esi].RegEAX, eax
-  mov TRegisters[esi].RegEBX, ebx
-  mov TRegisters[esi].RegECX, ecx
-  mov TRegisters[esi].RegEDX, edx
+  mov TCpuIdRegisters[esi].RegEAX, eax
+  mov TCpuIdRegisters[esi].RegEBX, ebx
+  mov TCpuIdRegisters[esi].RegECX, ecx
+  mov TCpuIdRegisters[esi].RegEDX, edx
   pop esi
   pop ebx
 end;
-
-{Returns true if the CPU supports MMX}
-function MMX_Supported: Boolean;
-var
-  LReg: TRegisters;
-begin
-  if CPUID_Supported then
-  begin
-    {Get the CPUID}
-    LReg := GetCPUID(1);
-    {Bit 23 must be set for MMX support}
-    Result := LReg.RegEDX and $800000 <> 0;
-  end
-  else
-    Result := False;
+{$else}
+asm
+  mov r9, rbx
+  mov r10, rcx
+  {Clear the register justs for sure, 32-bit operands in 64-bit mode also clear
+  bits 63-32; moreover, CPUID only operates with 32-bit parts of the registers
+  even in the 64-bit mode}
+  mov eax, edx
+  mov ecx, r8d
+  xor ebx, ebx
+  xor edx, edx
+  cpuid
+  {Save registers}
+  mov TCpuIdRegisters[r10].RegEAX, eax
+  mov TCpuIdRegisters[r10].RegEBX, ebx
+  mov TCpuIdRegisters[r10].RegECX, ecx
+  mov TCpuIdRegisters[r10].RegEDX, edx
+  mov rbx, r9
 end;
 {$endif}
-{$endif}
+{$else}
+Not implemented for Unix yet
+{$endif unix}
+{$endif USE_CPUID}
 
 {Compare [AAddress], CompareVal:
  If Equal: [AAddress] := NewVal and result = CompareVal
@@ -3934,8 +3986,8 @@ asm
   add edx, ecx
 {$ifdef EnableMMX}
   {$ifndef ForceMMX}
-  cmp UseMMX, True
-  jne @FPUMove
+  test FastMMCpuFeatures, FastMMCpuFeatureMMX
+  jz @FPUMove
   {$endif}
   {Make the counter negative based: The last 12 bytes are moved separately}
   neg ecx
@@ -4282,9 +4334,9 @@ end;
 {$ifdef Align32Bytes}
 procedure MoveX32LpUniversal(const ASource; var ADest; ACount: NativeInt);
 begin
-  if (CPUIDTable[CpuIdExtendedFeatures].EBX and AVX2Bit <> 0) then
+  if (FastMMCpuFeatures and FastMMCpuFeatureAVX2) <> 0 then
   begin
-    if (CPUIDTable[CpuIdExtendedFeatures].EBX and ERMSBBit <> 0) then
+    if (FastMMCpuFeatures and FastMMCpuFeatureERMS) <> 0 then
     begin
       MoveX32LpAvx2WithErms(ASource, ADest, ACount)
     end else
@@ -4292,12 +4344,12 @@ begin
       MoveX32LpAvx2NoErms(ASource, ADest, ACount)
     end;
   end else
-  if (CPUIDTable[CpuIdBasicFeatures].ECX and AVX1Bit) <> 0 then
+  if (FastMMCpuFeatures and FastMMCpuFeatureAVX1) <> 0 then
   begin
     MoveX32LpAvx1NoErms(ASource, ADest, ACount)
   end else
   begin
-    if (CPUIDTable[CpuIdExtendedFeatures].EBX and ERMSBBit <> 0) then
+    if (FastMMCpuFeatures and FastMMCpuFeatureERMS) <> 0 then
     begin
       MoveWithErms(ASource, ADest, ACount)
     end else
@@ -4324,8 +4376,8 @@ asm
   neg ecx
 {$ifdef EnableMMX}
   {$ifndef ForceMMX}
-  cmp UseMMX, True
-  jne @FPUMoveLoop
+  test FastMMCpuFeatures, FastMMCpuFeatureMMX
+  jz @FPUMoveLoop
   {$endif}
 @MMXMoveLoop:
   {Move an 8 byte block}
@@ -13638,6 +13690,45 @@ end;
 
 {----------------------------Memory Manager Setup-----------------------------}
 
+{$IFDEF Use_GetEnabledXStateFeatures_WindowsAPICall}
+const
+  // constants from the Windows SDK v10.0.15063
+  XSTATE_LEGACY_FLOATING_POINT        = (0);
+  XSTATE_LEGACY_SSE                   = (1);
+  XSTATE_GSSE                         = (2);
+  XSTATE_AVX                          = (XSTATE_GSSE);
+  XSTATE_MPX_BNDREGS                  = (3);
+  XSTATE_MPX_BNDCSR                   = (4);
+  XSTATE_AVX512_KMASK                 = (5);
+  XSTATE_AVX512_ZMM_H                 = (6);
+  XSTATE_AVX512_ZMM                   = (7);
+  XSTATE_IPT                          = (8);
+  XSTATE_LWP                          = (62);
+  MAXIMUM_XSTATE_FEATURES             = (64);
+{$endif}
+
+function GetCpuXCR(Arg: Integer): Int64; assembler;
+{$ifndef unix}
+asm
+{ EDX:EAX <- XCR[ECX]; }
+ {$IFDEF WIN64}
+   xor   eax, eax
+   xor   edx, edx
+   xgetbv
+   shl   rdx, 32
+   or    rax, rdx
+   xor   rdx, rdx
+ {$ELSE}
+   mov   ecx, eax
+   xor   eax, eax
+   xor   edx, edx
+   db $0F, $01, $D0 // 32-bit assembler doesn't understand XGETBV instruction :(
+ {$ENDIF}
+end;
+{$else}
+Not implemented for Unix yet
+{$endif}
+
 {Checks that no other memory manager has been installed after the RTL MM and
  that there are currently no live pointers allocated through the RTL MM.}
 function CheckCanInstallMemoryManager: Boolean;
@@ -13711,7 +13802,22 @@ procedure InitializeMemoryManager;
 const
   {The size of the Inc(VMTIndex) code in TFreedObject.GetVirtualMethodIndex}
   VMTIndexIncCodeSize = 6;
+
+{$IFDEF Use_GetEnabledXStateFeatures_WindowsAPICall}
+type
+  TGetEnabledXStateFeatures = function: Int64; stdcall;
+{$ENDIF}
+
 var
+{$IFDEF Use_GetEnabledXStateFeatures_WindowsAPICall}
+  FGetEnabledXStateFeatures: TGetEnabledXStateFeatures;
+  EnabledXStateFeatures: Int64;
+{$ENDIF}
+
+  CpuXCR0: Int64;
+  MaxInputValueBasic: Cardinal;
+  LReg0, LReg1, LReg7_0: TCpuIdRegisters;
+
   LInd, LSizeInd, LMinimumPoolSize, LOptimalPoolSize, LGroupNumber,
     LBlocksPerPool, LPreviousBlockSize: Cardinal;
   LPMediumFreeBlock: PMediumFreeBlock;
@@ -13767,11 +13873,116 @@ begin
   end;
   {$endif}
 {$endif}
-{$ifdef EnableMMX}
-  {$ifndef ForceMMX}
-  UseMMX := MMX_Supported;
-  {$endif}
+
+
+{$ifdef USE_CPUID}
+  if CPUID_Supported then
+  begin
+
+{
+QUOTE
+
+Two types of information are returned: basic and extended function information. If a value entered for CPUID.EAX
+is higher than the maximum input value for basic or extended function for that processor then the data for the
+highest basic information leaf is returned.
+
+ENDQOTE}
+
+
+//Basic CPUID Information
+
+    LReg0 := GetCpuId(0, 0);
+    MaxInputValueBasic := LReg0.RegEax;
+    if MaxInputValueBasic > 0 then
+    begin
+
+      if MaxInputValueBasic > 7 then
+      begin
+        LReg7_0 := GetCpuId(7, 0);
+      end else
+      begin
+        LReg7_0.RegEAX := 0;
+        LReg7_0.RegEBX := 0;
+        LReg7_0.RegECX := 0;
+        LReg7_0.RegEDX := 0;
+      end;
+
+{$IFDEF Use_GetEnabledXStateFeatures_WindowsAPICall}
+
+{For best results, we should call the GetEnabledXStateFeatures Windows API function
+that gets a mask of enabled XState features on x86 or x64 processors.
+This function is implemented starting from Windows 7, so we should use GetProcAddress
+Not all features supported by a processor may be enabled on the system.
+Using a feature which is not enabled may result in exceptions or undefined behavior.
+This is because the operating system would not save the registers and the states between switches.
+}
+
+      FGetEnabledXStateFeatures:= GetProcAddress(GetModuleHandle(Kernel32), 'GetEnabledXStateFeatures');
+      if Assigned(FGetEnabledXStateFeatures) then
+      begin
+        EnabledXStateFeatures := FGetEnabledXStateFeatures;
+      end else
+      begin
+        EnabledXStateFeatures :=
+          (1 shl XSTATE_LEGACY_FLOATING_POINT) or
+          (1 shl XSTATE_LEGACY_SSE);
+      end;
+{$ENDIF}
+
+      LReg1 := GetCpuId(1, 0);
+      if
+        ((LReg1.RegEDX and (1 shl 23)) <> 0)
+{$ifdef Use_GetEnabledXStateFeatures_WindowsAPICall}
+        and ((EnabledXStateFeatures and (1 shl XSTATE_LEGACY_SSE)) <> 0)
 {$endif}
+      then
+      begin
+        FastMMCpuFeatures := FastMMCpuFeatures or FastMMCpuFeatureMMX;
+      end;
+
+{ Here is the Intel algorithm to detext AVX
+{ QUOTE from the Intel 64 and IA-32 Architectures Optimization Reference Manual
+1) Detect CPUID.1:ECX.OSXSAVE[bit 27] = 1 (XGETBV enabled for application use1)
+2) Issue XGETBV and verify that XCR0[2:1] = ‘11b’ (XMM state and YMM state are enabled by OS).
+3) detect CPUID.1:ECX.AVX[bit 28] = 1 (AVX instructions supported).
+ENDQUOTE}
+      if
+        ((LReg1.RegECX and (1 shl 27)) <> 0) {OSXSAVE bit} then
+      begin
+        CpuXCR0 := GetCpuXCR(0);
+      end else
+      begin
+        CpuXCR0 := 0;
+      end;
+      if (CpuXCR0 and 6 = 6) and
+        ((LReg1.RegECX and (1 shl 28)) <> 0) {AVX bit}
+{$ifdef Use_GetEnabledXStateFeatures_WindowsAPICall}
+        and ((EnabledXStateFeatures and (1 shl XSTATE_AVX)) <> 0)
+{$endif}
+      then FastMMCpuFeatures := FastMMCpuFeatures or FastMMCpuFeatureAVX1;
+
+      if (FastMMCpuFeatures and FastMMCpuFeatureAVX1 <> 0) then
+      begin
+      { Application Software must identify that hardware supports AVX, after that it must also detect support for AVX2 by
+        checking CPUID.(EAX=07H, ECX=0H):EBX.AVX2[bit 5].}
+        if (MaxInputValueBasic > 7) and
+            ((LReg7_0.RegEBX and (1 shl 5))<> 0) then
+        begin
+          FastMMCpuFeatures := FastMMCpuFeatures or FastMMCpuFeatureAVX2;
+        end;
+      end;
+
+      if (MaxInputValueBasic > 7) and
+{EBX: Bit 09: Supports Enhanced REP MOVSB/STOSB if 1.}
+      ((LReg7_0.RegEBX and (1 shl 9))<> 0) then
+      begin
+        FastMMCpuFeatures := FastMMCpuFeatures or FastMMCpuFeatureERMS;
+      end;
+    end;
+
+  end;
+{$endif}
+
   {Initialize the memory manager}
   {-------------Set up the small block types-------------}
   LPreviousBlockSize := 0;
@@ -13788,7 +13999,7 @@ begin
 
 {$ifdef 64Bit}
 {$ifdef EnableAVX}
-    if (CPUIDTable[CpuIdExtendedFeatures].EBX and AVX2Bit <> 0) then
+    if (FastMMCpuFeatures and FastMMCpuFeatureAVX2) <> 0 then
     begin
       case SmallBlockTypes[LInd].BlockSize of
 {$ifndef Align32Bytes}
@@ -13821,9 +14032,9 @@ begin
 {$ifndef Align32Bytes}
          144: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move136AVX2;
 {$endif}
-     end;
+      end;
     end else
-    if (CPUIDTable[CpuIdBasicFeatures].ECX and AVX1Bit) <> 0 then
+    if (FastMMCpuFeatures and FastMMCpuFeatureAVX1) <> 0 then
     begin
       case SmallBlockTypes[LInd].BlockSize of
 {$ifndef Align32Bytes}
@@ -13864,9 +14075,11 @@ begin
     if not Assigned(SmallBlockTypes[LInd].UpsizeMoveProcedure) then
   {$ifdef UseCustomVariableSizeMoveRoutines}
     {$ifdef Align32Bytes}
-    if (CPUIDTable[CpuIdExtendedFeatures].EBX and AVX2Bit <> 0) then
+
+      {We must check AVX1 bit before checking the AVX2 bit}
+    if (FastMMCpuFeatures and FastMMCpuFeatureAVX2) <> 0 then
     begin
-      if (CPUIDTable[CpuIdExtendedFeatures].EBX and ERMSBBit <> 0) then
+      if (FastMMCpuFeatures and FastMMCpuFeatureERMS) <> 0 then
       begin
         SmallBlockTypes[LInd].UpsizeMoveProcedure := MoveX32LpAvx2WithErms;
       end else
@@ -13874,12 +14087,12 @@ begin
         SmallBlockTypes[LInd].UpsizeMoveProcedure := MoveX32LpAvx2NoErms;
       end;
     end else
-    if (CPUIDTable[CpuIdBasicFeatures].ECX and AVX1Bit) <> 0 then
+    if (FastMMCpuFeatures and FastMMCpuFeatureAVX1) <> 0 then
     begin
       SmallBlockTypes[LInd].UpsizeMoveProcedure := MoveX32LpAvx1NoErms;
     end else
     begin
-      if (CPUIDTable[CpuIdExtendedFeatures].EBX and ERMSBBit <> 0) then
+      if (FastMMCpuFeatures and FastMMCpuFeatureERMS) <> 0 then
       begin
         SmallBlockTypes[LInd].UpsizeMoveProcedure := MoveWithErms;
       end else
@@ -13888,11 +14101,9 @@ begin
       end;
     end;
     {$else}
-      {$ifdef XE2AndUp}
-      if (CPUIDTable[CpuIdExtendedFeatures].EBX and ERMSBBit <> 0) then
+      if (FastMMCpuFeatures and FastMMCpuFeatureErms) <> 0 then
         SmallBlockTypes[LInd].UpsizeMoveProcedure := MoveWithErms
       else
-      {$endif}
         SmallBlockTypes[LInd].UpsizeMoveProcedure := MoveX16LP
       ;
     {$endif}
