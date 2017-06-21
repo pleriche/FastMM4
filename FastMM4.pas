@@ -1674,33 +1674,6 @@ function InvalidRegisterAndUnRegisterMemoryLeak(APointer: Pointer): Boolean; for
 {-------------------------Private constants----------------------------}
 
 const
-  AVX1Bit      = 1 shl 28;
-  {The distinction between AVX1 and AVX2 is on how it clears the registers
-  and how it avoids AVX-SSE transition penalties.
-  AVX2 uses the VPXOR instruction, not available on AVX1. On most Intel
-  processors, VPXOR is faster is VXORPS. For example, on Sandybridge, VPXOR can
-  run on any of the 3 ALU execution ports, p0/p1/p5.  VXORPS can only run on p5.
-  Also, AVX1 uses the VZEROUPPER instruction, while AVX2 does not. Newer CPU
-  doesn't have such a huge transition penaly, and VZEROUPPER is not needed,
-  moreover, it can make subsequent SSE code slower}
-  AVX2Bit      = 1 shl 5;
-
-  ERMSBBit     = 1 shl 9; { Enhanced REP MOVSB and STOSB operation (ERMSB)}
-  {On ERMSB, see p. 3.7.6 of the
-  Intel 64 and IA-32 Architectures Optimization Reference Manual}
-
-
-  CpuIdBasicFeatures    = 1;
-  CpuIdExtendedFeatures = 7;
-
-{$IFDEF XE2AndUp}
-  AVX1Offset   = CpuIdBasicFeatures {eax=1}    * SizeOf(TCPUIDRec) + SizeOf(UInt32) * 2 {2 - ecx};
-  ERMSBOffset  = CpuIdExtendedFeatures {eax=7} * SizeOf(TCPUIDRec) + SizeOf(UInt32) * 1 {1 - ebx};
-  AVX2Offset   = CpuIdExtendedFeatures {eax=7} * SizeOf(TCPUIDRec) + SizeOf(UInt32) * 1 {1 - ebx};
-{$ENDIF}
-
-
-const
   {The size of a medium block pool. This is allocated through VirtualAlloc and
    is used to serve medium blocks. The size must be a multiple of 16 (or 32, depending on alignment) and at
    least 4 bytes less than a multiple of 4K (the page size) to prevent a
@@ -2125,6 +2098,19 @@ const
   FullDebugBlockOverhead = SizeOf(TFullDebugBlockHeader) + SizeOf(NativeUInt) + SizeOf(Pointer);
 {$endif}
 
+
+  {The distinction between AVX1 and AVX2 is on how it clears the registers
+  and how it avoids AVX-SSE transition penalties.
+  AVX2 uses the VPXOR instruction, not available on AVX1. On most Intel
+  processors, VPXOR is faster is VXORPS. For example, on Sandybridge, VPXOR can
+  run on any of the 3 ALU execution ports, p0/p1/p5.  VXORPS can only run on p5.
+  Also, AVX1 uses the VZEROUPPER instruction, while AVX2 does not. Newer CPU
+  doesn't have such a huge transition penaly, and VZEROUPPER is not needed,
+  moreover, it can make subsequent SSE code slower}
+  {On ERMSB, see p. 3.7.6 of the
+  Intel 64 and IA-32 Architectures Optimization Reference Manual}
+
+
   FastMMCpuFeatureMMX  = 1 shl 0;
   FastMMCpuFeatureAVX1 = 1 shl 1;
   FastMMCpuFeatureAVX2 = 1 shl 2;
@@ -2461,6 +2447,10 @@ var
   {$ifndef ForceMMX}
     {$define USE_CPUID}
   {$endif}
+{$endif}
+
+{$ifdef EnableERMS}
+  {$define USE_CPUID}
 {$endif}
 
 {$ifdef EnableAVX}
@@ -13814,9 +13804,11 @@ var
   EnabledXStateFeatures: Int64;
 {$ENDIF}
 
+{$ifdef USE_CPUID}
   CpuXCR0: Int64;
   MaxInputValueBasic: Cardinal;
   LReg0, LReg1, LReg7_0: TCpuIdRegisters;
+{$endif}
 
   LInd, LSizeInd, LMinimumPoolSize, LOptimalPoolSize, LGroupNumber,
     LBlocksPerPool, LPreviousBlockSize: Cardinal;
@@ -14101,9 +14093,11 @@ ENDQUOTE}
       end;
     end;
     {$else}
+{$ifdef USE_CPUID}
       if (FastMMCpuFeatures and FastMMCpuFeatureErms) <> 0 then
         SmallBlockTypes[LInd].UpsizeMoveProcedure := MoveWithErms
       else
+{$endif}      
         SmallBlockTypes[LInd].UpsizeMoveProcedure := MoveX16LP
       ;
     {$endif}
