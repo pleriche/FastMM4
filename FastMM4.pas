@@ -19,8 +19,13 @@ What was added to the fork:
    exposed in the XMM/YMM registers;
  - properly handle AVX-SSE transitions to not incur the transition penalties,
    only call vzeroupper under AVX1, but not under AVX2 since it slows down
-   subsequent SSE code under Kaby Lake;
- - names assigned to a couple of magic constants.
+   subsequent SSE code under Skylake / Kaby Lake;
+ - names assigned to some constants that used to be "magic constants";
+ - multiplication and division by constant which is a power of 2
+   replaced to shl/shr, because Delphi64 compiler doesn't replace such
+   multiplications and divisions to shl/shr processor instructions,
+   and, according to the Intel Optimization Guide, shl/shr is much faster
+   than imul/idiv, especially on Knights Landing processors.
 
 
 AVX1/AVX2/ERMS support Copyright (C) 2017 RITLABS S.R.L. All rights reserved.
@@ -1695,26 +1700,27 @@ const
   p. 3.7.5 (Specifying an Offset) and 3.7.5.1 (Specifying an Offset in 64-Bit Mode):
   "Scale factor — A value of 2, 4, or 8 that is multiplied by the index value";
   The value of MaximumCpuScaleFactor is determined by the processor architecture}
-  MaximumCpuScaleFactorBits = 3;
-  MaximumCpuScaleFactor = 1 shl MaximumCpuScaleFactorBits;
+  MaximumCpuScaleFactorPowerOf2 = 3;
+  MaximumCpuScaleFactor = 1 shl MaximumCpuScaleFactorPowerOf2;
 
   {The granularity of small blocks}
 {$ifdef Align32Bytes}
-  SmallBlockGranularityBits = 5;
+  SmallBlockGranularityPowerOf2 = 5;
 {$else}
 {$ifdef Align16Bytes}
-  SmallBlockGranularityBits = 4;
+  SmallBlockGranularityPowerOf2 = 4;
 {$else}
-  SmallBlockGranularityBits = 3;
+  SmallBlockGranularityPowerOf2 = 3;
 {$endif}
 {$endif}
-  SmallBlockGranularity = 1 shl SmallBlockGranularityBits;
+  SmallBlockGranularity = 1 shl SmallBlockGranularityPowerOf2;
 
 
   {The granularity of medium blocks. Newly allocated medium blocks are
    a multiple of this size plus MediumBlockSizeOffset, to avoid cache line
    conflicts}
-  MediumBlockGranularity = 256;
+  MediumBlockGranularityPowerOf2 = 8;
+  MediumBlockGranularity = 1 shl MediumBlockGranularityPowerOf2;
 {$ifdef Align32Bytes}
   MediumBlockSizeOffset = 64;
 {$else}
@@ -1735,9 +1741,11 @@ const
 
   {The smallest medium block size. (Medium blocks are rounded up to the nearest
    multiple of MediumBlockGranularity plus MediumBlockSizeOffset)}
-  MinimumMediumBlockSize = 11 * 256 + MediumBlockSizeOffset;
+  MinimumMediumBlockSize = 11 * MediumBlockGranularity + MediumBlockSizeOffset;
   {The number of bins reserved for medium blocks}
-  MediumBlockBinsPerGroup = 32;
+  MediumBlockBinsPerGroupPowerOf2 = 5;
+  {Must be a power of 2, otherwise masks would not work}
+  MediumBlockBinsPerGroup = 1 shl MediumBlockBinsPerGroupPowerOf2;
   MediumBlockBinGroupCount = 32;
   MediumBlockBinCount = MediumBlockBinGroupCount * MediumBlockBinsPerGroup;
   {The maximum size allocatable through medium blocks. Blocks larger than this
@@ -2063,20 +2071,20 @@ type
 {-------------------------Private constants----------------------------}
 const
 {$ifdef 32bit}
-  SmallBlockTypeRecSizeBits = 5;
+  SmallBlockTypeRecSizePowerOf2 = 5;
 {$endif}
 
 {$ifdef 64bit}
-  SmallBlockTypeRecSizeBits = 6;
+  SmallBlockTypeRecSizePowerOf2 = 6;
 {$endif}
 
-  SmallBlockTypeRecSize = 1 shl SmallBlockTypeRecSizeBits;
+  SmallBlockTypeRecSize = 1 shl SmallBlockTypeRecSizePowerOf2;
 
 {$ifdef XE2AndUp}
   {$if SmallBlockTypeRecSize = SizeOf(TSmallBlockType)}
-    // OK - our SmallBlockTypeRecSizeBits constant is correct
+    // OK - our SmallBlockTypeRecSizePowerOf2 constant is correct
   {$else}
-  {$Message Fatal 'Invalid SmallBlockTypeRecSizeBits constant or SizeOf(TSmallBlockType) is not a power of 2'}
+  {$Message Fatal 'Invalid SmallBlockTypeRecSizePowerOf2 constant or SizeOf(TSmallBlockType) is not a power of 2'}
   {$ifend}
 {$endif}
 
@@ -5241,10 +5249,10 @@ begin
   begin
     {Get the bin number for this block size}
     LBinNumber := (UIntPtr(LNextFreeBlock) - UIntPtr(@MediumBlockBins)) div SizeOf(TMediumFreeBlock);
-    LBinGroupNumber := LBinNumber div 32 {magic};
+    LBinGroupNumber := LBinNumber shr MediumBlockBinsPerGroupPowerOf2;
     {Flag this bin as empty}
     MediumBlockBinBitmaps[LBinGroupNumber] := MediumBlockBinBitmaps[LBinGroupNumber]
-      and (not (1 shl (LBinNumber and 31 {magic})));
+      and (not (1 shl (LBinNumber and (MediumBlockBinsPerGroup-1))));
     {Is the group now entirely empty?}
     if MediumBlockBinBitmaps[LBinGroupNumber] = 0 then
     begin
@@ -5278,13 +5286,13 @@ asm
   {Get the bin number for this block size in ecx}
   sub ecx, offset MediumBlockBins
   mov edx, ecx
-  shr ecx, 3 {magic}
+  shr ecx, 3
   {Get the group number in edx}
   movzx edx, dh
   {Flag this bin as empty}
   mov eax, -2
   rol eax, cl
-  and dword ptr [MediumBlockBinBitmaps + edx * 4], eax {magic}
+  and dword ptr [MediumBlockBinBitmaps + edx * 4], eax
   jnz @Done
   {Flag this group as empty}
   mov eax, -2
@@ -5312,14 +5320,14 @@ asm
   lea r8, MediumBlockBins
   sub rcx, r8
   mov edx, ecx
-  shr ecx, 4 {magic}
+  shr ecx, 4
   {Get the group number in edx}
-  shr edx, 9 {magic}
+  shr edx, 9
   {Flag this bin as empty}
   mov eax, -2
   rol eax, cl
   lea r8, MediumBlockBinBitmaps
-  and dword ptr [r8 + rdx * 4], eax {magic}
+  and dword ptr [r8 + rdx * 4], eax
   jnz @Done
   {Flag this group as empty}
   mov eax, -2
@@ -5340,7 +5348,7 @@ var
 begin
   {Get the bin number for this block size. Get the bin that holds blocks of at
    least this size.}
-  LBinNumber := (AMediumBlockSize - MinimumMediumBlockSize) div MediumBlockGranularity;
+  LBinNumber := (AMediumBlockSize - MinimumMediumBlockSize) shr MediumBlockGranularityPowerOf2;
   if LBinNumber >= MediumBlockBinCount then
     LBinNumber := MediumBlockBinCount - 1;
   {Get the bin}
@@ -5355,10 +5363,10 @@ begin
   if LPFirstFreeBlock = LPBin then
   begin
     {Get the group number}
-    LBinGroupNumber := LBinNumber div 32 {magic};
+    LBinGroupNumber := LBinNumber shr MediumBlockBinsPerGroupPowerOf2;
     {Flag this bin as used}
     MediumBlockBinBitmaps[LBinGroupNumber] := MediumBlockBinBitmaps[LBinGroupNumber]
-      or (1 shl (LBinNumber and 31 {magic}));
+      or (1 shl (LBinNumber and (MediumBlockBinsPerGroup-1)));
     {Flag the group as used}
     MediumBlockBinGroupBitmap := MediumBlockBinGroupBitmap
       or (1 shl LBinGroupNumber);
@@ -5371,14 +5379,14 @@ asm
   {Get the bin number for this block size. Get the bin that holds blocks of at
    least this size.}
   sub edx, MinimumMediumBlockSize
-  shr edx, 8 {magic}
+  shr edx, 8
   {Validate the bin number}
   sub edx, MediumBlockBinCount - 1
   sbb ecx, ecx
   and edx, ecx
   add edx, MediumBlockBinCount - 1
   {Get the bin in ecx}
-  lea ecx, [MediumBlockBins + edx * 8] {magic}
+  lea ecx, [MediumBlockBins + edx * 8]
   {Bins are LIFO, se we insert this block as the first free block in the bin}
   mov edx, TMediumFreeBlock[ecx].NextFreeBlock
   {Was this bin empty?}
@@ -5397,13 +5405,13 @@ asm
   {Get the bin number in ecx}
   sub ecx, offset MediumBlockBins
   mov edx, ecx
-  shr ecx, 3 {magic}
+  shr ecx, 3
   {Get the group number in edx}
   movzx edx, dh
   {Flag this bin as not empty}
   mov eax, 1
   shl eax, cl
-  or dword ptr [MediumBlockBinBitmaps + edx * 4], eax {magic}
+  or dword ptr [MediumBlockBinBitmaps + edx * 4], eax
   {Flag the group as not empty}
   mov eax, 1
   mov ecx, edx
@@ -5417,7 +5425,7 @@ asm
   {Get the bin number for this block size. Get the bin that holds blocks of at
    least this size.}
   sub edx, MinimumMediumBlockSize
-  shr edx, 8 {magic}
+  shr edx, 8
   {Validate the bin number}
   sub edx, MediumBlockBinCount - 1
   sbb ecx, ecx
@@ -5426,7 +5434,7 @@ asm
   mov r9, rdx
   {Get the bin address in rcx}
   lea rcx, MediumBlockBins
-  shl edx, 4 {magic}
+  shl edx, 4
   add rcx, rdx
   {Bins are LIFO, se we insert this block as the first free block in the bin}
   mov rdx, TMediumFreeBlock[rcx].NextFreeBlock
@@ -5442,12 +5450,12 @@ asm
   mov rcx, r9
   {Get the group number in edx}
   mov rdx, r9
-  shr edx, 5 {magic}
+  shr edx, 5
   {Flag this bin as not empty}
   mov eax, 1
   shl eax, cl
   lea r8, MediumBlockBinBitmaps
-  or dword ptr [r8 + rdx * 4], eax {magic}
+  or dword ptr [r8 + rdx * 4], eax
   {Flag the group as not empty}
   mov eax, 1
   mov ecx, edx
@@ -6165,7 +6173,7 @@ begin
           LBinGroupNumber := FindFirstSetBit(LBinGroupsMasked);
           {Get the bin in the group with free blocks}
           LBinNumber := FindFirstSetBit(MediumBlockBinBitmaps[LBinGroupNumber])
-            + LBinGroupNumber * 32 {magic};
+            + (LBinGroupNumber shl MediumBlockBinsPerGroupPowerOf2);
           LPMediumBin := @MediumBlockBins[LBinNumber];
           {Get the first block in the bin}
           LMediumBlock := LPMediumBin.NextFreeBlock;
@@ -6178,7 +6186,7 @@ begin
           begin
             {Flag this bin as empty}
             MediumBlockBinBitmaps[LBinGroupNumber] := MediumBlockBinBitmaps[LBinGroupNumber]
-              and (not (1 shl (LBinNumber and 31 {magic})));
+              and (not (1 shl (LBinNumber and (MediumBlockBinsPerGroup-1))));
             {Is the group now entirely empty?}
             if MediumBlockBinBitmaps[LBinGroupNumber] = 0 then
             begin
@@ -6311,7 +6319,7 @@ begin
       LBlockSize := ((NativeUInt(ASize) + (MediumBlockGranularity - 1 + BlockHeaderSize - MediumBlockSizeOffset))
         and -MediumBlockGranularity) + MediumBlockSizeOffset;
       {Get the bin number}
-      LBinNumber := (LBlockSize - MinimumMediumBlockSize) div MediumBlockGranularity;
+      LBinNumber := (LBlockSize - MinimumMediumBlockSize) shr MediumBlockGranularityPowerOf2;
       {Lock the medium blocks}
       LockMediumBlocks({$ifdef LogLockContention}LDidSleep{$endif});
 {$ifdef LogLockContention}
@@ -6319,13 +6327,13 @@ begin
         ACollector := @MediumBlockCollector;
 {$endif}
       {Calculate the bin group}
-      LBinGroupNumber := LBinNumber div 32{magic};
+      LBinGroupNumber := LBinNumber shr MediumBlockBinsPerGroupPowerOf2;
       {Is there a suitable block inside this group?}
-      LBinGroupMasked := MediumBlockBinBitmaps[LBinGroupNumber] and -(1 shl (LBinNumber and 31 {magic}));
+      LBinGroupMasked := MediumBlockBinBitmaps[LBinGroupNumber] and -(1 shl (LBinNumber and (MediumBlockBinsPerGroup-1)));
       if LBinGroupMasked <> 0 then
       begin
         {Get the actual bin number}
-        LBinNumber := FindFirstSetBit(LBinGroupMasked) + LBinGroupNumber * 32 {magic};
+        LBinNumber := FindFirstSetBit(LBinGroupMasked) + (LBinGroupNumber shl MediumBlockBinsPerGroupPowerOf2);
       end
       else
       begin
@@ -6338,7 +6346,7 @@ begin
           LBinGroupNumber := FindFirstSetBit(LBinGroupsMasked);
           {Get the bin in the group with free blocks}
           LBinNumber := FindFirstSetBit(MediumBlockBinBitmaps[LBinGroupNumber])
-            + LBinGroupNumber * 32 {magic};
+            + (LBinGroupNumber shl MediumBlockBinsPerGroupPowerOf2);
         end
         else
         begin
@@ -6503,7 +6511,7 @@ asm
    index so long}
   lea edx, [eax + BlockHeaderSize - 1]
   {Divide edx by SmallBlockGranularity which is always power of 2}
-  shr edx, SmallBlockGranularityBits
+  shr edx, SmallBlockGranularityPowerOf2
   {Is it a small block?}
   cmp eax, (MaximumSmallBlockSize - BlockHeaderSize)
   {Save ebx}
@@ -6672,12 +6680,12 @@ asm
   {Get the bin group number with free blocks in eax}
   bsf eax, esi
   {Get the bin number in ecx}
-  lea esi, [eax * 8] {magic}
-  mov ecx, dword ptr [MediumBlockBinBitmaps + eax * 4]  {magic}
+  lea esi, [eax * 8]
+  mov ecx, dword ptr [MediumBlockBinBitmaps + eax * 4]
   bsf ecx, ecx
-  lea ecx, [ecx + esi * 4]  {magic}
+  lea ecx, [ecx + esi * 4]
   {Get a pointer to the bin in edi}
-  lea edi, [MediumBlockBins + ecx * 8]  {magic}
+  lea edi, [MediumBlockBins + ecx * 8]
   {Get the free block in esi}
   mov esi, TMediumFreeBlock[edi].NextFreeBlock
   {Remove the first block from the linked list (LIFO)}
@@ -6691,7 +6699,7 @@ asm
   {Flag this bin as empty}
   mov edx, -2
   rol edx, cl
-  and dword ptr [MediumBlockBinBitmaps + eax * 4], edx  {magic}
+  and dword ptr [MediumBlockBinBitmaps + eax * 4], edx
   jnz @MediumBinNotEmpty
   {Flag the group as empty}
   btr MediumBlockBinGroupBitmap, eax
@@ -6816,12 +6824,12 @@ asm
   {Get the bin number in ecx and the group number in edx}
   lea edx, [ebx - MinimumMediumBlockSize]
   mov ecx, edx
-  shr edx, 8 + 5 {magic}
-  shr ecx, 8 {magic}
+  shr edx, 8 + 5
+  shr ecx, 8
   {Is there a suitable block inside this group?}
   mov eax, -1
   shl eax, cl
-  and eax, dword ptr [MediumBlockBinBitmaps + edx * 4]  {magic}
+  and eax, dword ptr [MediumBlockBinBitmaps + edx * 4]
   jz @GroupIsEmpty
   {Get the actual bin number}
   and ecx, -32
@@ -6840,10 +6848,10 @@ asm
   {There is a suitable group with space: get the bin number}
   bsf edx, eax
   {Get the bin in the group with free blocks}
-  mov eax, dword ptr [MediumBlockBinBitmaps + edx * 4]  {magic}
+  mov eax, dword ptr [MediumBlockBinBitmaps + edx * 4]
   bsf ecx, eax
   mov eax, edx
-  shl eax, 5 {magic}
+  shl eax, 5
   or ecx, eax
   jmp @GotBinAndGroup
   {Align branch target}
@@ -6877,7 +6885,7 @@ asm
   push esi
   push edi
   {Get a pointer to the bin in edi}
-  lea edi, [MediumBlockBins + ecx * 8]  {magic}
+  lea edi, [MediumBlockBins + ecx * 8]
   {Get the free block in esi}
   mov esi, TMediumFreeBlock[edi].NextFreeBlock
   {Remove the first block from the linked list (LIFO)}
@@ -6891,7 +6899,7 @@ asm
   {Flag this bin as empty}
   mov eax, -2
   rol eax, cl
-  and dword ptr [MediumBlockBinBitmaps + edx * 4], eax  {magic}
+  and dword ptr [MediumBlockBinBitmaps + edx * 4], eax
   jnz @MediumBinNotEmptyForMedium
   {Flag the group as empty}
   btr MediumBlockBinGroupBitmap, edx
@@ -6955,7 +6963,7 @@ asm
   Because the argument is a 64-bit value, we should operate 64-bit registers here }
   lea rdx, [rcx + BlockHeaderSize - 1]
   {Divide rdx by SmallBlockGranularity which is always power of 2}
-  shr rdx, SmallBlockGranularityBits
+  shr rdx, SmallBlockGranularityPowerOf2
 
   {Preload the addresses of some small block structures}
   lea r8, AllocSize2SmallBlockTypesIdx
@@ -6970,7 +6978,7 @@ asm
   {Get the small block type pointer in rbx}
   movzx ecx, byte ptr [r8 + rdx]
   {The offset in the array wan't be bigger than 2^32 anyway, but an ecx instruction takes one byte less than the rcx one}
-  shl ecx, SmallBlockTypeRecSizeBits
+  shl ecx, SmallBlockTypeRecSizePowerOf2
   add rbx, rcx
   {Do we need to lock the block type?}
 {$ifndef AssumeMultiThreaded}
@@ -7084,13 +7092,13 @@ asm
   bsf eax, esi
   {Get the bin number in ecx}
   lea r8, MediumBlockBinBitmaps
-  lea r9, [rax * 4]  {magic}
+  lea r9, [rax * 4]
   mov ecx, [r8 + r9]
   bsf ecx, ecx
-  lea ecx, [ecx + r9d * 8]  {magic}
+  lea ecx, [ecx + r9d * 8]
   {Get a pointer to the bin in edi}
   lea rdi, MediumBlockBins
-  lea esi, [ecx * 8]  {magic}
+  lea esi, [ecx * 8]
   lea rdi, [rdi + rsi * 2] //SizeOf(TMediumBlockBin) = 16
   {Get the free block in rsi}
   mov rsi, TMediumFreeBlock[rdi].NextFreeBlock
@@ -7220,16 +7228,16 @@ asm
   {Get the bin number in ecx and the group number in edx}
   lea edx, [ebx - MinimumMediumBlockSize]
   mov ecx, edx
-  shr edx, 8 + 5 {magic}
-  shr ecx, 8 {magic}
+  shr edx, 8 + 5
+  shr ecx, 8
   {Is there a suitable block inside this group?}
   mov eax, -1
   shl eax, cl
   lea r8, MediumBlockBinBitmaps
-  and eax, [r8 + rdx * 4]  {magic}
+  and eax, [r8 + rdx * 4]
   jz @GroupIsEmpty
   {Get the actual bin number}
-  and ecx, -32
+  and ecx, -MediumBlockBinsPerGroup
   bsf eax, eax
   or ecx, eax
   jmp @GotBinAndGroup
@@ -7243,10 +7251,10 @@ asm
   {There is a suitable group with space: get the bin number}
   bsf edx, eax
   {Get the bin in the group with free blocks}
-  mov eax, [r8 + rdx * 4]  {magic}
+  mov eax, [r8 + rdx * 4]
   bsf ecx, eax
   mov eax, edx
-  shl eax, 5 {magic}
+  shl eax, MediumBlockBinsPerGroupPowerOf2
   or ecx, eax
   jmp @GotBinAndGroup
 @TrySequentialFeedMedium:
@@ -7276,7 +7284,7 @@ asm
   {Get a pointer to the bin in edi}
   lea rdi, MediumBlockBins
   lea eax, [ecx + ecx]
-  lea rdi, [rdi + rax * 8]  {magic}
+  lea rdi, [rdi + rax * 8]
   {Get the free block in esi}
   mov rsi, TMediumFreeBlock[rdi].NextFreeBlock
   {Remove the first block from the linked list (LIFO)}
@@ -7291,7 +7299,7 @@ asm
   mov eax, -2
   rol eax, cl
   lea r8, MediumBlockBinBitmaps
-  and [r8 + rdx * 4], eax  {magic}
+  and [r8 + rdx * 4], eax
   jnz @MediumBinNotEmptyForMedium
   {Flag the group as empty}
   btr MediumBlockBinGroupBitmap, edx
@@ -7309,7 +7317,7 @@ asm
   lea rax, [rdx + IsMediumBlockFlag + IsFreeBlockFlag]
   mov [rcx - BlockHeaderSize], rax
   {Store the size of the second split as the second last dword}
-  mov [rcx + rdx - BlockHeaderSize * 2], rdx  {magic}
+  mov [rcx + rdx - BlockHeaderSize * 2], rdx
   {Put the remainder in a bin}
   cmp edx, MinimumMediumBlockSize
   jb @GotMediumBlockForMedium
@@ -8551,7 +8559,7 @@ begin
       {It's a downsize. Do we need to allocate a smaller block? Only if the new
        block size is less than a quarter of the available size less
        SmallBlockDownsizeCheckAdder bytes}
-      if (NativeUInt(ANewSize) * 4 {magic} + SmallBlockDownsizeCheckAdder) >= LOldAvailableSize then
+      if (NativeUInt(ANewSize) * 4 + SmallBlockDownsizeCheckAdder) >= LOldAvailableSize then
       begin
         {In-place downsize - return the pointer}
         Result := APointer;
@@ -8871,7 +8879,7 @@ asm
   {It's a downsize. Do we need to allocate a smaller block? Only if the new
    size is less than a quarter of the available size less
    SmallBlockDownsizeCheckAdder bytes}
-  lea ebx, [edx * 4 + SmallBlockDownsizeCheckAdder] {magic}
+  lea ebx, [edx * 4 + SmallBlockDownsizeCheckAdder]
   cmp ebx, ecx
   jb @NotSmallInPlaceDownsize
   {In-place downsize - return the original pointer}
@@ -9420,7 +9428,7 @@ asm
   {It's a downsize. Do we need to allocate a smaller block? Only if the new
    size is less than a quarter of the available size less
    SmallBlockDownsizeCheckAdder bytes}
-  lea ebx, [edx * 4 + SmallBlockDownsizeCheckAdder] {magic}
+  lea ebx, [edx * 4 + SmallBlockDownsizeCheckAdder]
   cmp ebx, ecx
   jb @NotSmallInPlaceDownsize
   {In-place downsize - return the original pointer}
@@ -10580,7 +10588,7 @@ begin
   end;
   {Compare the byte value}
   Result := Byte(PByte(PByte(APointer) + SizeOf(TFullDebugBlockHeader) + AUserOffset)^) <>
-    Byte(RotateRight(LFillPattern, (AUserOffset and (SizeOf(Pointer) - 1)) * 8 {magic}));
+    Byte(RotateRight(LFillPattern, (AUserOffset and (SizeOf(Pointer) - 1)) * 8));
 end;
 
 function LogBlockChanges(APointer: PFullDebugBlockHeader; ABuffer: PAnsiChar): PAnsiChar;
@@ -10933,7 +10941,7 @@ begin
     {$ifndef CatchUseOfFreedInterfaces}
       DebugFillPattern;
     {$else}
-      RotateRight(NativeUInt(@VMTBadInterface), (APBlock.UserSize and (SizeOf(Pointer) - 1)) * 8 {magic});
+      RotateRight(NativeUInt(@VMTBadInterface), (APBlock.UserSize and (SizeOf(Pointer) - 1)) * 8);
     {$endif}
     {Check that all the filler bytes are valid inside the block, except for
      the "dummy" class header}
@@ -10997,7 +11005,7 @@ begin
         {$ifndef CatchUseOfFreedInterfaces}
           DebugFillPattern;
         {$else}
-          RotateRight(NativeUInt(@VMTBadInterface), (PFullDebugBlockHeader(Result).UserSize and (SizeOf(Pointer) - 1)) * 8 {magic});
+          RotateRight(NativeUInt(@VMTBadInterface), (PFullDebugBlockHeader(Result).UserSize and (SizeOf(Pointer) - 1)) * 8);
         {$endif}
         {Set the user size for the block}
         PFullDebugBlockHeader(Result).UserSize := ASize;
@@ -11244,7 +11252,7 @@ begin
 {$ifndef CatchUseOfFreedInterfaces}
           DebugFillPattern);
 {$else}
-          RotateRight(NativeUInt(@VMTBadInterface), (ANewSize and (SizeOf(Pointer) - 1)) * 8 {magic}));
+          RotateRight(NativeUInt(@VMTBadInterface), (ANewSize and (SizeOf(Pointer) - 1)) * 8));
 {$endif}
         {Update the user size}
         LActualBlock.UserSize := ANewSize;
@@ -12618,7 +12626,7 @@ var
     Dec(LSmallBlockSize, FullDebugBlockOverhead);
   {$endif}
     {Get the block type index}
-    LBlockTypeIndex := (UIntPtr(APSmallBlockPool.BlockType) - UIntPtr(@SmallBlockTypes[0])) shr SmallBlockTypeRecSizeBits;
+    LBlockTypeIndex := (UIntPtr(APSmallBlockPool.BlockType) - UIntPtr(@SmallBlockTypes[0])) shr SmallBlockTypeRecSizePowerOf2;
     LPLeakedClasses := @LSmallBlockLeaks[LBlockTypeIndex];
     {Get the first and last pointer for the pool}
     GetFirstAndLastSmallBlockInPool(APSmallBlockPool, LCurPtr, LEndPtr);
@@ -13070,7 +13078,7 @@ begin
         if (LMediumBlockHeader and IsSmallBlockPoolInUseFlag) <> 0 then
         begin
           {Get the block type index}
-          LBlockTypeIndex := (UIntPtr(PSmallBlockPoolHeader(LPMediumBlock).BlockType) - UIntPtr(@SmallBlockTypes[0])) shr SmallBlockTypeRecSizeBits;
+          LBlockTypeIndex := (UIntPtr(PSmallBlockPoolHeader(LPMediumBlock).BlockType) - UIntPtr(@SmallBlockTypes[0])) shr SmallBlockTypeRecSizePowerOf2;
           {Subtract from medium block usage}
           Dec(AMemoryManagerState.ReservedMediumBlockAddressSpace, LMediumBlockSize);
           {Add it to the reserved space for the block size}
@@ -13198,13 +13206,13 @@ begin
   LargeBlocksLocked := False;
   {Fill in the rest of the map}
   LInd := 0;
-  while LInd <= 65535 {magic} do
+  while LInd <= 65535 do
   begin
     {If the chunk is not allocated by this MM, what is its status?}
     if AMemoryMap[LInd] = csUnallocated then
     begin
       {Query the address space starting at the chunk boundary}
-      if VirtualQuery(Pointer(LInd * 65536 {magic}), LMBI, SizeOf(LMBI)) = 0 then
+      if VirtualQuery(Pointer(LInd * 65536), LMBI, SizeOf(LMBI)) = 0 then
       begin
         {VirtualQuery may fail for addresses >2GB if a large address space is
          not enabled.}
@@ -13282,7 +13290,7 @@ begin
         if (LMediumBlockHeader and IsSmallBlockPoolInUseFlag) <> 0 then
         begin
           {Get the block type index}
-          LBlockTypeIndex := (UIntPtr(PSmallBlockPoolHeader(LPMediumBlock).BlockType) - UIntPtr(@SmallBlockTypes[0])) shr SmallBlockTypeRecSizeBits;
+          LBlockTypeIndex := (UIntPtr(PSmallBlockPoolHeader(LPMediumBlock).BlockType) - UIntPtr(@SmallBlockTypes[0])) shr SmallBlockTypeRecSizePowerOf2;
           {Get the usage in the block}
           LSmallBlockUsage := PSmallBlockPoolHeader(LPMediumBlock).BlocksInUse
             * SmallBlockTypes[LBlockTypeIndex].BlockSize;
@@ -14116,7 +14124,7 @@ ENDQUOTE}
     {Set the block size to block type index translation table}
     for LSizeInd := (LPreviousBlockSize div SmallBlockGranularity) to ((SmallBlockTypes[LInd].BlockSize - 1) div SmallBlockGranularity) do
    {$ifdef AllocSize2SmallBlockTypesPrecomputedOffsets}
-      AllocSize2SmallBlockTypesOfsDivScaleFactor[LSizeInd] := LInd shl (SmallBlockTypeRecSizeBits - MaximumCpuScaleFactorBits);
+      AllocSize2SmallBlockTypesOfsDivScaleFactor[LSizeInd] := LInd shl (SmallBlockTypeRecSizePowerOf2 - MaximumCpuScaleFactorBits);
    {$else}
       AllocSize2SmallBlockTypesIdx[LSizeInd] := LInd;
    {$endif}
@@ -14133,14 +14141,14 @@ ENDQUOTE}
       LMinimumPoolSize := MinimumMediumBlockSize;
     {Get the closest group number for the minimum pool size}
     LGroupNumber := (LMinimumPoolSize - MinimumMediumBlockSize + MediumBlockBinsPerGroup * MediumBlockGranularity div 2)
-      div (MediumBlockBinsPerGroup * MediumBlockGranularity);
+      shr (MediumBlockBinsPerGroupPowerOf2 + MediumBlockGranularityPowerOf2);
     {Too large?}
     if LGroupNumber > 7 then
       LGroupNumber := 7;
     {Set the bitmap}
     SmallBlockTypes[LInd].AllowedGroupsForBlockPoolBitmap := Byte(-(1 shl LGroupNumber));
     {Set the minimum pool size}
-    SmallBlockTypes[LInd].MinimumBlockPoolSize := MinimumMediumBlockSize + LGroupNumber * (MediumBlockBinsPerGroup * MediumBlockGranularity);
+    SmallBlockTypes[LInd].MinimumBlockPoolSize := MinimumMediumBlockSize + (LGroupNumber shl (MediumBlockGranularityPowerOf2 + MediumBlockBinsPerGroupPowerOf2));
     {Get the optimal block pool size}
     LOptimalPoolSize := ((SmallBlockTypes[LInd].BlockSize * TargetSmallBlocksPerPool
         + SmallBlockPoolHeaderSize + MediumBlockGranularity - 1 - MediumBlockSizeOffset)
