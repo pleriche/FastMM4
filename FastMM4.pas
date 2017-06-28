@@ -14124,7 +14124,7 @@ ENDQUOTE}
     {Set the block size to block type index translation table}
     for LSizeInd := (LPreviousBlockSize div SmallBlockGranularity) to ((SmallBlockTypes[LInd].BlockSize - 1) div SmallBlockGranularity) do
    {$ifdef AllocSize2SmallBlockTypesPrecomputedOffsets}
-      AllocSize2SmallBlockTypesOfsDivScaleFactor[LSizeInd] := LInd shl (SmallBlockTypeRecSizePowerOf2 - MaximumCpuScaleFactorBits);
+      AllocSize2SmallBlockTypesOfsDivScaleFactor[LSizeInd] := LInd shl (SmallBlockTypeRecSizePowerOf2 - MaximumCpuScaleFactorPowerOf2);
    {$else}
       AllocSize2SmallBlockTypesIdx[LSizeInd] := LInd;
    {$endif}
