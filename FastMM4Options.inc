@@ -8,12 +8,24 @@ Set the default options for FastMM here.
 
 {---------------------------Miscellaneous Options-----------------------------}
 
-{Enable this define to align all blocks on 16 byte boundaries so aligned SSE
- instructions can be used safely. If this option is disabled then some of the
+{Enable Align16Bytes define to align all blocks on 16 byte boundaries,
+ or enable Align32Bytes define to align all blocks on 32 byte boundaries,
+ so aligned SSE instructions can be used safely. 
+
+ If neither of these options are enabled, then some of the
  smallest block sizes will be 8-byte aligned instead which may result in a
- reduction in memory usage. Medium and large blocks are always 16-byte aligned
- irrespective of this setting.}
+ reduction in memory usage. 
+
+ Even when small blocks are aligned by 8 bytes 
+ (no Align16Bytes or Align32Bytes are defined), 
+ Medium and large blocks are always 16-byte aligned.
+ 
+ If you enable AVX, then the alignment will always be 32 bytes.
+
+
 {.$define Align16Bytes}
+{.$define Align32Bytes}
+
 
 {Enable to use faster fixed-size move routines when upsizing small blocks.
  These routines are much faster than the Borland RTL move procedure since they
@@ -250,27 +262,43 @@ Combine it with the two options below for further fine-tuning.}
 {.$define EnableMMX}
 
 {$ifndef DontForceMMX}
-  {Set this option to force the use of MMX instructions without checking
+
+  {Set this option (ForceMMX) to force the use of MMX instructions without checking
    whether the CPU supports it. If this option is disabled then the CPU will be
    checked for compatibility first, and if MMX is not supported it will fall
    back to the FPU move code. Has no effect unless EnableMMX is also set.}
   {$define ForceMMX}
+
 {$endif}
 
-{Set this option to enable use of AVX instructions under 64-bit mode.
-This option has no effect under 32-bit mode. If enalbed, the code will check
-whether the CPU supports AVX or AVX2, and, if yes, will use the 32-byte YMM
-registers for faster memory copy. Besides that, if this option is enabled,
-all allocated memory blocks will be aligned by 32 bytes, that will incur
-addition memory consumption overhead. Besides that, with this option, memory
-copy will be slightly more secure, because all XMM/YMM registers used to copy
-memory will be cleared by vxorps/vpxor at the end of a copy routine, so the
-leftovers of the copied memory data will not be kept in the XMM/YMM registers
-and will not be exposed. This option properly handles AVX-SSE transitions to not
-incur the transition penalties, only calls vzeroupper under AVX1, but not under
-AVX2, since it slows down subsequent SSE code under Kaby Lake}
 
-{.$define EnableAVX}
+{$ifndef DisableAVX}
+
+  {Set this option (EnableAVX) to enable use of AVX instructions under 64-bit mode.
+  This option has no effect under 32-bit mode. If enalbed, the code will check
+  whether the CPU supports AVX or AVX2, and, if yes, will use the 32-byte YMM
+  registers for faster memory copy. Besides that, if this option is enabled,
+  all allocated memory blocks will be aligned by 32 bytes, that will incur
+  addition memory consumption overhead. Besides that, with this option, memory
+  copy will be slightly more secure, because all XMM/YMM registers used to copy
+  memory will be cleared by vxorps/vpxor at the end of a copy routine, so the
+  leftovers of the copied memory data will not be kept in the XMM/YMM registers
+  and will not be exposed. This option properly handles AVX-SSE transitions to not
+  incur the transition penalties, only calls vzeroupper under AVX1, but not under
+  AVX2, since it slows down subsequent SSE code under Kaby Lake}
+  {$define EnableAVX}
+
+{$endif}
+
+{$ifndef DisableERMS}
+
+  {Set this option (EnableERMS) to enable Enhanced Rep Movsb/Stosb CPU feature,
+  which improves speed of medium and large block memory copy 
+  under 32-bit or 64-bit modes}
+  {$define EnableERMS}
+
+{$endif}
+
 
 {-----------------------Memory Manager Sharing Options------------------------}
 

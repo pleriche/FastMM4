@@ -10,11 +10,16 @@ This is a fork of the Fast Memory Manager 4.992 by Pierre le Riche
 
 What was added to the fork:
  - if the CPU supports Enhanced REP MOVSB/STOSB (ERMS), use this feature
-   for faster memory copy (under 32 bit or 64-bit);
+   for faster memory copy (under 32 bit or 64-bit) (see the EnableERMS define,
+   on by default, use DisableERMS to turn it off);
  - if the CPU supports AVX or AVX2, use the 32-byte YMM registers
-   for faster memory copy, but only if EnableAVX is defined (Off by default)
- - if EnableAVX is defined, all memory blocks are aligned by 32 bytes;
- - memory copy is secure - all XMM/YMM registers used to copy memory
+   for faster memory copy (see the EnableAVX define, on by default,
+   use DisableAVX to turn it off);
+ - if EnableAVX is defined, all memory blocks are aligned by 32 bytes, but
+   you can also use Align32Bytes define without AVX; please note that the memory
+   overhead is higher when the blocks are aligned by 32 bytes, because some
+   memory is lost by padding;
+ - with AVX, memory copy is secure - all XMM/YMM registers used to copy memory
    are cleared by vxorps/vpxor, so the leftovers of the copied memory are not
    exposed in the XMM/YMM registers;
  - properly handle AVX-SSE transitions to not incur the transition penalties,
@@ -2118,11 +2123,16 @@ const
   {On ERMSB, see p. 3.7.6 of the
   Intel 64 and IA-32 Architectures Optimization Reference Manual}
 
-
+{$ifdef EnableMMX}
   FastMMCpuFeatureMMX  = 1 shl 0;
+{$endif}
+{$ifdef EnableAVX}
   FastMMCpuFeatureAVX1 = 1 shl 1;
   FastMMCpuFeatureAVX2 = 1 shl 2;
+{$endif}
+{$ifdef EnableERMS}
   FastMMCpuFeatureERMS = 1 shl 3;
+{$endif}
 
 
 {-------------------------Private variables----------------------------}
@@ -4216,6 +4226,7 @@ asm
 @exit:
 end;
 
+{$ifdef EnableERMS}
 procedure MoveX32LpAvx2WithErms(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
 asm
   {$ifndef unix}
@@ -4288,7 +4299,12 @@ asm
   {$endif unix}
 @exit:
 end;
-{$endif}
+{$endif EnableERMS}
+
+{$endif EnableAVX}
+
+
+{$ifdef EnableERMS}
 
 {This routine is only called with the CPU supports "Enhanced REP MOVSB/STOSB",
 see "Intel 64 and IA-32 Architectures Optimization Reference Manual
@@ -4328,16 +4344,22 @@ asm
   {$endif}
 {$endif}
 end;
+{$endif EnableERMS}
+
 
 {$ifdef Align32Bytes}
 procedure MoveX32LpUniversal(const ASource; var ADest; ACount: NativeInt);
 begin
+{$IFDEF USE_CPUID}
+  {$ifdef EnableAVX}
   if (FastMMCpuFeatures and FastMMCpuFeatureAVX2) <> 0 then
   begin
+    {$ifdef EnableERMS}
     if (FastMMCpuFeatures and FastMMCpuFeatureERMS) <> 0 then
     begin
       MoveX32LpAvx2WithErms(ASource, ADest, ACount)
     end else
+    {$endif}
     begin
       MoveX32LpAvx2NoErms(ASource, ADest, ACount)
     end;
@@ -4346,15 +4368,21 @@ begin
   begin
     MoveX32LpAvx1NoErms(ASource, ADest, ACount)
   end else
+  {$endif EnableAVX}
   begin
+    {$ifdef EnableERMS}
     if (FastMMCpuFeatures and FastMMCpuFeatureERMS) <> 0 then
     begin
       MoveWithErms(ASource, ADest, ACount)
     end else
+    {$endif}
     begin
       MoveX16LP(ASource, ADest, ACount)
     end;
   end;
+{$ELSE}
+  MoveX16LP(ASource, ADest, ACount)
+{$ENDIF}
 end;
 {$endif}
 
@@ -13930,6 +13958,8 @@ This is because the operating system would not save the registers and the states
 {$ENDIF}
 
       LReg1 := GetCpuId(1, 0);
+
+{$ifdef EnableMMX}
       if
         ((LReg1.RegEDX and (1 shl 23)) <> 0)
 {$ifdef Use_GetEnabledXStateFeatures_WindowsAPICall}
@@ -13939,6 +13969,7 @@ This is because the operating system would not save the registers and the states
       begin
         FastMMCpuFeatures := FastMMCpuFeatures or FastMMCpuFeatureMMX;
       end;
+{$endif EnableMMX}
 
 { Here is the Intel algorithm to detext AVX
 { QUOTE from the Intel 64 and IA-32 Architectures Optimization Reference Manual
@@ -13954,11 +13985,13 @@ ENDQUOTE}
       begin
         CpuXCR0 := 0;
       end;
+
+      {$ifdef EnableAVX}
       if (CpuXCR0 and 6 = 6) and
         ((LReg1.RegECX and (1 shl 28)) <> 0) {AVX bit}
-{$ifdef Use_GetEnabledXStateFeatures_WindowsAPICall}
-        and ((EnabledXStateFeatures and (1 shl XSTATE_AVX)) <> 0)
-{$endif}
+          {$ifdef Use_GetEnabledXStateFeatures_WindowsAPICall}
+             and ((EnabledXStateFeatures and (1 shl XSTATE_AVX)) <> 0)
+          {$endif}
       then FastMMCpuFeatures := FastMMCpuFeatures or FastMMCpuFeatureAVX1;
 
       if (FastMMCpuFeatures and FastMMCpuFeatureAVX1 <> 0) then
@@ -13971,13 +14004,16 @@ ENDQUOTE}
           FastMMCpuFeatures := FastMMCpuFeatures or FastMMCpuFeatureAVX2;
         end;
       end;
+      {$endif EnableAVX}
 
+      {$ifdef EnableERMS}
       if (MaxInputValueBasic > 7) and
 {EBX: Bit 09: Supports Enhanced REP MOVSB/STOSB if 1.}
       ((LReg7_0.RegEBX and (1 shl 9))<> 0) then
       begin
         FastMMCpuFeatures := FastMMCpuFeatures or FastMMCpuFeatureERMS;
       end;
+      {$endif EnableERMS}
     end;
 
   end;
@@ -14075,7 +14111,7 @@ ENDQUOTE}
     if not Assigned(SmallBlockTypes[LInd].UpsizeMoveProcedure) then
   {$ifdef UseCustomVariableSizeMoveRoutines}
     {$ifdef Align32Bytes}
-
+    {$ifdef EnableAVX}
       {We must check AVX1 bit before checking the AVX2 bit}
     if (FastMMCpuFeatures and FastMMCpuFeatureAVX2) <> 0 then
     begin
@@ -14091,11 +14127,14 @@ ENDQUOTE}
     begin
       SmallBlockTypes[LInd].UpsizeMoveProcedure := MoveX32LpAvx1NoErms;
     end else
+    {$endif EnableAVX}
     begin
+      {$ifdef EnalbleERMS}
       if (FastMMCpuFeatures and FastMMCpuFeatureERMS) <> 0 then
       begin
         SmallBlockTypes[LInd].UpsizeMoveProcedure := MoveWithErms;
       end else
+      {$endif}
       begin
         SmallBlockTypes[LInd].UpsizeMoveProcedure := MoveX16LP;
       end;
