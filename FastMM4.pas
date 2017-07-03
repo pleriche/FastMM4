@@ -1,4 +1,3 @@
-
 (*
 
 FastMM4AVX (AVX1/AVX2/ERMS support for FastMM4)
@@ -13,8 +12,11 @@ What was added to the fork:
    for faster memory copy (under 32 bit or 64-bit) (see the EnableERMS define,
    on by default, use DisableERMS to turn it off);
  - if the CPU supports AVX or AVX2, use the 32-byte YMM registers
-   for faster memory copy (see the EnableAVX define, on by default,
-   use DisableAVX to turn it off);
+   for faster memory copy, and if the CPU supports AVX-512,
+   use the 64-byte ZMM registers for even faster memory copy;
+   use DisableAVX to turn AVX off completely or
+   use DisableAVX1/DisableAVX2/DisableAVX512 to disable separately certain
+   AVX-related instruction set from being compiled into FastMM4);
  - if EnableAVX is defined, all memory blocks are aligned by 32 bytes, but
    you can also use Align32Bytes define without AVX; please note that the memory
    overhead is higher when the blocks are aligned by 32 bytes, because some
@@ -25,12 +27,46 @@ What was added to the fork:
  - properly handle AVX-SSE transitions to not incur the transition penalties,
    only call vzeroupper under AVX1, but not under AVX2 since it slows down
    subsequent SSE code under Skylake / Kaby Lake;
- - names assigned to some constants that used to be "magic constants";
+ - names assigned to some constants that used to be "magic constants",
+   i.e. unnamed numerical constants - plenty of them were present 
+   throuout the whole code.
  - multiplication and division by constant which is a power of 2
    replaced to shl/shr, because Delphi64 compiler doesn't replace such
    multiplications and divisions to shl/shr processor instructions,
    and, according to the Intel Optimization Guide, shl/shr is much faster
-   than imul/idiv, especially on Knights Landing processors.
+   than imul/idiv, especially on Knights Landing processors;
+ - the compiler environment is more flexible now: you can now compile FastMM4
+   with, for example, typed "@" operator or any other option. Almost all
+   externally-set compiler directives are honored by FastMM except a few
+   (currently just one) - look for the "Compiler options for FastMM4" section
+   below to see what options cannot be externally set and are always
+   redefined by FastMM4 for itself - even if you set up these compiler options
+   differently outside FastMM4, they will be silently
+   redefined, and the new values will be used for FastMM4 only;
+ - the move procedures that are not needed under the defined architecture are
+   excluded from compiling, to not rely on the "smart" linker
+   that is supposedly makes this job for us;
+ - added length parameter do what were dangerous nul-terminated string 
+   operations via PAnsiChar, to prevent potential stack buffer overruns
+   (or maybe even stack-based exploitation?), and there some Pascal functions
+   also left, the argument is not yet checked, see the "todo" comments
+   to figure out where the lenghts is not yet checked. Anyway, since these
+   memory functions are only used in Debug mode, i.e. in development 
+   environment, not in Release (production), the impact of this 
+   "vulnerability" is minimal (questionable);
+ - removed some typecasts; the code is more strict to let the compiler
+   do the job, check everything and mitigate probable error. You can
+   even compile the code with "integer overflow checking" and 
+   "range checking", as well as with "typed @ operator" - for safer 
+   code. Also added round bracket in the places where the typed @ operator
+   was used, to better emphasize on who's address is taken.
+ - one-byte data types of memory areas used for "lock cmpxchg" replaced
+   from Boolean to ByteBool to avoid places that were unclear and
+   that didn't allow using strict types with the "typed @ operator"
+   compiler option. With ByteBool, you can use "False" and "True" 
+   as with pure Boolean and without any typecast, and you can also 
+   use, at the same time, the the 0 or 1 ordinal values on ByteBool 
+   variables.
 
 
 AVX1/AVX2/ERMS support Copyright (C) 2017 RITLABS S.R.L. All rights reserved.
@@ -913,13 +949,6 @@ interface
 
 {$Include FastMM4Options.inc}
 
-{$RANGECHECKS OFF}
-{$BOOLEVAL OFF}
-{$OVERFLOWCHECKS OFF}
-{$OPTIMIZATION ON}
-{$TYPEDADDRESS OFF}
-{$LONGSTRINGS ON}
-
 {Compiler version defines}
 {$ifndef fpc}
   {$ifndef BCB}
@@ -1087,7 +1116,6 @@ interface
 
 {Enable heap checking and leak reporting in full debug mode}
 {$ifdef FullDebugMode}
-  {$STACKFRAMES ON}
   {$define CheckHeapForCorruption}
   {$ifndef CatchUseOfFreedInterfaces}
     {$define CheckUseOfFreedBlocksOnShutdown}
@@ -1194,6 +1222,37 @@ interface
 {$ifdef FullDebugMode}{$define _StackTracer}{$define _EventLog}{$endif}
 {$ifdef LogLockContention}{$define _StackTracer}{$define _EventLog}{$endif}
 {$ifdef UseReleaseStack}{$ifdef DebugReleaseStack}{$define _EventLog}{$endif}{$endif}
+
+
+{------------------------Compiler options for FastMM4------------------------}
+
+
+{This is the list of vital compiler options for FastMM4,
+don't change them, otherwise FastMM4 would not work. FastMM4 does not support
+other values of the options below than set here. The list currently consists
+of just one option: "Boolean short-circuit evaluation".}
+
+
+     {"BOOLEVAL OFF" means that the compiler generates code for short-circuit
+     Boolean expression evaluation, which means that evaluation stops as soon
+     as the result of the entire expression becomes evident in left to right
+     order of evaluation.}
+
+  {$BOOLEVAL OFF}
+
+
+{$ifdef FullDebugMode}
+
+
+        {The stack framce force copmiler option should be ON for 
+        the FullDebugMode, otherwise the stack unmangling may not work 
+        properly for the call stack debug reports geneated 
+        by FastMM4.}
+
+  {$STACKFRAMES ON}
+
+{$endif}
+
 
 {-------------------------Public constants-----------------------------}
 const
@@ -1645,6 +1704,17 @@ uses
 {$endif}
   FastMM4Messages;
 
+const
+  MaxFileNameLength                  = 1024;
+  {The MaxFileNameLengthDouble value is extracted from the FastMM4 code
+  as an effort to replace all "magic" (unnamed numerical constants) with
+  theier named counterparts. We have yet to igure out why some file names
+  reserve a buffer of 1024 characters while some other file names reserve
+  double of that} {todo: MaxFileNameLengthDouble figure out - see the comment}
+  MaxFileNameLengthDouble            = MaxFileNameLength*2;
+  MaxDisplayMessageLength            = 1024;
+  MaxLogMessageLength                = 32768;
+  
 {$ifdef fpc}
 const
   clib = 'c';
@@ -1655,6 +1725,15 @@ function usleep(__useconds:dword):longint;cdecl;external clib name 'usleep';
 {$endif}
 
 {Fixed size move procedures. The 64-bit versions assume 16-byte alignment.}
+{$ifdef 64bit}
+{$ifdef align32bytes}
+  {Used to exclude the procedures that we don't need, from compiling, to not
+  rely on the "smart" linker to do this job for us}
+  {$define ExcludeSmallGranularMoves}
+{$endif}
+{$endif}
+
+{$ifndef ExcludeSmallGranularMoves}
 procedure Move4(const ASource; var ADest; ACount: NativeInt); forward;
 procedure Move12(const ASource; var ADest; ACount: NativeInt); forward;
 procedure Move20(const ASource; var ADest; ACount: NativeInt); forward;
@@ -1664,11 +1743,17 @@ procedure Move44(const ASource; var ADest; ACount: NativeInt); forward;
 procedure Move52(const ASource; var ADest; ACount: NativeInt); forward;
 procedure Move60(const ASource; var ADest; ACount: NativeInt); forward;
 procedure Move68(const ASource; var ADest; ACount: NativeInt); forward;
+{$endif}
+
 {$ifdef 64Bit}
 {These are not needed and thus unimplemented under 32-bit}
+{$ifndef ExcludeSmallGranularMoves}
 procedure Move8(const ASource; var ADest; ACount: NativeInt); forward;
+{$endif}
 procedure Move24(const ASource; var ADest; ACount: NativeInt); forward;
+{$ifndef ExcludeSmallGranularMoves}
 procedure Move40(const ASource; var ADest; ACount: NativeInt); forward;
+{$endif}
 procedure Move56(const ASource; var ADest; ACount: NativeInt); forward;
 {$endif}
 
@@ -1911,7 +1996,11 @@ type
   PSmallBlockType = ^TSmallBlockType;
   TSmallBlockType = record
     {True = Block type is locked}
-    BlockTypeLocked: Boolean;
+
+    BlockTypeLocked: ByteBool; {The type is ByteBool for string LockCmpxchg8 
+				type checking when the typed "@" operator 
+				compiler option is ON.}
+
     {Bitmap indicating which of the first 8 medium block groups contain blocks
      of a suitable size for a block pool.}
     AllowedGroupsForBlockPoolBitmap: Byte;
@@ -2339,7 +2428,7 @@ var
    block pools to enable memory leak detection on program shutdown.}
   MediumBlockPoolsCircularList: TMediumBlockPoolHeader;
   {Are medium blocks locked?}
-  MediumBlocksLocked: Boolean;
+  MediumBlocksLocked: ByteBool;
   {The sequential feed medium block pool.}
   LastSequentiallyFedMediumBlock: Pointer;
   MediumSequentialFeedBytesLeft: Cardinal;
@@ -2357,7 +2446,7 @@ var
   MediumBlockBins: array[0..MediumBlockBinCount - 1] of TMediumFreeBlock;
   {-----------------Large block management------------------}
   {Are large blocks locked?}
-  LargeBlocksLocked: Boolean;
+  LargeBlocksLocked: ByteBool;
   {A dummy large block header: Maintains a list of all allocated large blocks
    to enable memory leak detection on program shutdown.}
   LargeBlocksCircularList: TLargeBlockHeader;
@@ -2365,12 +2454,12 @@ var
 {$ifdef EnableMemoryLeakReporting}
   {The expected memory leaks}
   ExpectedMemoryLeaks: PExpectedMemoryLeaks;
-  ExpectedMemoryLeaksListLocked: Boolean;
+  ExpectedMemoryLeaksListLocked: ByteBool;
 {$endif}
   {---------------------EventLog-------------------}
 {$ifdef _EventLog}
   {The current log file name}
-  MMLogFileName: array[0..1023] of AnsiChar;
+  MMLogFileName: array[0..MaxFileNameLength-1] of AnsiChar;
 {$endif}
   {---------------------Full Debug Mode structures--------------------}
 {$ifdef FullDebugMode}
@@ -2499,6 +2588,7 @@ begin
     Inc(Result);
 end;
 {$else}
+ assembler;
 asm
   {Check the first byte}
   cmp byte ptr [eax], 0
@@ -2592,6 +2682,7 @@ asm
 end;
 {$else}
 asm
+  .noframe
   mov r9, rbx
   mov r10, rcx
   {Clear the register justs for sure, 32-bit operands in 64-bit mode also clear
@@ -2618,33 +2709,68 @@ Not implemented for Unix yet
 {Compare [AAddress], CompareVal:
  If Equal: [AAddress] := NewVal and result = CompareVal
  If Unequal: Result := [AAddress]}
-function LockCmpxchg(CompareVal, NewVal: Byte; AAddress: PByte): Byte; {$ifdef fpc64bit}assembler; nostackframe;{$endif}
+
+type
+  PByteBool = ^ByteBool;
+
+function LockCmpxchg8(CompareVal, NewVal: ByteBool; AAddress: PByteBool): ByteBool; {$ifdef fpc64bit}assembler; nostackframe;{$endif}
 asm
 {$ifdef 32Bit}
   {On entry:
     al = CompareVal,
     dl = NewVal,
     ecx = AAddress}
-  {$ifndef LINUX}
-  lock cmpxchg [ecx], dl
-  {$else}
+  {$ifndef unix}
+
+
+{Remove false dependency on remainig bits of the eax (31-8), as eax may come
+with these bits trashed, and, as a result, the function will also return these 
+bits trashed in EAX. So, it may produce faster code by removing dependency
+and safer code by cleaning possbile trash}
+  movzx eax, al 
+  movzx edx, dl
+
+{Compare AL with byte ptr [ecx]. If equal, ZF is set and al is 
+loaded into byte ptr [ecx]. Else, clear ZF and load byte ptr [ecx] into AL.}  
+  lock cmpxchg byte ptr [ecx], dl
+
+{Clear the registers for safety}
+  xor  ecx, ecx
+  xor  edx, edx
+  {$else unix}
   {Workaround for Kylix compiler bug}
   db $F0, $0F, $B0, $11
-  {$endif}
-{$else}
+  {$endif unix}
+{$else 32Bit}
   {On entry:
     cl = CompareVal
     dl = NewVal
     r8 = AAddress}
   {$ifndef unix}
   .noframe
-  mov rax, rcx
-  lock cmpxchg [r8], dl
-  {$else}
-   mov rax, rdi
-   lock cmpxchg [rdx], sil
-  {$endif}
-{$endif}
+  movzx rax, cl {Remove false dependency on remainig bits of the rax}
+  xor rcx, rcx
+  lock cmpxchg byte ptr [r8], dl
+  xor rdx, rdx
+  xor r8, r8
+  {$else unix}
+  
+{"System V AMD64 ABI" - the de facto standard among  Unix and Unix-like 
+operating systems. The first four integer or pointer arguments are passed in 
+registers RDI, RSI, RDX, RCX; return value is stored in RAX and RDX }
+
+  {On entry:
+    dil = CompareVal
+    sil = NewVal
+    rdx = AAddress}
+
+   movzx rax, dil
+   lock cmpxchg byte ptr [rdx], sil
+   xor rsi, rsi
+   xor rdi, rdi
+   xor rdx, rdx
+  {$endif unix}
+{$endif 32Bit}
 end;
 
 {$ifndef ASMVersion}
@@ -2741,7 +2867,7 @@ end;
 
 {Writes the module filename to the specified buffer and returns the number of
  characters written.}
-function AppendModuleFileName(ABuffer: PAnsiChar): Integer;
+function AppendModuleFileName(ABuffer: PAnsiChar; ABufferLengthChars: Integer {including the terminating null character}): Integer;
 var
   LModuleHandle: HModule;
 begin
@@ -2754,23 +2880,23 @@ begin
     LModuleHandle := 0;
   {Get the module name}
 {$ifndef POSIX}
-  Result := GetModuleFileNameA(LModuleHandle, ABuffer, 512);
+  Result := GetModuleFileNameA(LModuleHandle, ABuffer, ABufferLengthChars);
 {$else}
-  Result := GetModuleFileName(LModuleHandle, ABuffer, 512);
+  Result := GetModuleFileName(LModuleHandle, ABuffer, ABufferLengthChars);
 {$endif}
 end;
 
 {Copies the name of the module followed by the given string to the buffer,
  returning the pointer following the buffer.}
-function AppendStringToModuleName(AString, ABuffer: PAnsiChar): PAnsiChar;
+function AppendStringToModuleName(AString, ABuffer: PAnsiChar; AStringLength, ABufferLength: Cardinal): PAnsiChar;
 var
   LModuleNameLength: Cardinal;
   LCopyStart: PAnsiChar;
 begin
   {Get the name of the application}
-  LModuleNameLength := AppendModuleFileName(ABuffer);
+  LModuleNameLength := AppendModuleFileName(ABuffer, ABufferLength);
   {Replace the last few characters}
-  if LModuleNameLength > 0 then
+  if (LModuleNameLength > 0) and (LModuleNameLength + 5 < ABufferLength {reserve some extra characters for colon and space}) then
   begin
     {Find the last backslash}
     LCopyStart := PAnsiChar(PByte(ABuffer) + LModuleNameLength - 1);
@@ -2783,45 +2909,642 @@ begin
     end;
     {Copy the name to the start of the buffer}
     Inc(LCopyStart);
-    System.Move(LCopyStart^, ABuffer^, LModuleNameLength);
+    System.Move(LCopyStart^, ABuffer^, LModuleNameLength*SizeOf(LCopyStart[0]));
     Inc(ABuffer, LModuleNameLength);
-    ABuffer^ := ':';
-    Inc(ABuffer);
-    ABuffer^ := ' ';
-    Inc(ABuffer);
+    if ABufferLength >= LModuleNameLength then
+    begin
+      Dec(ABufferLength, LModuleNameLength);
+      if ABufferLength > 0 then
+      begin
+        ABuffer^ := ':';
+        Inc(ABuffer);
+        Dec(ABufferLength);
+        if ABufferLength > 0 then
+        begin
+          ABuffer^ := ' ';
+          Inc(ABuffer);
+          Dec(ABufferLength);
+        end;
+      end;
+    end;
   end;
   {Append the string}
-  while AString^ <> #0 do
+  while (AString^ <> #0) and (ABufferLength > 0) and (AStringLength > 0) do
   begin
     ABuffer^ := AString^;
+    Dec(ABufferLength);
     Inc(ABuffer);
     {Next char}
     Inc(AString);
+    Dec(AStringLength);
   end;
   ABuffer^ := #0;
   Result := ABuffer;
 end;
 
-{----------------Faster Move Procedures-------------------}
+{----------------------------Faster Move Procedures----------------------------}
 
 {Fixed size move operations ignore the size parameter. All moves are assumed to
  be non-overlapping.}
+
+
+{$ifdef 64bit}
+{$ifdef EnableAVX}
+
+
+{$ifndef DisableAVX1}
+
+{----------------------------AVX1 Move Procedures----------------------------}
+
+procedure Move24AVX1(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
+asm
+  {$ifndef unix}
+  .noframe
+  {$endif}
+
+  db $C5, $F8, $77      // vzeroupper
+
+  {$ifndef unix}
+  db $C5, $F9, $6F, $01 // vmovdqa xmm0, xmmword ptr[rcx]
+                           mov r8, [rcx + 16]
+  db $C5, $F9, $7F, $02 // vmovdqa xmmword ptr[rdx], xmm0
+                           mov [rdx + 16], r8
+  {$else}
+  db $C5, $F9, $6F, $07 // vmovdqa xmm0, xmmword ptr[rdi]
+                           mov rdx, [rdi + 16]
+  db $C5, $F9, $7F, $06 // vmovdqa xmmword ptr[rsi], xmm0
+                           mov [rsi + 16], rdx
+  {$endif}
+  db $C5, $F8, $57, $C0 // vxorps xmm0,xmm0,xmm0
+  db $C5, $F8, $77      // vzeroupper
+end;
+
+
+procedure Move56AVX1(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
+asm
+  {$ifndef unix}
+  .noframe
+  {$endif}
+
+  db $C5, $F8, $77           // vzeroupper
+
+  {$ifndef unix}
+  db $C5, $FD, $6F, $01      // vmovdqa ymm0, ymmword ptr [rcx]
+  db $C5, $F9, $6F, $49, $20 // vmovdqa xmm1, xmmword ptr [rcx+20h]
+                                mov r8, [rcx + 48]
+  db $C5, $FD, $7F, $02      // vmovdqa ymmword ptr [rdx], ymm0
+  db $C5, $F9, $7F, $4A, $20 // vmovdqa xmmword ptr [rdx+20h], xmm1
+                                mov [rdx + 48], r8
+  {$else}
+  db $C5, $FD, $6F, $07      // vmovdqa ymm0, ymmword ptr [rdi]
+  db $C5, $F9, $6F, $4F, $20 // vmovdqa xmm1, xmmword ptr [rdi+20h]
+                                mov rdx, [rdi + 48]
+  db $C5, $FD, $7F, $06      // vmovdqa ymmword ptr [rsi], ymm0
+  db $C5, $F9, $7F, $4E, $20 // vmovdqa xmmword ptr [rsi+20h], xmm1
+                                mov [rsi + 48], rdx
+  {$endif}
+  db $C5, $FC, $57, $C0      // vxorps ymm0, ymm0, ymm0
+  db $C5, $F0, $57, $C9      // vxorps xmm1, xmm1, xmm1
+  db $C5, $F8, $77           // vzeroupper
+end;
+
+procedure Move88AVX1(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
+asm
+  {$ifndef unix}
+  .noframe
+  {$endif}
+
+  db $C5, $F8, $77           // vzeroupper
+
+  {$ifndef unix}
+  db $C5, $FD, $6F, $01      // vmovdqa ymm0, ymmword ptr [rcx]
+  db $C5, $FD, $6F, $49, $20 // vmovdqa ymm1, ymmword ptr [rcx+20h]
+  db $C5, $F9, $6F, $51, $40 // vmovdqa xmm2, xmmword ptr [rcx+40h]
+                                mov rcx, [rcx + 50h]
+  db $C5, $FD, $7F, $02      // vmovdqa ymmword ptr [rdx], ymm0
+  db $C5, $FD, $7F, $4A, $20 // vmovdqa ymmword ptr [rdx+20h], ymm1
+  db $C5, $F9, $7F, $52, $40 // vmovdqa xmmword ptr [rdx+40h], xmm2
+                                mov [rdx + 50h], rcx
+  {$else}
+  db $C5, $FD, $6F, $07      // vmovdqa ymm0, ymmword ptr [rdi]
+  db $C5, $FD, $6F, $4F, $20 // vmovdqa ymm1, ymmword ptr [rdi+20h]
+  db $C5, $F9, $6F, $57, $40 // vmovdqa xmm2, xmmword ptr [rdi+40h]
+                                mov rdi, [rdi + 50h]
+  db $C5, $FD, $7F, $06      // vmovdqa ymmword ptr [rsi], ymm0
+  db $C5, $FD, $7F, $4E, $20 // vmovdqa ymmword ptr [rsi+20h], ymm1
+  db $C5, $F9, $7F, $56, $40 // vmovdqa xmmword ptr [rsi+40h], xmm2
+                                mov [rsi + 50h], rdi
+  {$endif}
+  db $C5, $FC, $57, $C0      // vxorps ymm0,ymm0,ymm0
+  db $C5, $F4, $57, $C9      // vxorps ymm1,ymm1,ymm1
+  db $C5, $E8, $57, $D2      // vxorps xmm2,xmm2,xmm2
+  db $C5, $F8, $77           // vzeroupper
+end;
+
+procedure Move120AVX1(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
+asm
+  {$ifndef unix}
+  .noframe
+  {$endif}
+
+  db $C5, $F8, $77           // vzeroupper
+
+  {$ifndef unix}
+
+{We are using that many ymm registers (not just two of them in a sequence),
+because our routines allow overlapped moves (although it is not neede for
+FastMM4 realloc). However, there is no speed increase in using more than
+two registers, because we have just two load units and just one store unit
+on most CPUs}
+
+  db $C5, $FD, $6F, $01      // vmovdqa ymm0, ymmword ptr [rcx]
+  db $C5, $FD, $6F, $49, $20 // vmovdqa ymm1, ymmword ptr [rcx+20h]
+  db $C5, $FD, $6F, $51, $40 // vmovdqa ymm2, ymmword ptr [rcx+40h]
+  db $C5, $F9, $6F, $59, $60 // vmovdqa xmm3, xmmword ptr [rcx+60h]
+                                mov rcx, [rcx + 70h]
+  db $C5, $FD, $7F, $02      // vmovdqa ymmword ptr [rdx], ymm0
+  db $C5, $FD, $7F, $4A, $20 // vmovdqa ymmword ptr [rdx+20h], ymm1
+  db $C5, $FD, $7F, $52, $40 // vmovdqa ymmword ptr [rdx+40h], ymm2
+  db $C5, $F9, $7F, $5A, $60 // vmovdqa xmmword ptr [rdx+60h], xmm3
+                                mov [rdx + 70h], rcx
+  {$else}
+  db $C5, $FD, $6F, $07      // vmovdqa ymm0, ymmword ptr [rdi]
+  db $C5, $FD, $6F, $4F, $20 // vmovdqa ymm1, ymmword ptr [rdi+20h]
+  db $C5, $FD, $6F, $57, $40 // vmovdqa ymm2, ymmword ptr [rdi+40h]
+  db $C5, $F9, $6F, $5F, $60 // vmovdqa xmm3, xmmword ptr [rdi+60h]
+                                mov rdi, [rdi + 70h]
+  db $C5, $FD, $7F, $06      // vmovdqa ymmword ptr [rsi], ymm0
+  db $C5, $FD, $7F, $4E, $20 // vmovdqa ymmword ptr [rsi+20h], ymm1
+  db $C5, $FD, $7F, $56, $40 // vmovdqa ymmword ptr [rsi+40h], ymm2
+  db $C5, $F9, $7F, $5E, $60 // vmovdqa ymmword ptr [rsi+60h], xmm3
+                                mov [rsi + 70h], rdi
+  {$endif}
+  db $C5, $FC, $57, $C0      // vxorps ymm0,ymm0,ymm0
+  db $C5, $F4, $57, $C9      // vxorps ymm1,ymm1,ymm1
+  db $C5, $EC, $57, $D2      // vxorps ymm2,ymm2,ymm2
+  db $C5, $E0, $57, $DB      // vxorps xmm3,xmm3,xmm3
+  db $C5, $F8, $77           // vzeroupper
+end;
+
+procedure Move152AVX1(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
+asm
+  {$ifndef unix}
+  .noframe
+  {$endif}
+
+  db $C5, $F8, $77           // vzeroupper
+
+  {$ifndef unix}
+
+{We add to the source and destination registers to allow all future offsets
+be in range -127..+127 to have 1-byte offset encoded in the opcodes, not 4
+bytes, so the opcode will be shorter by 4 bytes, the overall code will be
+shorter, and, as a result, faster, inspite of the sacrifice that we make
+at the start of the routine. The sacrifice is small - maybe just 1 cycle, or
+less, by "add rcx", but it pays up later}
+
+                                add rcx, 60h
+                                add rdx, 60h
+  db $C5, $FD, $6F, $41, $A0 // vmovdqa ymm0, [rcx-60h]
+  db $C5, $FD, $6F, $49, $C0 // vmovdqa ymm1, [rcx-40h]
+  db $C5, $FD, $6F, $51, $E0 // vmovdqa ymm2, [rcx-20h]
+  db $C5, $FD, $6F, $19      // vmovdqa ymm3, [rcx]
+  db $C5, $F9, $6F, $61, $20 // vmovdqa xmm4, [rcx+20h]
+                                mov rcx, [rcx+30h]
+  db $C5, $FD, $7F, $42, $A0 // vmovdqa [rdx-60h], ymm0
+  db $C5, $FD, $7F, $4A, $C0 // vmovdqa [rdx-40h], ymm1
+  db $C5, $FD, $7F, $52, $E0 // vmovdqa [rdx-20h], ymm2
+  db $C5, $FD, $7F, $1A      // vmovdqa [rdx],     ymm3
+  db $C5, $F9, $7F, $62, $20 // vmovdqa [rdx+20h], xmm4
+                                mov [rdx+30h],rcx
+  {$else}
+                                add rdi, 60h
+                                add rsi, 60h
+ db $C5, $FD, $6F, $47, $A0  // vmovdqa ymm0, [rdi-60h]
+ db $C5, $FD, $6F, $4F, $C0  // vmovdqa ymm1, [rdi-40h]
+ db $C5, $FD, $6F, $57, $E0  // vmovdqa ymm2, [rdi-20h]
+ db $C5, $FD, $6F, $1F       // vmovdqa ymm3, [rdi]
+ db $C5, $F9, $6F, $67, $20  // vmovdqa xmm4, [rdi+20h]
+                                mov rdi, [rdi+30h]
+ db  $C5, $FD, $7F, $46, $A0 // vmovdqa [rsi-60h], ymm0
+ db  $C5, $FD, $7F, $4E, $C0 // vmovdqa [rsi-40h], ymm1
+ db  $C5, $FD, $7F, $56, $E0 // vmovdqa [rsi-20h], ymm2
+ db  $C5, $FD, $7F, $1E      // vmovdqa [rsi],     ymm3
+ db  $C5, $F9, $7F, $66, $20 // vmovdqa [rsi+20h], xmm4
+                                mov [rsi+30h], rdi
+  {$endif}
+{See the comment at Move120AVX1 on why we are using that many ymm registers}
+  db $C5, $FC, $57, $C0      // vxorps ymm0,ymm0,ymm0
+  db $C5, $F4, $57, $C9      // vxorps ymm1,ymm1,ymm1
+  db $C5, $EC, $57, $D2      // vxorps ymm2,ymm2,ymm2
+  db $C5, $E4, $57, $DB      // vxorps ymm3,ymm3,ymm3
+  db $C5, $D8, $57, $E4      // vxorps xmm4,xmm4,xmm4
+  db $C5, $F8, $77           // vzeroupper
+end;
+
+procedure Move184AVX1(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
+asm
+  {$ifndef unix}
+  .noframe
+  {$endif}
+
+  db $C5, $F8, $77                // vzeroupper
+
+  {$ifndef unix}
+
+{We add to the source and destination registers to allow all future offsets
+be in range -127..+127, see explanation at the Move152AVX1 routine}
+
+                                     add rcx, 60h
+                                     add rdx, 60h
+  db $C5, $FD, $6F, $41, $A0      // vmovdqa ymm0, [rcx-60h]
+  db $C5, $FD, $6F, $49, $C0      // vmovdqa ymm1, [rcx-40h]
+  db $C5, $FD, $6F, $51, $E0      // vmovdqa ymm2, [rcx-20h]
+  db $C5, $FD, $6F, $19           // vmovdqa ymm3, [rcx]
+  db $C5, $FD, $6F, $61, $20      // vmovdqa ymm4, [rcx+20h]
+  db $C5, $F9, $6F, $69, $40      // vmovdqa xmm5, [rcx+40h]
+                                     mov rcx, [rcx+50h]
+  db $C5, $FD, $7F, $42, $A0      // vmovdqa [rdx-60h], ymm0
+  db $C5, $FD, $7F, $4A, $C0      // vmovdqa [rdx-40h], ymm1
+  db $C5, $FD, $7F, $52, $E0      // vmovdqa [rdx-20h], ymm2
+  db $C5, $FD, $7F, $1A           // vmovdqa [rdx],     ymm3
+  db $C5, $FD, $7F, $62, $20      // vmovdqa [rdx+20h], ymm4
+  db $C5, $F9, $7F, $6A, $40      // vmovdqa [rdx+40h], xmm5
+                                     mov [rdx+50h], rcx
+  {$else}
+                                     add rdi, 60h
+                                     add rsi, 60h
+  db $C5, $FD, $6F, $47, $A0      // vmovdqa ymm0, [rdi-60h]
+  db $C5, $FD, $6F, $4F, $C0      // vmovdqa ymm1, [rdi-40h]
+  db $C5, $FD, $6F, $57, $E0      // vmovdqa ymm2, [rdi-20h]
+  db $C5, $FD, $6F, $1F           // vmovdqa ymm3, [rdi]
+  db $C5, $FD, $6F, $67, $20      // vmovdqa ymm4, [rdi+20h]
+  db $C5, $F9, $6F, $6F, $40      // vmovdqa xmm5, [rdi+40h]
+                                     mov rdi, [rdi+50h]
+  db $C5, $FD, $7F, $46, $A0      // vmovdqa [rsi-60h], ymm0
+  db $C5, $FD, $7F, $4E, $C0      // vmovdqa [rsi-40h], ymm1
+  db $C5, $FD, $7F, $56, $E0      // vmovdqa [rsi-20h], ymm2
+  db $C5, $FD, $7F, $1E           // vmovdqa [rsi],     ymm3
+  db $C5, $FD, $7F, $66, $20      // vmovdqa [rsi+20h], ymm4
+  db $C5, $F9, $7F, $6E, $40      // vmovdqa [rsi+40h], xmm5
+                                     mov [rsi+50h], rdi
+  {$endif}
+  db $C5, $FC, $57, $C0           // vxorps ymm0,ymm0,ymm0
+  db $C5, $F4, $57, $C9           // vxorps ymm1,ymm1,ymm1
+  db $C5, $EC, $57, $D2           // vxorps ymm2,ymm2,ymm2
+  db $C5, $E4, $57, $DB           // vxorps ymm3,ymm3,ymm3
+  db $C5, $DC, $57, $E4           // vxorps ymm4,ymm4,ymm4
+  db $C5, $D0, $57, $ED           // vxorps xmm5,xmm5,xmm5
+  db $C5, $F8, $77                // vzeroupper
+end;
+
+procedure Move216AVX1(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
+asm
+  {$ifndef unix}
+  .noframe
+  {$endif}
+
+  db $C5, $F8, $77                // vzeroupper
+
+  {$ifndef unix}
+                                   add rcx, 60h
+                                   add rdx, 60h
+  db $C5, $FD, $6F, $41, $A0    // vmovdqa ymm0, [rcx-60h]
+  db $C5, $FD, $6F, $49, $C0    // vmovdqa ymm1, [rcx-40h]
+  db $C5, $FD, $6F, $51, $E0    // vmovdqa ymm2, [rcx-20h]
+  db $C5, $FD, $6F, $19         // vmovdqa ymm3, [rcx]
+  db $C5, $FD, $6F, $61, $20    // vmovdqa ymm4, [rcx+20h]
+  db $C5, $FD, $6F, $69, $40    // vmovdqa ymm5, [rcx+40h]
+
+{The xmm6/ymm6 register is nonvolatile, according to Microsoft's
+Win64 calling convention. Since we cannot use xmm6, we use general-purpose
+64-bit registers to copy remaining data.
+We are using that many ymm registers, not just two of them in a sequence,
+because our routines allow overlapped moves (although it is not needed for
+FastMM4 realloc) - see the comment at Move120AVX1 on why we are using that
+many ymm registers.}
+
+
+                                   mov r9, [rcx+60h]
+                                   mov r10, [rcx+68h]
+                                   mov r11, [rcx+70h]
+  db $C5, $FD, $7F, $42, $A0    // vmovdqa [rdx-60h], ymm0
+  db $C5, $FD, $7F, $4A, $C0    // vmovdqa [rdx-40h], ymm1
+  db $C5, $FD, $7F, $52, $E0    // vmovdqa [rdx-20h], ymm2
+  db $C5, $FD, $7F, $1A         // vmovdqa [rdx],     ymm3
+  db $C5, $FD, $7F, $62, $20    // vmovdqa [rdx+20h], ymm4
+  db $C5, $FD, $7F, $6A, $40    // vmovdqa [rdx+40h], ymm5
+                                   mov [rdx+60h], r9
+                                   mov [rdx+68h], r10
+                                   mov [rdx+70h], r11
+  {$else}
+                                   add rdi, 60h
+                                   add rsi, 60h
+  db $C5, $FD, $6F, $41, $A0    // vmovdqa ymm0, [rdi-60h]
+  db $C5, $FD, $6F, $49, $C0    // vmovdqa ymm1, [rdi-40h]
+  db $C5, $FD, $6F, $51, $E0    // vmovdqa ymm2, [rdi-20h]
+  db $C5, $FD, $6F, $19         // vmovdqa ymm3, [rdi]
+  db $C5, $FD, $6F, $61, $20    // vmovdqa ymm4, [rdi+20h]
+  db $C5, $FD, $6F, $69, $40    // vmovdqa ymm5, [rdi+40h]
+
+{Although, under unix, we can use xmm6(ymm6) and xmm7 (ymm7), here we mimic
+the Win64 code, thus use up to ymm5, and use general-purpose 64-bit registers
+to copy remaining data - 24 bytes, which is still smaller than the full ymm
+register (32 bytes)}
+                                   mov r9,  [rdi+60h]
+                                   mov r10, [rdi+68h]
+                                   mov r11, [rdi+70h]
+  db $C5, $FD, $7F, $42, $A0    // vmovdqa [rsi-60h], ymm0
+  db $C5, $FD, $7F, $4A, $C0    // vmovdqa [rsi-40h], ymm1
+  db $C5, $FD, $7F, $52, $E0    // vmovdqa [rsi-20h], ymm2
+  db $C5, $FD, $7F, $1A         // vmovdqa [rsi],     ymm3
+  db $C5, $FD, $7F, $62, $20    // vmovdqa [rsi+20h], ymm4
+  db $C5, $FD, $7F, $6A, $40    // vmovdqa [rsi+40h], ymm5
+                                   mov [rsi+60h], r9
+                                   mov [rsi+68h], r10
+                                   mov [rsi+70h], r11
+  {$endif}
+  db $C5, $FC, $57, $C0         // vxorps ymm0,ymm0,ymm0
+  db $C5, $F4, $57, $C9         // vxorps ymm1,ymm1,ymm1
+  db $C5, $EC, $57, $D2         // vxorps ymm2,ymm2,ymm2
+  db $C5, $E4, $57, $DB         // vxorps ymm3,ymm3,ymm3
+  db $C5, $DC, $57, $E4         // vxorps ymm4,ymm4,ymm4
+  db $C5, $D4, $57, $ED         // vxorps ymm5,ymm5,ymm5
+  db $C5, $F8, $77              // vzeroupper
+end;
+{$endif DisableAVX1}
+
+
+{$ifndef DisableAVX2}
+
+{----------------------------AVX2 Move Procedures----------------------------}
+
+procedure Move24AVX2(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
+asm
+  {$ifndef unix}
+.noframe
+  db $C5, $F9, $6F, $01 // vmovdqa xmm0, xmmword ptr[rcx]
+  mov r8, [rcx + 16]
+  db $C5, $F9, $7F, $02 // vmovdqa xmmword ptr[rdx], xmm0
+  mov [rdx + 16], r8
+  {$else}
+  db $C5, $F9, $6F, $07 // vmovdqa xmm0, xmmword ptr[rdi]
+  mov rdx, [rdi + 16]
+  db $C5, $F9, $7F, $06 // vmovdqa xmmword ptr[rsi], xmm0
+  mov [rsi + 16], rdx
+  {$endif}
+  db $C5, $F9, $EF, $C0 // vpxor xmm0,xmm0,xmm0
+end;
+
+procedure Move56AVX2(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
+asm
+  {$ifndef unix}
+.noframe
+  db $C5, $FD, $6F, $01      // vmovdqa ymm0, ymmword ptr [rcx]
+  db $C5, $F9, $6F, $49, $20 // vmovdqa xmm1, xmmword ptr [rcx+20h]
+  mov r8, [rcx + 48]
+  db $C5, $FD, $7F, $02      // vmovdqa ymmword ptr [rdx], ymm0
+  db $C5, $F9, $7F, $4A, $20 // vmovdqa xmmword ptr [rdx+20h], xmm1
+  mov [rdx + 48], r8
+  {$else}
+  db $C5, $FD, $6F, $07      // vmovdqa ymm0, ymmword ptr [rdi]
+  db $C5, $F9, $6F, $4F, $20 // vmovdqa xmm1, xmmword ptr [rdi+20h]
+  mov rdx, [rdi + 48]
+  db $C5, $FD, $7F, $06      // vmovdqa ymmword ptr [rsi], ymm0
+  db $C5, $F9, $7F, $4E, $20 // vmovdqa xmmword ptr [rsi+20h], xmm1
+  mov [rsi + 48], rdx
+  {$endif}
+  db $C5, $FD, $EF, $C0      // vpxor ymm0, ymm0, ymm0
+  db $C5, $F1, $EF, $C9      // vpxor xmm1, xmm1, xmm1
+end;
+
+procedure Move88AVX2(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
+asm
+  {$ifndef unix}
+.noframe
+  db $C5, $FD, $6F, $01      // vmovdqa ymm0, ymmword ptr [rcx]
+  db $C5, $FD, $6F, $49, $20 // vmovdqa ymm1, ymmword ptr [rcx+20h]
+  db $C5, $F9, $6F, $51, $40 // vmovdqa xmm2, xmmword ptr [rcx+40h]
+  mov rcx, [rcx + 50h]
+  db $C5, $FD, $7F, $02      // vmovdqa ymmword ptr [rdx], ymm0
+  db $C5, $FD, $7F, $4A, $20 // vmovdqa ymmword ptr [rdx+20h], ymm1
+  db $C5, $F9, $7F, $52, $40 // vmovdqa xmmword ptr [rdx+40h], xmm2
+  mov [rdx + 50h], rcx
+  {$else}
+  db $C5, $FD, $6F, $07      // vmovdqa ymm0, ymmword ptr [rdi]
+  db $C5, $FD, $6F, $4F, $20 // vmovdqa ymm1, ymmword ptr [rdi+20h]
+  db $C5, $F9, $6F, $57, $40 // vmovdqa xmm2, xmmword ptr [rdi+40h]
+  mov rdi, [rdi + 50h]
+  db $C5, $FD, $7F, $06      // vmovdqa ymmword ptr [rsi], ymm0
+  db $C5, $FD, $7F, $4E, $20 // vmovdqa ymmword ptr [rsi+20h], ymm1
+  db $C5, $F9, $7F, $56, $40 // vmovdqa xmmword ptr [rsi+40h], xmm2
+  mov [rsi + 50h], rdi
+  {$endif}
+  db $C5, $FD, $EF, $C0      // vpxor ymm0,ymm0,ymm0
+  db $C5, $F5, $EF, $C9      // vpxor ymm1,ymm1,ymm1
+  db $C5, $E9, $EF, $D2      // vpxor xmm2,xmm2,xmm2
+end;
+
+procedure Move120AVX2(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
+asm
+  {$ifndef unix}
+.noframe
+  db $C5, $FD, $6F, $01      // vmovdqa ymm0, ymmword ptr [rcx]
+  db $C5, $FD, $6F, $49, $20 // vmovdqa ymm1, ymmword ptr [rcx+20h]
+  db $C5, $FD, $6F, $51, $40 // vmovdqa ymm2, ymmword ptr [rcx+40h]
+  db $C5, $F9, $6F, $59, $60 // vmovdqa xmm3, xmmword ptr [rcx+60h]
+  mov rcx, [rcx + 70h]
+  db $C5, $FD, $7F, $02      // vmovdqa ymmword ptr [rdx], ymm0
+  db $C5, $FD, $7F, $4A, $20 // vmovdqa ymmword ptr [rdx+20h], ymm1
+  db $C5, $FD, $7F, $52, $40 // vmovdqa ymmword ptr [rdx+40h], ymm2
+  db $C5, $F9, $7F, $5A, $60 // vmovdqa xmmword ptr [rdx+60h], xmm3
+  mov [rdx + 70h], rcx
+  {$else}
+  db $C5, $FD, $6F, $07      // vmovdqa ymm0, ymmword ptr [rdi]
+  db $C5, $FD, $6F, $4F, $20 // vmovdqa ymm1, ymmword ptr [rdi+20h]
+  db $C5, $FD, $6F, $57, $40 // vmovdqa ymm2, ymmword ptr [rdi+40h]
+  db $C5, $F9, $6F, $5F, $60 // vmovdqa xmm3, xmmword ptr [rdi+60h]
+  mov rdi, [rdi + 70h]
+  db $C5, $FD, $7F, $06      // vmovdqa ymmword ptr [rsi], ymm0
+  db $C5, $FD, $7F, $4E, $20 // vmovdqa ymmword ptr [rsi+20h], ymm1
+  db $C5, $FD, $7F, $56, $40 // vmovdqa ymmword ptr [rsi+40h], ymm2
+  db $C5, $F9, $7F, $5E, $60 // vmovdqa ymmword ptr [rsi+60h], xmm3
+  mov [rsi + 70h], rdi
+  {$endif}
+  db $C5, $FD, $EF, $C0      // vpxor ymm0,ymm0,ymm0
+  db $C5, $F5, $EF, $C9      // vpxor ymm1,ymm1,ymm1
+  db $C5, $ED, $EF, $D2      // vpxor ymm2,ymm2,ymm2
+  db $C5, $E1, $EF, $DB      // vpxor xmm3,xmm3,xmm3
+end;
+
+procedure Move152AVX2(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
+asm
+  {$ifndef unix}
+.noframe
+                                add rcx, 60h
+                                add rdx, 60h
+  db $C5, $FD, $6F, $41, $A0 // vmovdqa ymm0, [rcx-60h]
+  db $C5, $FD, $6F, $49, $C0 // vmovdqa ymm1, [rcx-40h]
+  db $C5, $FD, $6F, $51, $E0 // vmovdqa ymm2, [rcx-20h]
+  db $C5, $FD, $6F, $19      // vmovdqa ymm3, [rcx]
+  db $C5, $F9, $6F, $61, $20 // vmovdqa xmm4, [rcx+20h]
+  mov rcx, [rcx+30h]
+  db $C5, $FD, $7F, $42, $A0 // vmovdqa [rdx-60h], ymm0
+  db $C5, $FD, $7F, $4A, $C0 // vmovdqa [rdx-40h], ymm1
+  db $C5, $FD, $7F, $52, $E0 // vmovdqa [rdx-20h], ymm2
+  db $C5, $FD, $7F, $1A      // vmovdqa [rdx],     ymm3
+  db $C5, $F9, $7F, $62, $20 // vmovdqa [rdx+20h], xmm4
+  mov [rdx+30h], rcx
+  {$else}
+                                add rdi, 60h
+                                add rsi, 60h
+  db $C5, $FD, $6F, $47, $A0 // vmovdqa ymm0, [rdi-60h]
+  db $C5, $FD, $6F, $4F, $C0 // vmovdqa ymm1, [rdi-40h]
+  db $C5, $FD, $6F, $57, $E0 // vmovdqa ymm2, [rdi-20h]
+  db $C5, $FD, $6F, $1F      // vmovdqa ymm3, [rdi]
+  db $C5, $F9, $6F, $67, $20 // vmovdqa xmm4, [rdi+20h]
+                                mov rdi, [rdi+30h]
+  db $C5, $FD, $7F, $46, $A0 // vmovdqa [rsi-60h], ymm0
+  db $C5, $FD, $7F, $4E, $C0 // vmovdqa [rsi-40h], ymm1
+  db $C5, $FD, $7F, $56, $E0 // vmovdqa [rsi-20h], ymm2
+  db $C5, $FD, $7F, $1E      // vmovdqa [rsi],     ymm3
+  db $C5, $F9, $7F, $66, $20 // vmovdqa [rsi+20h], xmm4
+                                mov [rsi+30h], rdi
+  {$endif}
+  db $C5, $FD, $EF, $C0      // vpxor ymm0,ymm0,ymm0
+  db $C5, $F5, $EF, $C9      // vpxor ymm1,ymm1,ymm1
+  db $C5, $ED, $EF, $D2      // vpxor ymm2,ymm2,ymm2
+  db $C5, $E5, $EF, $DB      // vpxor ymm3,ymm3,ymm3
+  db $C5, $D9, $EF, $E4      // vpxor xmm4,xmm4,xmm4
+end;
+
+procedure Move184AVX2(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
+asm
+  {$ifndef unix}
+.noframe
+                                     add rcx, 60h
+                                     add rdx, 60h
+  db $C5, $FD, $6F, $41, $A0      // vmovdqa ymm0, [rcx-60h]
+  db $C5, $FD, $6F, $49, $C0      // vmovdqa ymm1, [rcx-40h]
+  db $C5, $FD, $6F, $51, $E0      // vmovdqa ymm2, [rcx-20h]
+  db $C5, $FD, $6F, $19           // vmovdqa ymm3, [rcx]
+  db $C5, $FD, $6F, $61, $20      // vmovdqa ymm4, [rcx+20h]
+  db $C5, $F9, $6F, $69, $40      // vmovdqa xmm5, [rcx+40h]
+                                     mov rcx, [rcx+50h]
+  db $C5, $FD, $7F, $42, $A0      // vmovdqa [rdx-60h], ymm0
+  db $C5, $FD, $7F, $4A, $C0      // vmovdqa [rdx-40h], ymm1
+  db $C5, $FD, $7F, $52, $E0      // vmovdqa [rdx-20h], ymm2
+  db $C5, $FD, $7F, $1A           // vmovdqa [rdx],     ymm3
+  db $C5, $FD, $7F, $62, $20      // vmovdqa [rdx+20h], ymm4
+  db $C5, $F9, $7F, $6A, $40      // vmovdqa [rdx+40h], xmm5
+  mov [rdx+50h],rcx
+  {$else}
+                                     add rdi, 60h
+                                     add rsi, 60h
+  db $C5, $FD, $6F, $47, $A0      // vmovdqa ymm0, [rdi-60h]
+  db $C5, $FD, $6F, $4F, $C0      // vmovdqa ymm1, [rdi-40h]
+  db $C5, $FD, $6F, $57, $E0      // vmovdqa ymm2, [rdi-20h]
+  db $C5, $FD, $6F, $1F           // vmovdqa ymm3, [rdi]
+  db $C5, $FD, $6F, $67, $20      // vmovdqa ymm4, [rdi+20h]
+  db $C5, $F9, $6F, $6F, $40      // vmovdqa xmm5, [rdi+40h]
+                                     mov rdi, [rdi+50h]
+  db $C5, $FD, $7F, $46, $A0      // vmovdqa [rsi-60h], ymm0
+  db $C5, $FD, $7F, $4E, $C0      // vmovdqa [rsi-40h], ymm1
+  db $C5, $FD, $7F, $56, $E0      // vmovdqa [rsi-20h], ymm2
+  db $C5, $FD, $7F, $1E           // vmovdqa [rsi],     ymm3
+  db $C5, $FD, $7F, $66, $20      // vmovdqa [rsi+20h], ymm4
+  db $C5, $F9, $7F, $6E, $40      // vmovdqa [rsi+40h], xmm5
+                                     mov [rsi+50h], rdi
+  {$endif}
+  db $C5, $FD, $EF, $C0           // vpxor ymm0,ymm0,ymm0
+  db $C5, $F5, $EF, $C9           // vpxor ymm1,ymm1,ymm1
+  db $C5, $ED, $EF, $D2           // vpxor ymm2,ymm2,ymm2
+  db $C5, $E5, $EF, $DB           // vpxor ymm3,ymm3,ymm3
+  db $C5, $DD, $EF, $E4           // vpxor ymm4,ymm4,ymm4
+  db $C5, $D1, $EF, $ED           // vpxor xmm5,xmm5,xmm5
+end;
+
+procedure Move216AVX2(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
+asm
+  {$ifndef unix}
+.noframe
+                                   add rcx, 60h
+                                   add rdx, 60h
+  db $C5, $FD, $6F, $41, $A0    // vmovdqa ymm0, [rcx-60h]
+  db $C5, $FD, $6F, $49, $C0    // vmovdqa ymm1, [rcx-40h]
+  db $C5, $FD, $6F, $51, $E0    // vmovdqa ymm2, [rcx-20h]
+  db $C5, $FD, $6F, $19         // vmovdqa ymm3, [rcx]
+  db $C5, $FD, $6F, $61, $20    // vmovdqa ymm4, [rcx+20h]
+  db $C5, $FD, $6F, $69, $40    // vmovdqa ymm5, [rcx+40h]
+  mov r9, [rcx+60h]
+  mov r10, [rcx+68h]
+  mov r11, [rcx+70h]
+  db $C5, $FD, $7F, $42, $A0    // vmovdqa [rdx-60h], ymm0
+  db $C5, $FD, $7F, $4A, $C0    // vmovdqa [rdx-40h], ymm1
+  db $C5, $FD, $7F, $52, $E0    // vmovdqa [rdx-20h], ymm2
+  db $C5, $FD, $7F, $1A         // vmovdqa [rdx],     ymm3
+  db $C5, $FD, $7F, $62, $20    // vmovdqa [rdx+20h], ymm4
+  db $C5, $FD, $7F, $6A, $40    // vmovdqa [rdx+40h], ymm5
+  mov [rdx+60h], r9
+  mov [rdx+68h], r10
+  mov [rdx+70h], r11
+  {$else}
+                                   add rdi, 60h
+                                   add rsi, 60h
+  db $C5, $FD, $6F, $41, $A0    // vmovdqa ymm0, [rdi-60h]
+  db $C5, $FD, $6F, $49, $C0    // vmovdqa ymm1, [rdi-40h]
+  db $C5, $FD, $6F, $51, $E0    // vmovdqa ymm2, [rdi-20h]
+  db $C5, $FD, $6F, $19         // vmovdqa ymm3, [rdi]
+  db $C5, $FD, $6F, $61, $20    // vmovdqa ymm4, [rdi+20h]
+  db $C5, $FD, $6F, $69, $40    // vmovdqa ymm5, [rdi+40h]
+
+{Although, under unix, we can use xmm6(ymm6) and xmm7 (ymm7), here we mimic
+the Win64 code, see the comment at Move216AVX1 on this}
+                                   mov r9,  [rdi+60h]
+                                   mov r10, [rdi+68h]
+                                   mov r11, [rdi+70h]
+  db $C5, $FD, $7F, $42, $A0    // vmovdqa [rsi-60h], ymm0
+  db $C5, $FD, $7F, $4A, $C0    // vmovdqa [rsi-40h], ymm1
+  db $C5, $FD, $7F, $52, $E0    // vmovdqa [rsi-20h], ymm2
+  db $C5, $FD, $7F, $1A         // vmovdqa [rsi],     ymm3
+  db $C5, $FD, $7F, $62, $20    // vmovdqa [rsi+20h], ymm4
+  db $C5, $FD, $7F, $6A, $40    // vmovdqa [rsi+40h], ymm5
+                                   mov [rsi+60h], r9
+                                   mov [rsi+68h], r10
+                                   mov [rsi+70h], r11
+  {$endif}
+  db $C5, $FD, $EF, $C0         // vpxor ymm0,ymm0,ymm0
+  db $C5, $F5, $EF, $C9         // vpxor ymm1,ymm1,ymm1
+  db $C5, $ED, $EF, $D2         // vpxor ymm2,ymm2,ymm2
+  db $C5, $E5, $EF, $DB         // vpxor ymm3,ymm3,ymm3
+  db $C5, $DD, $EF, $E4         // vpxor ymm4,ymm4,ymm4
+  db $C5, $D5, $EF, $ED         // vpxor ymm5,ymm5,ymm5
+end;
+{$endif DisableAVX2}
+
+
+{$endif EnableAVX}
+{$endif 64bit}
+
+{--------------Register, FPU, MMX and SSE Move Procedures--------------}
+
+{$ifndef ExcludeSmallGranularMoves}
 
 procedure Move4(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
 asm
 {$ifdef 32Bit}
   mov eax, [eax]
   mov [edx], eax
-{$else}
+{$else 32Bit}
   {$ifndef unix}
 .noframe
   mov eax, [rcx]
   mov [rdx], eax
-  {$else}
+  {$else unix}
   mov eax, [rdi]
   mov [rsi], eax
-  {$endif}
-{$endif}
+  {$endif unix}
+{$endif 32bit}
 end;
 
 {$ifdef 64Bit}
@@ -2892,47 +3615,10 @@ asm
 {$endif}
 end;
 
+{$endif ExcludeSmallGranularMoves}
 
-{$ifdef 64Bit}
 
-{$ifdef EnableAVX}
-procedure Move20AVX1(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
-asm
-  db $C5, $F8, $77      // vzeroupper
-  {$ifndef unix}
-.noframe
-  db $C5, $F9, $6F, $01 // vmovdqa xmm0, xmmword ptr[rcx]
-  mov ecx, [rcx + 16]
-  db $C5, $F9, $7F, $02 // vmovdqa xmmword ptr[rdx], xmm0
-  mov [rdx + 16], ecx
-  {$else}
-  db $C5, $F9, $6F, $07 // vmovdqa xmm0, xmmword ptr[rdi]
-  mov edi, [rdi + 16]
-  db $C5, $F9, $7F, $06 // vmovdqa xmmword ptr[rsi], xmm0
-  mov [rsi + 16], edi
-  {$endif}
-  db $C5, $F8, $57, $C0 // vxorps xmm0,xmm0,xmm0
-  db $C5, $F8, $77      // vzeroupper
-end;
-
-procedure Move20AVX2(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
-asm
-  {$ifndef unix}
-.noframe
-  db $C5, $F9, $6F, $01 // vmovdqa xmm0, xmmword ptr[rcx]
-  mov ecx, [rcx + 16]
-  db $C5, $F9, $7F, $02 // vmovdqa xmmword ptr[rdx], xmm0
-  mov [rdx + 16], ecx
-  {$else}
-  db $C5, $F9, $6F, $07 // vmovdqa xmm0, xmmword ptr[rdi]
-  mov edi, [rdi + 16]
-  db $C5, $F9, $7F, $06 // vmovdqa xmmword ptr[rsi], xmm0
-  mov [rsi + 16], edi
-  {$endif}
-  db $C5, $F9, $EF, $C0 // vpxor xmm0,xmm0,xmm0
-end;
-{$endif}
-
+{$ifdef 64bit}
 procedure Move24(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
 asm
   {$ifndef unix}
@@ -2948,46 +3634,10 @@ asm
   mov [rsi + 16], rdx
   {$endif}
 end;
+{$endif 64bit}
 
-{$ifdef EnableAVX}
-procedure Move24AVX1(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
-asm
-  db $C5, $F8, $77      // vzeroupper
-  {$ifndef unix}
-.noframe
-  db $C5, $F9, $6F, $01 // vmovdqa xmm0, xmmword ptr[rcx]
-  mov r8, [rcx + 16]
-  db $C5, $F9, $7F, $02 // vmovdqa xmmword ptr[rdx], xmm0
-  mov [rdx + 16], r8
-  {$else}
-  db $C5, $F9, $6F, $07 // vmovdqa xmm0, xmmword ptr[rdi]
-  mov rdx, [rdi + 16]
-  db $C5, $F9, $7F, $06 // vmovdqa xmmword ptr[rsi], xmm0
-  mov [rsi + 16], rdx
-  {$endif}
-  db $C5, $F8, $57, $C0 // vxorps xmm0,xmm0,xmm0
-  db $C5, $F8, $77      // vzeroupper
-end;
 
-procedure Move24AVX2(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
-asm
-  {$ifndef unix}
-.noframe
-  db $C5, $F9, $6F, $01 // vmovdqa xmm0, xmmword ptr[rcx]
-  mov r8, [rcx + 16]
-  db $C5, $F9, $7F, $02 // vmovdqa xmmword ptr[rdx], xmm0
-  mov [rdx + 16], r8
-  {$else}
-  db $C5, $F9, $6F, $07 // vmovdqa xmm0, xmmword ptr[rdi]
-  mov rdx, [rdi + 16]
-  db $C5, $F9, $7F, $06 // vmovdqa xmmword ptr[rsi], xmm0
-  mov [rsi + 16], rdx
-  {$endif}
-  db $C5, $F9, $EF, $C0 // vpxor xmm0,xmm0,xmm0
-end;
-{$endif}
-
-{$endif}
+{$ifndef ExcludeSmallGranularMoves}
 
 procedure Move28(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
 asm
@@ -3026,55 +3676,6 @@ asm
 {$endif}
 end;
 
-
-{$IFDEF 64bit}
-{$ifdef EnableAVX}
-procedure Move28AVX1(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
-asm
-  db $C5, $F8, $77      // vzeroupper
-  {$ifndef unix}
-.noframe
-  db $C5, $F9, $6F, $01 // vmovdqa xmm0, xmmword ptr[rcx]
-  mov r8, [rcx + 16]
-  mov ecx, [rcx + 24]
-  db $C5, $F9, $7F, $02 // vmovdqa xmmword ptr[rdx], xmm0
-  mov [rdx + 16], r8
-  mov [rdx + 24], ecx
-  {$else}
-  db $C5, $F9, $6F, $07 // vmovdqa xmm0, xmmword ptr[rdi]
-  mov rdx, [rdi + 16]
-  mov edi, [rdi + 24]
-  db $C5, $F9, $7F, $06 // vmovdqa xmmword ptr[rsi], xmm0
-  mov [rsi + 16], rdx
-  mov [rsi + 24], edi
-  {$endif}
-  db $C5, $F8, $57, $C0 // vxorps xmm0,xmm0,xmm0
-  db $C5, $F8, $77      // vzeroupper
-end;
-
-procedure Move28AVX2(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
-asm
-  {$ifndef unix}
-.noframe
-  db $C5, $F9, $6F, $01 // vmovdqa xmm0, xmmword ptr[rcx]
-  mov r8, [rcx + 16]
-  mov ecx, [rcx + 24]
-  db $C5, $F9, $7F, $02 // vmovdqa xmmword ptr[rdx], xmm0
-  mov [rdx + 16], r8
-  mov [rdx + 24], ecx
-  {$else}
-  db $C5, $F9, $6F, $07 // vmovdqa xmm0, xmmword ptr[rdi]
-  mov rdx, [rdi + 16]
-  mov edi, [rdi + 24]
-  db $C5, $F9, $7F, $06 // vmovdqa xmmword ptr[rsi], xmm0
-  mov [rsi + 16], rdx
-  mov [rsi + 24], edi
-  {$endif}
-  db $C5, $F9, $EF, $C0 // vpxor xmm0,xmm0,xmm0
-end;
-{$endif}
-{$endif}
-
 procedure Move36(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
 asm
 {$ifdef 32Bit}
@@ -3108,46 +3709,7 @@ asm
 {$endif}
 end;
 
-{$IFDEF 64bit}
-{$ifdef EnableAVX}
-
-procedure Move36AVX1(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
-asm
-  db $C5, $F8, $77      // vzeroupper
-  {$ifndef unix}
-.noframe
-  db $C5, $FD, $6F, $01 // vmovdqa ymm0, ymmword ptr [rcx]
-  mov ecx, [rcx + 32]
-  db $C5, $FD, $7F, $02 // vmovdqa ymmword ptr [rdx], ymm0
-  mov [rdx + 32], ecx
-  {$else}
-  db $C5, $FD, $6F, $07 // vmovdqa ymm0, ymmword ptr [rdi]
-  mov edi, [rdi + 32]
-  db $C5, $FD, $7F, $06 // vmovdqa ymmword ptr [rsi], ymm0
-  mov [rsi + 32], edi
-  {$endif}
-  db $C5, $FC, $57, $C0 // vxorps ymm0,ymm0,ymm0
-  db $C5, $F8, $77      // vzeroupper
-end;
-
-procedure Move36AVX2(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
-asm
-  {$ifndef unix}
-.noframe
-  db $C5, $FF, $6F, $01 // vmovdqa ymm0, ymmword ptr [rcx]
-  mov ecx, [rcx + 32]
-  db $C5, $FD, $7F, $02 // vmovdqa ymmword ptr [rdx], ymm0
-  mov [rdx + 32], ecx
-  {$else}
-  db $C5, $FD, $6F, $07 // vmovdqa ymm0, ymmword ptr [rdi]
-  mov edi, [rdi + 32]
-  db $C5, $FD, $7F, $06 // vmovdqa ymmword ptr [rsi], ymm0
-  mov [rsi + 32], edi
-  {$endif}
-  db $C5, $FD, $EF, $C0 // vpxor ymm0, ymm0, ymm0
-end;
-{$endif}
-
+{$ifdef 64bit}
 procedure Move40(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
 asm
   {$ifndef unix}
@@ -3167,45 +3729,8 @@ asm
   mov [rsi + 32], rdx
   {$endif}
 end;
-
-{$ifdef EnableAVX}
-procedure Move40AVX1(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
-asm
-  db $C5, $F8, $77      // vzeroupper
-  {$ifndef unix}
-.noframe
-  db $C5, $FF, $6F, $01 // vmovdqa ymm0, ymmword ptr [rcx]
-  mov r8, [rcx + 32]
-  db $C5, $FD, $7F, $02 // vmovdqa ymmword ptr [rdx], ymm0
-  mov [rdx + 32], r8
-  {$else}
-  db $C5, $FD, $6F, $07 // vmovdqa ymm0, ymmword ptr [rdi]
-  mov rdx, [rdi + 32]
-  db $C5, $FD, $7F, $06 // vmovdqa ymmword ptr [rsi], ymm0
-  mov [rsi + 32], rdx
-  {$endif}
-  db $C5, $FC, $57, $C0 // vxorps ymm0,ymm0,ymm0
-  db $C5, $F8, $77      // vzeroupper
-end;
-
-procedure Move40AVX2(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
-asm
-  {$ifndef unix}
-.noframe
-  db $C5, $FF, $6F, $01 // vmovdqa ymm0, ymmword ptr [rcx]
-  mov r8, [rcx + 32]
-  db $C5, $FD, $7F, $02 // vmovdqa ymmword ptr [rdx], ymm0
-  mov [rdx + 32], r8
-  {$else}
-  db $C5, $FD, $6F, $07 // vmovdqa ymm0, ymmword ptr [rdi]
-  mov rdx, [rdi + 32]
-  db $C5, $FD, $7F, $06 // vmovdqa ymmword ptr [rsi], ymm0
-  mov [rsi + 32], rdx
-  {$endif}
-  db $C5, $FD, $EF, $C0 // vpxor ymm0, ymm0, ymm0
-end;
 {$endif}
-{$endif}
+
 
 procedure Move44(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
 asm
@@ -3245,57 +3770,6 @@ asm
   {$endif}
 {$endif}
 end;
-
-
-
-{$ifdef 64Bit}
-{$ifdef EnableAVX}
-procedure Move44AVX1(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
-asm
-  db $C5, $F8, $77      // vzeroupper
-  {$ifndef unix}
-.noframe
-  db $C5, $FF, $6F, $01 // vmovdqa ymm0, ymmword ptr [rcx]
-  mov r8, [rcx + 32]
-  mov ecx, [rcx + 40]
-  db $C5, $FD, $7F, $02 // vmovdqa ymmword ptr [rdx], ymm0
-  mov [rdx + 32], r8
-  mov [rdx + 40], ecx
-  {$else}
-  db $C5, $FD, $6F, $07 // vmovdqa ymm0, ymmword ptr [rdi]
-  mov rdx, [rdi + 32]
-  mov edi, [rdi + 40]
-  db $C5, $FD, $7F, $06 // vmovdqa ymmword ptr [rsi], ymm0
-  mov [rsi + 32], rdx
-  mov [rsi + 40], edi
-  {$endif}
-  db $C5, $FC, $57, $C0 // vxorps ymm0,ymm0,ymm0
-  db $C5, $F8, $77      // vzeroupper
-end;
-
-procedure Move44AVX2(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
-asm
-  {$ifndef unix}
-.noframe
-  db $C5, $FF, $6F, $01 // vmovdqa ymm0, ymmword ptr [rcx]
-  mov r8, [rcx + 32]
-  mov ecx, [rcx + 40]
-  db $C5, $FD, $7F, $02 // vmovdqa ymmword ptr [rdx], ymm0
-  mov [rdx + 32], r8
-  mov [rdx + 40], ecx
-  {$else}
-  db $C5, $FD, $6F, $07 // vmovdqa ymm0, ymmword ptr [rdi]
-  mov rdx, [rdi + 32]
-  mov edi, [rdi + 40]
-  db $C5, $FD, $7F, $06 // vmovdqa ymmword ptr [rsi], ymm0
-  mov [rsi + 32], rdx
-  mov [rsi + 40], edi
-  {$endif}
-  db $C5, $FD, $EF, $C0 // vpxor ymm0, ymm0, ymm0
-end;
-{$endif}
-{$endif}
-
 
 procedure Move52(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
 asm
@@ -3338,55 +3812,10 @@ asm
 {$endif}
 end;
 
-{$ifdef 64Bit}
-{$ifdef EnableAVX}
-procedure Move52AVX1(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
-asm
-  db $C5, $F8, $77           // vzeroupper
-  {$ifndef unix}
-.noframe
-  db $C5, $FD, $6F, $01      // vmovdqa ymm0, ymmword ptr [rcx]
-  db $C5, $F9, $6F, $49, $20 // vmovdqa xmm1, xmmword ptr [rcx+20h]
-  mov ecx, [rcx + 48]
-  db $C5, $FD, $7F, $02      // vmovdqa ymmword ptr [rdx], ymm0
-  db $C5, $F9, $7F, $4A, $20 // vmovdqa xmmword ptr [rdx+20h], xmm1
-  mov [rdx + 48], ecx
-  {$else}
-  db $C5, $FD, $6F, $07      // vmovdqa ymm0, ymmword ptr [rdi]
-  db $C5, $F9, $6F, $4F, $20 // vmovdqa xmm1, xmmword ptr [rdi+20h]
-  mov edi, [rdi + 48]
-  db $C5, $FD, $7F, $06      // vmovdqa ymmword ptr [rsi], ymm0
-  db $C5, $F9, $7F, $4E, $20 // vmovdqa xmmword ptr [rsi+20h], xmm1
-  mov [rsi + 48], edi
-  {$endif}
-  db $C5, $FC, $57, $C0      // vxorps ymm0,ymm0,ymm0
-  db $C5, $F0, $57, $C9      // vxorps xmm1,xmm1,xmm1
-  db $C5, $F8, $77           // vzeroupper
-end;
+{$endif ExcludeSmallGranularMoves}
 
-procedure Move52AVX2(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
-asm
-  {$ifndef unix}
-.noframe
-  db $C5, $FD, $6F, $01      // vmovdqa ymm0, ymmword ptr [rcx]
-  db $C5, $F9, $6F, $49, $20 // vmovdqa xmm1, xmmword ptr [rcx+20h]
-  mov ecx, [rcx + 48]
-  db $C5, $FD, $7F, $02      // vmovdqa ymmword ptr [rdx], ymm0
-  db $C5, $F9, $7F, $4A, $20 // vmovdqa xmmword ptr [rdx+20h], xmm1
-  mov [rdx + 48], ecx
-  {$else}
-  db $C5, $FD, $6F, $07      // vmovdqa ymm0, ymmword ptr [rdi]
-  db $C5, $F9, $6F, $4F, $20 // vmovdqa xmm1, xmmword ptr [rdi+20h]
-  mov edi, [rdi + 48]
-  db $C5, $FD, $7F, $06      // vmovdqa ymmword ptr [rsi], ymm0
-  db $C5, $F9, $7F, $4E, $20 // vmovdqa xmmword ptr [rsi+20h], xmm1
-  mov [rsi + 48], edi
-  {$endif}
-  db $C5, $FD, $EF, $C0      // vpxor ymm0, ymm0, ymm0
-  db $C5, $F1, $EF, $C9      // vpxor xmm1, xmm1, xmm1
-end;
-{$endif}
 
+{$ifdef 64bit}
 procedure Move56(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
 asm
   {$ifndef unix}
@@ -3411,56 +3840,9 @@ asm
   {$endif}
 end;
 
-{$ifdef EnableAVX}
-procedure Move56AVX1(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
-asm
-  db $C5, $F8, $77           // vzeroupper
-  {$ifndef unix}
-.noframe
-  db $C5, $FD, $6F, $01      // vmovdqa ymm0, ymmword ptr [rcx]
-  db $C5, $F9, $6F, $49, $20 // vmovdqa xmm1, xmmword ptr [rcx+20h]
-  mov r8, [rcx + 48]
-  db $C5, $FD, $7F, $02      // vmovdqa ymmword ptr [rdx], ymm0
-  db $C5, $F9, $7F, $4A, $20 // vmovdqa xmmword ptr [rdx+20h], xmm1
-  mov [rdx + 48], r8
-  {$else}
-  db $C5, $FD, $6F, $07      // vmovdqa ymm0, ymmword ptr [rdi]
-  db $C5, $F9, $6F, $4F, $20 // vmovdqa xmm1, xmmword ptr [rdi+20h]
-  mov rdx, [rdi + 48]
-  db $C5, $FD, $7F, $06      // vmovdqa ymmword ptr [rsi], ymm0
-  db $C5, $F9, $7F, $4E, $20 // vmovdqa xmmword ptr [rsi+20h], xmm1
-  mov [rsi + 48], rdx
-  {$endif}
+{$endif 64bit}
 
-  db $C5, $FC, $57, $C0      // vxorps ymm0, ymm0, ymm0
-  db $C5, $F0, $57, $C9      // vxorps xmm1, xmm1, xmm1
-  db $C5, $F8, $77           // vzeroupper
-end;
-
-procedure Move56AVX2(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
-asm
-  {$ifndef unix}
-.noframe
-  db $C5, $FD, $6F, $01      // vmovdqa ymm0, ymmword ptr [rcx]
-  db $C5, $F9, $6F, $49, $20 // vmovdqa xmm1, xmmword ptr [rcx+20h]
-  mov r8, [rcx + 48]
-  db $C5, $FD, $7F, $02      // vmovdqa ymmword ptr [rdx], ymm0
-  db $C5, $F9, $7F, $4A, $20 // vmovdqa xmmword ptr [rdx+20h], xmm1
-  mov [rdx + 48], r8
-  {$else}
-  db $C5, $FD, $6F, $07      // vmovdqa ymm0, ymmword ptr [rdi]
-  db $C5, $F9, $6F, $4F, $20 // vmovdqa xmm1, xmmword ptr [rdi+20h]
-  mov rdx, [rdi + 48]
-  db $C5, $FD, $7F, $06      // vmovdqa ymmword ptr [rsi], ymm0
-  db $C5, $F9, $7F, $4E, $20 // vmovdqa xmmword ptr [rsi+20h], xmm1
-  mov [rsi + 48], rdx
-  {$endif}
-  db $C5, $FD, $EF, $C0      // vpxor ymm0, ymm0, ymm0
-  db $C5, $F1, $EF, $C9      // vpxor xmm1, xmm1, xmm1
-end;
-{$endif}
-
-{$endif}
+{$ifndef ExcludeSmallGranularMoves}
 
 procedure Move60(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
 asm
@@ -3508,66 +3890,6 @@ asm
   {$endif}
 {$endif}
 end;
-
-
-{$ifdef 64Bit}
-{$ifdef EnableAVX}
-procedure Move60AVX1(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
-asm
-  db $C5, $F8, $77           // vzeroupper
-  {$ifndef unix}
-.noframe
-  db $C5, $FD, $6F, $01      // vmovdqa ymm0, ymmword ptr [rcx]
-  db $C5, $F9, $6F, $49, $20 // vmovdqa xmm1, xmmword ptr [rcx+20h]
-  mov r8, [rcx + 48]
-  mov ecx, [rcx + 56]
-  db $C5, $FD, $7F, $02      // vmovdqa ymmword ptr [rdx], ymm0
-  db $C5, $F9, $7F, $4A, $20 // vmovdqa xmmword ptr [rdx+20h], xmm1
-  mov [rdx + 48], r8
-  mov [rdx + 56], ecx
-  {$else}
-  db $C5, $FD, $6F, $07      // vmovdqa ymm0, ymmword ptr [rdi]
-  db $C5, $F9, $6F, $4F, $20 // vmovdqa xmm1, xmmword ptr [rdi+20h]
-  mov rdx, [rdi + 48]
-  mov edi, [rdi + 56]
-  db $C5, $FD, $7F, $06      // vmovdqa ymmword ptr [rsi], ymm0
-  db $C5, $F9, $7F, $4E, $20 // vmovdqa xmmword ptr [rsi+20h], xmm1
-  mov [rsi + 48], rdx
-  mov [rsi + 56], edi
-  {$endif}
-  db $C5, $FC, $57, $C0      // vxorps ymm0,ymm0,ymm0
-  db $C5, $F0, $57, $C9      // vxorps xmm1,xmm1,xmm1
-  db $C5, $F8, $77           // vzeroupper
-end;
-
-procedure Move60AVX2(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
-asm
-  {$ifndef unix}
-.noframe
-  db $C5, $FD, $6F, $01      // vmovdqa ymm0, ymmword ptr [rcx]
-  db $C5, $F9, $6F, $49, $20 // vmovdqa xmm1, xmmword ptr [rcx+20h]
-  mov r8, [rcx + 48]
-  mov ecx, [rcx + 56]
-  db $C5, $FD, $7F, $02      // vmovdqa ymmword ptr [rdx], ymm0
-  db $C5, $F9, $7F, $4A, $20 // vmovdqa xmmword ptr [rdx+20h], xmm1
-  mov [rdx + 48], r8
-  mov [rdx + 56], ecx
-  {$else}
-  db $C5, $FD, $6F, $07      // vmovdqa ymm0, ymmword ptr [rdi]
-  db $C5, $F9, $6F, $4F, $20 // vmovdqa xmm1, xmmword ptr [rdi+20h]
-  mov rdx, [rdi + 48]
-  mov edi, [rdi + 56]
-  db $C5, $FD, $7F, $06      // vmovdqa ymmword ptr [rsi], ymm0
-  db $C5, $F9, $7F, $4E, $20 // vmovdqa xmmword ptr [rsi+20h], xmm1
-  mov [rsi + 48], rdx
-  mov [rsi + 56], edi
-  {$endif}
-  db $C5, $FD, $EF, $C0      // vpxor ymm0, ymm0, ymm0
-  db $C5, $F1, $EF, $C9      // vpxor xmm1, xmm1, xmm1
-end;
-{$endif}
-{$endif}
-
 
 procedure Move68(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
 asm
@@ -3618,368 +3940,7 @@ asm
 {$endif}
 end;
 
-
-{$ifdef 64Bit}
-{$ifdef EnableAVX}
-procedure Move68AVX1(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
-asm
-  db $C5, $F8, $77      // vzeroupper
-  {$ifndef unix}
-.noframe
-  db $C5, $FD, $6F, $01      // vmovdqa ymm0, ymmword ptr [rcx]
-  db $C5, $FD, $6F, $49, $20 // vmovdqa ymm1, ymmword ptr [rcx+20h]
-  mov ecx, [rcx + 64]
-  db $C5, $FD, $7F, $02      // vmovdqa ymmword ptr [rdx], ymm0
-  db $C5, $FD, $7F, $4A, $20 // vmovdqa ymmword ptr [rdx+20h], ymm1
-  mov [rdx + 64], ecx
-  {$else}
-  db $C5, $FD, $6F, $07      // vmovdqa ymm0, ymmword ptr [rdi]
-  db $C5, $FD, $6F, $4F, $20 // vmovdqa ymm1, ymmword ptr [rdi+20h]
-  mov edi, [rdi + 64]
-  db $C5, $FD, $7F, $06      // vmovdqa ymmword ptr [rsi], ymm0
-  db $C5, $FD, $7F, $4E, $20 // vmovdqa ymmword ptr [rsi+20h], ymm1
-  mov [rsi + 64], edi
-  {$endif}
-  db $C5, $FC, $57, $C0      // vxorps ymm0,ymm0,ymm0
-  db $C5, $F4, $57, $C9      // vxorps ymm1,ymm1,ymm1
-  db $C5, $F8, $77           // vzeroupper
-end;
-
-procedure Move68AVX2(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
-asm
-  {$ifndef unix}
-.noframe
-  db $C5, $FD, $6F, $01      // vmovdqa ymm0, ymmword ptr [rcx]
-  db $C5, $FD, $6F, $49, $20 // vmovdqa ymm1, ymmword ptr [rcx+20h]
-  mov ecx, [rcx + 64]
-  db $C5, $FD, $7F, $02      // vmovdqa ymmword ptr [rdx], ymm0
-  db $C5, $FD, $7F, $4A, $20 // vmovdqa ymmword ptr [rdx+20h], ymm1
-  mov [rdx + 64], ecx
-  {$else}
-  db $C5, $FD, $6F, $07      // vmovdqa ymm0, ymmword ptr [rdi]
-  db $C5, $FD, $6F, $4F, $20 // vmovdqa ymm1, ymmword ptr [rdi+20h]
-  mov edi, [rdi + 64]
-  db $C5, $FD, $7F, $06      // vmovdqa ymmword ptr [rsi], ymm0
-  db $C5, $FD, $7F, $4E, $20 // vmovdqa ymmword ptr [rsi+20h], ymm1
-  mov [rsi + 64], edi
-  {$endif}
-  db $C5, $FD, $EF, $C0      // vpxor       ymm0,ymm0,ymm0
-  db $C5, $F5, $EF, $C9      // vpxor       ymm1,ymm1,ymm1
-end;
-{$endif}
-{$endif}
-
-{$ifdef 64Bit}
-{$ifdef EnableAVX}
-procedure Move72AVX1(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
-asm
-  db $C5, $F8, $77           // vzeroupper
-  {$ifndef unix}
-.noframe
-  db $C5, $FD, $6F, $01      // vmovdqa ymm0, ymmword ptr [rcx]
-  db $C5, $FD, $6F, $49, $20 // vmovdqa ymm1, ymmword ptr [rcx+20h]
-  mov rcx, [rcx + 64]
-  db $C5, $FD, $7F, $02      // vmovdqa ymmword ptr [rdx], ymm0
-  db $C5, $FD, $7F, $4A, $20 // vmovdqa ymmword ptr [rdx+20h], ymm1
-  mov [rdx + 64], rcx
-  {$else}
-  db $C5, $FD, $6F, $07      // vmovdqa ymm0, ymmword ptr [rdi]
-  db $C5, $FD, $6F, $4F, $20 // vmovdqa ymm1, ymmword ptr [rdi+20h]
-  mov rdi, [rdi + 64]
-  db $C5, $FD, $7F, $06      // vmovdqa ymmword ptr [rsi], ymm0
-  db $C5, $FD, $7F, $4E, $20 // vmovdqa ymmword ptr [rsi+20h], ymm1
-  mov [rsi + 64], rdi
-  {$endif}
-  db $C5, $FC, $57, $C0      // vxorps ymm0,ymm0,ymm0
-  db $C5, $F4, $57, $C9      // vxorps ymm1,ymm1,ymm1
-  db $C5, $F8, $77           // vzeroupper
-end;
-
-procedure Move72AVX2(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
-asm
-  {$ifndef unix}
-.noframe
-  db $C5, $FD, $6F, $01      // vmovdqa ymm0, ymmword ptr [rcx]
-  db $C5, $FD, $6F, $49, $20 // vmovdqa ymm1, ymmword ptr [rcx+20h]
-  mov rcx, [rcx + 64]
-  db $C5, $FD, $7F, $02      // vmovdqa ymmword ptr [rdx], ymm0
-  db $C5, $FD, $7F, $4A, $20 // vmovdqa ymmword ptr [rdx+20h], ymm1
-  mov [rdx + 64], rcx
-  {$else}
-  db $C5, $FD, $6F, $07      // vmovdqa ymm0, ymmword ptr [rdi]
-  db $C5, $FD, $6F, $4F, $20 // vmovdqa ymm1, ymmword ptr [rdi+20h]
-  mov rdi, [rdi + 64]
-  db $C5, $FD, $7F, $06      // vmovdqa ymmword ptr [rsi], ymm0
-  db $C5, $FD, $7F, $4E, $20 // vmovdqa ymmword ptr [rsi+20h], ymm1
-  mov [rsi + 64], rdi
-  {$endif}
-  db $C5, $FD, $EF, $C0      // vpxor ymm0,ymm0,ymm0
-  db $C5, $F5, $EF, $C9      // vpxor ymm1,ymm1,ymm1
-end;
-{$endif}
-{$endif}
-
-
-{$ifdef 64Bit}
-{$ifdef EnableAVX}
-procedure Move88AVX1(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
-asm
-  db $C5, $F8, $77           // vzeroupper
-  {$ifndef unix}
-.noframe
-  db $C5, $FD, $6F, $01      // vmovdqa ymm0, ymmword ptr [rcx]
-  db $C5, $FD, $6F, $49, $20 // vmovdqa ymm1, ymmword ptr [rcx+20h]
-  db $C5, $F9, $6F, $51, $40 // vmovdqa xmm2, xmmword ptr [rcx+40h]
-  mov rcx, [rcx + 50h]
-  db $C5, $FD, $7F, $02      // vmovdqa ymmword ptr [rdx], ymm0
-  db $C5, $FD, $7F, $4A, $20 // vmovdqa ymmword ptr [rdx+20h], ymm1
-  db $C5, $F9, $7F, $52, $40 // vmovdqa xmmword ptr [rdx+40h], xmm2
-  mov [rdx + 50h], rcx
-  {$else}
-  db $C5, $FD, $6F, $07      // vmovdqa ymm0, ymmword ptr [rdi]
-  db $C5, $FD, $6F, $4F, $20 // vmovdqa ymm1, ymmword ptr [rdi+20h]
-  db $C5, $F9, $6F, $57, $40 // vmovdqa xmm2, xmmword ptr [rdi+40h]
-  mov rdi, [rdi + 50h]
-  db $C5, $FD, $7F, $06      // vmovdqa ymmword ptr [rsi], ymm0
-  db $C5, $FD, $7F, $4E, $20 // vmovdqa ymmword ptr [rsi+20h], ymm1
-  db $C5, $F9, $7F, $56, $40 // vmovdqa xmmword ptr [rsi+40h], xmm2
-  mov [rsi + 50h], rdi
-  {$endif}
-  db $C5, $FC, $57, $C0      // vxorps ymm0,ymm0,ymm0
-  db $C5, $F4, $57, $C9      // vxorps ymm1,ymm1,ymm1
-  db $C5, $E8, $57, $D2      // vxorps xmm2,xmm2,xmm2
-  db $C5, $F8, $77           // vzeroupper
-end;
-
-procedure Move88AVX2(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
-asm
-  {$ifndef unix}
-.noframe
-  db $C5, $FD, $6F, $01      // vmovdqa ymm0, ymmword ptr [rcx]
-  db $C5, $FD, $6F, $49, $20 // vmovdqa ymm1, ymmword ptr [rcx+20h]
-  db $C5, $F9, $6F, $51, $40 // vmovdqa xmm2, xmmword ptr [rcx+40h]
-  mov rcx, [rcx + 50h]
-  db $C5, $FD, $7F, $02      // vmovdqa ymmword ptr [rdx], ymm0
-  db $C5, $FD, $7F, $4A, $20 // vmovdqa ymmword ptr [rdx+20h], ymm1
-  db $C5, $F9, $7F, $52, $40 // vmovdqa xmmword ptr [rdx+40h], xmm2
-  mov [rdx + 50h], rcx
-  {$else}
-  db $C5, $FD, $6F, $07      // vmovdqa ymm0, ymmword ptr [rdi]
-  db $C5, $FD, $6F, $4F, $20 // vmovdqa ymm1, ymmword ptr [rdi+20h]
-  db $C5, $F9, $6F, $57, $40 // vmovdqa xmm2, xmmword ptr [rdi+40h]
-  mov rdi, [rdi + 50h]
-  db $C5, $FD, $7F, $06      // vmovdqa ymmword ptr [rsi], ymm0
-  db $C5, $FD, $7F, $4E, $20 // vmovdqa ymmword ptr [rsi+20h], ymm1
-  db $C5, $F9, $7F, $56, $40 // vmovdqa xmmword ptr [rsi+40h], xmm2
-  mov [rsi + 50h], rdi
-  {$endif}
-  db $C5, $FD, $EF, $C0      // vpxor ymm0,ymm0,ymm0
-  db $C5, $F5, $EF, $C9      // vpxor ymm1,ymm1,ymm1
-  db $C5, $E9, $EF, $D2      // vpxor xmm2,xmm2,xmm2
-end;
-{$endif}
-{$endif}
-
-{$ifdef 64Bit}
-{$ifdef EnableAVX}
-procedure Move104AVX1(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
-asm
-  db $C5, $F8, $77           // vzeroupper
-  {$ifndef unix}
-.noframe
-  db $C5, $FD, $6F, $01      // vmovdqa ymm0, ymmword ptr [rcx]
-  db $C5, $FD, $6F, $49, $20 // vmovdqa ymm1, ymmword ptr [rcx+20h]
-  db $C5, $FD, $6F, $51, $40 // vmovdqa ymm2, ymmword ptr [rcx+40h]
-  mov rcx, [rcx + 60h]
-  db $C5, $FD, $7F, $02      // vmovdqa ymmword ptr [rdx], ymm0
-  db $C5, $FD, $7F, $4A, $20 // vmovdqa ymmword ptr [rdx+20h], ymm1
-  db $C5, $FD, $7F, $52, $40 // vmovdqa ymmword ptr [rdx+40h], ymm2
-  mov [rdx + 60h], rcx
-  {$else}
-  db $C5, $FD, $6F, $07      // vmovdqa ymm0, ymmword ptr [rdi]
-  db $C5, $FD, $6F, $4F, $20 // vmovdqa ymm1, ymmword ptr [rdi+20h]
-  db $C5, $FD, $6F, $57, $40 // vmovdqa ymm2, ymmword ptr [rdi+40h]
-  mov rdi, [rdi + 60h]
-  db $C5, $FD, $7F, $06      // vmovdqa ymmword ptr [rsi], ymm0
-  db $C5, $FD, $7F, $4E, $20 // vmovdqa ymmword ptr [rsi+20h], ymm1
-  db $C5, $FD, $7F, $56, $40 // vmovdqa ymmword ptr [rsi+40h], ymm2
-  mov [rsi + 60h], rdi
-  {$endif}
-  db $C5, $FC, $57, $C0      // vxorps ymm0,ymm0,ymm0
-  db $C5, $F4, $57, $C9      // vxorps ymm1,ymm1,ymm1
-  db $C5, $EC, $57, $D2      // vxorps ymm2,ymm2,ymm2
-  db $C5, $F8, $77           // vzeroupper
-end;
-
-procedure Move104AVX2(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
-asm
-  {$ifndef unix}
-.noframe
-  db $C5, $FD, $6F, $01      // vmovdqa ymm0, ymmword ptr [rcx]
-  db $C5, $FD, $6F, $49, $20 // vmovdqa ymm1, ymmword ptr [rcx+20h]
-  db $C5, $FD, $6F, $51, $40 // vmovdqa ymm2, ymmword ptr [rcx+40h]
-  mov rcx, [rcx + 60h]
-  db $C5, $FD, $7F, $02      // vmovdqa ymmword ptr [rdx], ymm0
-  db $C5, $FD, $7F, $4A, $20 // vmovdqa ymmword ptr [rdx+20h], ymm1
-  db $C5, $FD, $7F, $52, $40 // vmovdqa ymmword ptr [rdx+40h], ymm2
-  mov [rdx + 60h], rcx
-  {$else}
-  db $C5, $FD, $6F, $07      // vmovdqa ymm0, ymmword ptr [rdi]
-  db $C5, $FD, $6F, $4F, $20 // vmovdqa ymm1, ymmword ptr [rdi+20h]
-  db $C5, $FD, $6F, $57, $40 // vmovdqa ymm2, ymmword ptr [rdi+40h]
-  mov rdi, [rdi + 60h]
-  db $C5, $FD, $7F, $06      // vmovdqa ymmword ptr [rsi], ymm0
-  db $C5, $FD, $7F, $4E, $20 // vmovdqa ymmword ptr [rsi+20h], ymm1
-  db $C5, $FD, $7F, $56, $40 // vmovdqa ymmword ptr [rsi+40h], ymm2
-  mov [rsi + 60h], rdi
-  {$endif}
-  db $C5, $FD, $EF, $C0      // vpxor       ymm0,ymm0,ymm0
-  db $C5, $F5, $EF, $C9      // vpxor       ymm1,ymm1,ymm1
-  db $C5, $ED, $EF, $D2      // vpxor       ymm2,ymm2,ymm2
-end;
-{$endif}
-{$endif}
-
-{$ifdef 64Bit}
-{$ifdef EnableAVX}
-procedure Move120AVX1(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
-asm
-  db $C5, $F8, $77           // vzeroupper
-  {$ifndef unix}
-.noframe
-  db $C5, $FD, $6F, $01      // vmovdqa ymm0, ymmword ptr [rcx]
-  db $C5, $FD, $6F, $49, $20 // vmovdqa ymm1, ymmword ptr [rcx+20h]
-  db $C5, $FD, $6F, $51, $40 // vmovdqa ymm2, ymmword ptr [rcx+40h]
-  db $C5, $F9, $6F, $59, $60 // vmovdqa xmm3, xmmword ptr [rcx+60h]
-  mov rcx, [rcx + 70h]
-  db $C5, $FD, $7F, $02      // vmovdqa ymmword ptr [rdx], ymm0
-  db $C5, $FD, $7F, $4A, $20 // vmovdqa ymmword ptr [rdx+20h], ymm1
-  db $C5, $FD, $7F, $52, $40 // vmovdqa ymmword ptr [rdx+40h], ymm2
-  db $C5, $F9, $7F, $5A, $60 // vmovdqa xmmword ptr [rdx+60h], xmm3
-  mov [rdx + 70h], rcx
-  {$else}
-  db $C5, $FD, $6F, $07      // vmovdqa ymm0, ymmword ptr [rdi]
-  db $C5, $FD, $6F, $4F, $20 // vmovdqa ymm1, ymmword ptr [rdi+20h]
-  db $C5, $FD, $6F, $57, $40 // vmovdqa ymm2, ymmword ptr [rdi+40h]
-  db $C5, $F9, $6F, $5F, $60 // vmovdqa xmm3, xmmword ptr [rdi+60h]
-  mov rdi, [rdi + 70h]
-  db $C5, $FD, $7F, $06      // vmovdqa ymmword ptr [rsi], ymm0
-  db $C5, $FD, $7F, $4E, $20 // vmovdqa ymmword ptr [rsi+20h], ymm1
-  db $C5, $FD, $7F, $56, $40 // vmovdqa ymmword ptr [rsi+40h], ymm2
-  db $C5, $F9, $7F, $5E, $60 // vmovdqa ymmword ptr [rsi+60h], xmm3
-  mov [rsi + 70h], rdi
-  {$endif}
-  db $C5, $FC, $57, $C0      // vxorps ymm0,ymm0,ymm0
-  db $C5, $F4, $57, $C9      // vxorps ymm1,ymm1,ymm1
-  db $C5, $EC, $57, $D2      // vxorps ymm2,ymm2,ymm2
-  db $C5, $E0, $57, $DB      // vxorps xmm3,xmm3,xmm3
-  db $C5, $F8, $77           // vzeroupper
-end;
-
-procedure Move120AVX2(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
-asm
-  {$ifndef unix}
-.noframe
-  db $C5, $FD, $6F, $01      // vmovdqa ymm0, ymmword ptr [rcx]
-  db $C5, $FD, $6F, $49, $20 // vmovdqa ymm1, ymmword ptr [rcx+20h]
-  db $C5, $FD, $6F, $51, $40 // vmovdqa ymm2, ymmword ptr [rcx+40h]
-  db $C5, $F9, $6F, $59, $60 // vmovdqa xmm3, xmmword ptr [rcx+60h]
-  mov rcx, [rcx + 70h]
-  db $C5, $FD, $7F, $02      // vmovdqa ymmword ptr [rdx], ymm0
-  db $C5, $FD, $7F, $4A, $20 // vmovdqa ymmword ptr [rdx+20h], ymm1
-  db $C5, $FD, $7F, $52, $40 // vmovdqa ymmword ptr [rdx+40h], ymm2
-  db $C5, $F9, $7F, $5A, $60 // vmovdqa xmmword ptr [rdx+60h], xmm3
-  mov [rdx + 70h], rcx
-  {$else}
-  db $C5, $FD, $6F, $07      // vmovdqa ymm0, ymmword ptr [rdi]
-  db $C5, $FD, $6F, $4F, $20 // vmovdqa ymm1, ymmword ptr [rdi+20h]
-  db $C5, $FD, $6F, $57, $40 // vmovdqa ymm2, ymmword ptr [rdi+40h]
-  db $C5, $F9, $6F, $5F, $60 // vmovdqa xmm3, xmmword ptr [rdi+60h]
-  mov rdi, [rdi + 70h]
-  db $C5, $FD, $7F, $06      // vmovdqa ymmword ptr [rsi], ymm0
-  db $C5, $FD, $7F, $4E, $20 // vmovdqa ymmword ptr [rsi+20h], ymm1
-  db $C5, $FD, $7F, $56, $40 // vmovdqa ymmword ptr [rsi+40h], ymm2
-  db $C5, $F9, $7F, $5E, $60 // vmovdqa ymmword ptr [rsi+60h], xmm3
-  mov [rsi + 70h], rdi
-  {$endif}
-  db $C5, $FD, $EF, $C0      // vpxor ymm0,ymm0,ymm0
-  db $C5, $F5, $EF, $C9      // vpxor ymm1,ymm1,ymm1
-  db $C5, $ED, $EF, $D2      // vpxor ymm2,ymm2,ymm2
-  db $C5, $E1, $EF, $DB      // vpxor xmm3,xmm3,xmm3
-end;
-{$endif}
-{$endif}
-
-{$ifdef 64Bit}
-{$ifdef EnableAVX}
-procedure Move136AVX1(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
-asm
-  db $C5, $F8, $77           // vzeroupper
-  {$ifndef unix}
-.noframe
-  db $C5, $FD, $6F, $01      // vmovdqa ymm0, ymmword ptr [rcx]
-  db $C5, $FD, $6F, $49, $20 // vmovdqa ymm1, ymmword ptr [rcx+20h]
-  db $C5, $FD, $6F, $51, $40 // vmovdqa ymm2, ymmword ptr [rcx+40h]
-  db $C5, $FD, $6F, $59, $60 // vmovdqa ymm3, ymmword ptr [rcx+60h]
-  mov rcx, [rcx + 80h]
-  db $C5, $FD, $7F, $02      // vmovdqa ymmword ptr [rdx], ymm0
-  db $C5, $FD, $7F, $4A, $20 // vmovdqa ymmword ptr [rdx+20h], ymm1
-  db $C5, $FD, $7F, $52, $40 // vmovdqa ymmword ptr [rdx+40h], ymm2
-  db $C5, $FD, $7F, $5A, $60 // vmovdqa ymmword ptr [rdx+60h], ymm3
-  mov [rdx + 80h], rcx
-  {$else}
-  db $C5, $FD, $6F, $07      // vmovdqa ymm0, ymmword ptr [rdi]
-  db $C5, $FD, $6F, $4F, $20 // vmovdqa ymm1, ymmword ptr [rdi+20h]
-  db $C5, $FD, $6F, $57, $40 // vmovdqa ymm2, ymmword ptr [rdi+40h]
-  db $C5, $FD, $6F, $5F, $60 // vmovdqa ymm3, ymmword ptr [rdi+60h]
-  mov rdi, [rdi + 80h]
-  db $C5, $FD, $7F, $06      // vmovdqa ymmword ptr [rsi], ymm0
-  db $C5, $FD, $7F, $4E, $20 // vmovdqa ymmword ptr [rsi+20h], ymm1
-  db $C5, $FD, $7F, $56, $40 // vmovdqa ymmword ptr [rsi+40h], ymm2
-  db $C5, $FD, $7F, $5E, $60 // vmovdqa ymmword ptr [rsi+60h], ymm3
-  mov [rsi + 80h], rdi
-  {$endif}
-  db $C5, $FC, $57, $C0      // vxorps ymm0,ymm0,ymm0
-  db $C5, $F4, $57, $C9      // vxorps ymm1,ymm1,ymm1
-  db $C5, $EC, $57, $D2      // vxorps ymm2,ymm2,ymm2
-  db $C5, $E4, $57, $DB      // vxorps ymm3,ymm3,ymm3
-  db $C5, $F8, $77           // vzeroupper
-end;
-
-procedure Move136AVX2(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
-asm
-  {$ifndef unix}
-.noframe
-  db $C5, $FD, $6F, $01      // vmovdqa ymm0, ymmword ptr [rcx]
-  db $C5, $FD, $6F, $49, $20 // vmovdqa ymm1, ymmword ptr [rcx+20h]
-  db $C5, $FD, $6F, $51, $40 // vmovdqa ymm2, ymmword ptr [rcx+40h]
-  db $C5, $FD, $6F, $59, $60 // vmovdqa ymm3, ymmword ptr [rcx+60h]
-  mov rcx, [rcx + 80h]
-  db $C5, $FD, $7F, $02      // vmovdqa ymmword ptr [rdx], ymm0
-  db $C5, $FD, $7F, $4A, $20 // vmovdqa ymmword ptr [rdx+20h], ymm1
-  db $C5, $FD, $7F, $52, $40 // vmovdqa ymmword ptr [rdx+40h], ymm2
-  db $C5, $FD, $7F, $5A, $60 // vmovdqa ymmword ptr [rdx+60h], ymm3
-  mov [rdx + 80h], rcx
-  {$else}
-  db $C5, $FD, $6F, $07      // vmovdqa ymm0, ymmword ptr [rdi]
-  db $C5, $FD, $6F, $4F, $20 // vmovdqa ymm1, ymmword ptr [rdi+20h]
-  db $C5, $FD, $6F, $57, $40 // vmovdqa ymm2, ymmword ptr [rdi+40h]
-  db $C5, $FD, $6F, $5F, $60 // vmovdqa ymm3, ymmword ptr [rdi+60h]
-  mov rdi, [rdi + 80h]
-  db $C5, $FD, $7F, $06      // vmovdqa ymmword ptr [rsi], ymm0
-  db $C5, $FD, $7F, $4E, $20 // vmovdqa ymmword ptr [rsi+20h], ymm1
-  db $C5, $FD, $7F, $56, $40 // vmovdqa ymmword ptr [rsi+40h], ymm2
-  db $C5, $FD, $7F, $5E, $60 // vmovdqa ymmword ptr [rsi+60h], ymm3
-  mov [rsi + 80h], rdi
-  {$endif}
-  db $C5, $FD, $EF, $C0      // vpxor ymm0,ymm0,ymm0
-  db $C5, $F5, $EF, $C9      // vpxor ymm1,ymm1,ymm1
-  db $C5, $ED, $EF, $D2      // vpxor ymm2,ymm2,ymm2
-  db $C5, $E5, $EF, $DB      // vpxor ymm3,ymm3,ymm3
-end;
-{$endif}
-{$endif}
-
+{$endif ExcludeSmallGranularMoves}
 
 {Variable size move procedure: Rounds ACount up to the next multiple of 16 less
  SizeOf(Pointer). Important note: Always moves at least 16 - SizeOf(Pointer)
@@ -4008,12 +3969,12 @@ asm
   db $0f, $6f, $4c, $01, $08
   db $0f, $7f, $04, $11
   db $0f, $7f, $4c, $11, $08
-  {$else}
+  {$else Delphi4or5}
   movq mm0, [eax + ecx]
   movq mm1, [eax + ecx + 8]
   movq [edx + ecx], mm0
   movq [edx + ecx + 8], mm1
-  {$endif}
+  {$endif Delphi4or5}
   {Are there another 16 bytes to move?}
   add ecx, 16
   js @MMXMoveLoop
@@ -4022,28 +3983,28 @@ asm
   {$ifdef Delphi4or5}
   {Delphi 5 compatibility}
   db $0f, $6f, $04, $01
-  {$else}
+  {$else Delphi4or5}
   movq mm0, [eax + ecx]
-  {$endif}
+  {$endif Delphi4or5}
   mov eax, [eax + ecx + 8]
   {$ifdef Delphi4or5}
   {Delphi 5 compatibility}
   db $0f, $7f, $04, $11
-  {$else}
+  {$else Delphi4or5}
   movq [edx + ecx], mm0
-  {$endif}
+  {$endif Delphi4or5}
   mov [edx + ecx + 8], eax
   {Exit MMX state}
   {$ifdef Delphi4or5}
   {Delphi 5 compatibility}
   db $0f, $77
-  {$else}
+  {$else Delphi4or5}
   emms
-  {$endif}
+  {$endif Delphi4or5}
   {$ifndef ForceMMX}
   ret
-  {$endif}
-{$endif}
+  {$endif ForceMMX}
+{$endif EnableMMX}
 {FPU code is only used if MMX is not forced}
 {$ifndef ForceMMX}
 @FPUMove:
@@ -4064,8 +4025,8 @@ asm
   fistp qword ptr [edx + ecx]
   mov eax, [eax + ecx + 8]
   mov [edx + ecx + 8], eax
-{$endif}
-{$else}
+{$endif ForceMMX}
+{$else EnableMMX}
   {$ifndef unix}
 .noframe
   {Make the counter negative based: The last 8 bytes are moved separately}
@@ -4085,7 +4046,7 @@ asm
   {Do the last 8 bytes}
   mov r9, [rcx + r8]
   mov [rdx + r8], r9
-  {$else}
+  {$else unix}
   {Make the counter negative based: The last 8 bytes are moved separately}
   sub rdx, 8
   add rdi, rdx
@@ -4103,8 +4064,8 @@ asm
   {Do the last 8 bytes}
   mov rcx, [rdi + rdx]
   mov [rsi + rdx], rcx
-  {$endif}
-{$endif}
+  {$endif unix}
+{$endif EnableMMX}
 end;
 
 
@@ -4579,7 +4540,7 @@ asm
   add edx, 4
   js @FillLoop
 @Done:
-{$else}
+{$else 32Bit}
   {$ifndef unix}
 .noframe
   {On Entry:
@@ -4594,7 +4555,7 @@ asm
   add rdx, 8
   js @FillLoop
 @Done:
-  {$else}
+  {$else unix}
     {On Entry:
    rdi = AAddress
    rsi = AByteCount
@@ -4607,8 +4568,8 @@ asm
   add rsi, 8
   js @FillLoop
 @Done:
-  {$endif}
-{$endif}
+  {$endif unix}
+{$endif 32Bit}
 end;
 {$endif}
 
@@ -4682,9 +4643,20 @@ end;
 {$endif}
 
 {Converts an unsigned integer to string at the buffer location, returning the
- new buffer position. Note: The 32-bit asm version only supports numbers up to
- 2^31 - 1.}
-function NativeUIntToStrBuf(ANum: NativeUInt; APBuffer: PAnsiChar): PAnsiChar;
+ new buffer position. Note: The 32-bit assembler version only supports numbers 
+ up to 2^31 - 1.}
+
+
+{Input:
+  ANum - the NativeUInt value to convert ;
+  APBuffer - output buffer;
+  ABufferLengthChars - the size of the output buffer in characters (not in bytes);
+                       since currently one char is one byte, the maxiumum lenght
+                       of the buffer in characters is the same as the size of the
+                       buffer in bytes, but if we switch to double-byte charaters
+                       in future (e.g. UTF-16), this will differ}
+
+function NativeUIntToStrBuf(ANum: NativeUInt; APBuffer: PAnsiChar; ABufferLengthChars: Cardinal): PAnsiChar;
 {$ifndef Use32BitAsm}
 const
   MaxDigits = 20;
@@ -4703,12 +4675,21 @@ begin
     LDigitBuffer[MaxDigits - LCount] := AnsiChar(Ord('0') + LDigit);
   until ANum = 0;
   {Copy the digits to the output buffer and advance it}
-  System.Move(LDigitBuffer[MaxDigits - LCount], APBuffer^, LCount);
-  Result := APBuffer + LCount;
+  if LCount < ABufferLengthChars then
+  begin
+    System.Move(LDigitBuffer[MaxDigits - LCount], APBuffer^, LCount*SizeOf(APBuffer[0]));
+    Result := APBuffer + LCount;
+  end else
+  begin
+    Result := APBuffer;
+    Result^ := #0;
+  end;
 end;
 {$else}
+assembler;
 asm
-  {On entry: eax = ANum, edx = ABuffer}
+  {On entry: eax = ANum, edx = APBuffer, ecx = ABufferLengthChars}
+  {todo: implement ecx(ABufferLengthChars) checking for BASM}
   push edi
   mov edi, edx                //Pointer to the first character in edi
   {Calculate leading digit: divide the number by 1e9}
@@ -4819,7 +4800,7 @@ end;
 
 {Converts an unsigned integer to a hexadecimal string at the buffer location,
  returning the new buffer position.}
-function NativeUIntToHexBuf(ANum: NativeUInt; APBuffer: PAnsiChar): PAnsiChar;
+function NativeUIntToHexBuf(ANum: NativeUInt; APBuffer: PAnsiChar; ABufferLengthChars: Cardinal): PAnsiChar;
 {$ifndef Use32BitAsm}
 const
   MaxDigits = 16;
@@ -4838,14 +4819,25 @@ begin
     LDigitBuffer[MaxDigits - LCount] := HexTable[LDigit];
   until ANum = 0;
   {Copy the digits to the output buffer and advance it}
-  System.Move(LDigitBuffer[MaxDigits - LCount], APBuffer^, LCount);
-  Result := APBuffer + LCount;
+  if LCount < ABufferLengthChars then
+  begin
+    System.Move(LDigitBuffer[MaxDigits - LCount], APBuffer^, LCount*SizeOf(LDigitBuffer[0]));
+    Result := APBuffer + LCount;
+  end else
+  begin
+    Result := APBuffer;
+    Result^ := #0;
+  end;
 end;
 {$else}
 asm
   {On entry:
     eax = ANum
-    edx = ABuffer}
+    edx = ABuffer
+    ecx = ABufferLengthChars}
+
+  {todo: implement ecx(ABufferLengthChars) checking}
+
   push ebx
   push edi
   {Save ANum in ebx}
@@ -4926,15 +4918,27 @@ end;
 
 {Appends the source text to the destination and returns the new destination
  position}
-function AppendStringToBuffer(const ASource, ADestination: PAnsiChar; ACount: Cardinal): PAnsiChar;
+function AppendStringToBuffer(const ASource, ADestination: PAnsiChar; ASourceLengthChars, ADestinationBufferLengthChars: Cardinal): PAnsiChar;
 begin
-  System.Move(ASource^, ADestination^, ACount);
-  Result := Pointer(PByte(ADestination) + ACount);
+  Result := ADestination;
+  if ASourceLengthChars > 0 then
+  begin
+    if ASourceLengthChars <= ADestinationBufferLengthChars then
+    begin
+      System.Move(ASource^, ADestination^, ASourceLengthChars*SizeOf(ASource[0]));
+      Result := ADestination;
+      Inc(Result, ASourceLengthChars);
+    end else
+    begin
+      Result := ADestination;
+      Result^ := #0;
+    end;
+  end;
 end;
 
 {Appends the name of the class to the destination buffer and returns the new
  destination position}
-function AppendClassNameToBuffer(AClass: TClass; ADestination: PAnsiChar): PAnsiChar;
+function AppendClassNameToBuffer(AClass: TClass; ADestination: PAnsiChar; ADestinationBufferLengthChars: Cardinal): PAnsiChar;
 var
   LPClassName: PShortString;
 begin
@@ -4943,11 +4947,11 @@ begin
   begin
     LPClassName := PShortString(PPointer(PByte(AClass) + vmtClassName)^);
     {Append the class name}
-    Result := AppendStringToBuffer(@LPClassName^[1], ADestination, Length(LPClassName^));
+    Result := AppendStringToBuffer(@LPClassName^[1], ADestination, Length(LPClassName^), ADestinationBufferLengthChars);
   end
   else
   begin
-    Result := AppendStringToBuffer(UnknownClassNameMsg, ADestination, Length(UnknownClassNameMsg));
+    Result := AppendStringToBuffer(UnknownClassNameMsg, ADestination, Length(UnknownClassNameMsg), ADestinationBufferLengthChars);
   end;
 end;
 
@@ -5025,7 +5029,7 @@ begin
   {Check the block}
   if (not InternalIsValidClass(Pointer(Result), 0))
 {$ifdef FullDebugMode}
-    or (Result = @FreedObjectVMT.VMTMethods[0])
+    or (Pointer(Result) = @(FreedObjectVMT.VMTMethods[0]))
 {$endif}
   then
     Result := nil;
@@ -5078,7 +5082,7 @@ begin
   begin
     for LInd := 0 to NumSmallBlockTypes - 1 do
     begin
-      while LockCmpxchg(0, 1, @SmallBlockTypes[LInd].BlockTypeLocked) <> 0 do
+      while LockCmpxchg8(False, True, @(SmallBlockTypes[LInd].BlockTypeLocked)) <> False do
       begin
 {$ifdef NeverSleepOnThreadContention}
   {$ifdef UseSwitchToThread}
@@ -5086,7 +5090,7 @@ begin
   {$endif}
 {$else}
         Sleep(InitialSleepTime);
-        if LockCmpxchg(0, 1, @SmallBlockTypes[LInd].BlockTypeLocked) = 0 then
+        if LockCmpxchg8(False, True, @(SmallBlockTypes[LInd].BlockTypeLocked)) = False then
           Break;
         Sleep(AdditionalSleepTime);
 {$endif}
@@ -5155,7 +5159,7 @@ begin
   end;
 end;
 
-{Locks the medium blocks. Note that the 32-bit asm version is assumed to
+{Locks the medium blocks. Note that the 32-bit assembler version is assumed to
  preserve all registers except eax.}
 {$ifndef Use32BitAsm}
 procedure LockMediumBlocks(
@@ -5174,7 +5178,7 @@ begin
   if IsMultiThread then
 {$endif}
   begin
-    while LockCmpxchg(0, 1, @MediumBlocksLocked) <> 0 do
+    while LockCmpxchg8(False, True, @MediumBlocksLocked) <> False do
     begin
 {$ifdef UseReleaseStack}
       if Assigned(APointer) then
@@ -5197,7 +5201,7 @@ begin
   {$endif}
 {$else}
       Sleep(InitialSleepTime);
-      if LockCmpxchg(0, 1, @MediumBlocksLocked) = 0 then
+      if LockCmpxchg8(False, True, @MediumBlocksLocked) = False then
         Break;
       Sleep(AdditionalSleepTime);
 {$endif}
@@ -5229,7 +5233,7 @@ asm
   {$endif}
   {Try again}
   jmp @MediumBlockLockLoop
-{$else}
+{$else NeverSleepOnThreadContention}
   {Couldn't lock the medium blocks - sleep and try again}
   push ecx
   push edx
@@ -5251,7 +5255,7 @@ asm
   pop ecx
   {Try again}
   jmp @MediumBlockLockLoop
-{$endif}
+{$endif NeverSleepOnThreadContention}
 @Done:
 end;
 {$endif}
@@ -5292,6 +5296,7 @@ begin
 end;
 {$else}
 {$ifdef 32Bit}
+assembler;
 asm
   {On entry: eax = APMediumFreeBlock}
   {Get the current previous and next blocks}
@@ -5329,7 +5334,9 @@ asm
   and MediumBlockBinGroupBitmap, eax
 end;
 {$else}
+assembler;
 asm
+.noframe
   {On entry: rcx = APMediumFreeBlock}
   mov rax, rcx
   {Get the current previous and next blocks}
@@ -5447,7 +5454,9 @@ asm
   or MediumBlockBinGroupBitmap, eax
 end;
 {$else}
+assembler;
 asm
+  .noframe
   {On entry: rax = APMediumFreeBlock, edx = AMediumBlockSize}
   mov rax, rcx
   {Get the bin number for this block size. Get the bin that holds blocks of at
@@ -5608,7 +5617,18 @@ asm
 @Done:
 end;
 {$else}
+assembler;
 asm
+  {Don't put ".noframe" here because this function calls other functions, e.g.
+  "InsertMediumBlockIntoBin", "RemoveMediumFreeBlock", etc.
+  According to the documentation at
+  http://docwiki.embarcadero.com/RADStudio/Tokyo/en/Assembly_Procedures_and_Functions
+  ".noframe: forcibly disables the generation of a stack frame as long as there
+  are no local variables declared and the parameter count <= 4.
+  Thus, ".noframe" can only be used for leaf functions. A leaf function is one
+  that does not call another function. That is one that is always at the bottom
+  of the call tree.}
+
   .params 2
   xor eax, eax
   cmp MediumSequentialFeedBytesLeft, eax
@@ -5721,7 +5741,7 @@ begin
   if IsMultiThread then
 {$endif}
   begin
-    while LockCmpxchg(0, 1, @LargeBlocksLocked) <> 0 do
+    while LockCmpxchg8(False, True, @LargeBlocksLocked) <> False do
     begin
 {$ifdef UseReleaseStack}
       if Assigned(APointer) then
@@ -5744,7 +5764,7 @@ begin
   {$endif}
 {$else}
       Sleep(InitialSleepTime);
-      if LockCmpxchg(0, 1, @LargeBlocksLocked) = 0 then
+      if LockCmpxchg8(False, True, @LargeBlocksLocked) = False then
         Break;
       Sleep(AdditionalSleepTime);
 {$endif}
@@ -6054,6 +6074,42 @@ end;
 
 {---------------------Replacement Memory Manager Interface---------------------}
 
+{This function is only needed to cope with an error that happens at runtime
+when using the "typed @ operator" compiler option. We are having just
+one typecast in this function to avoid using typecasts throught the
+entire FastMM4 module.}
+
+function NegCardinalMaskBit(A: Cardinal): Cardinal; assembler;
+asm
+{$IFDEF 32bit}
+        neg     eax
+{$else}
+   {$ifdef unix}
+        mov     eax, edi
+   {$else}
+        .noframe
+        mov     eax, ecx
+   {$endif}
+        neg     eax
+{$endif}
+end;
+
+function NegByteMaskBit(A: Byte): Byte; assembler;
+asm
+{$IFDEF 32bit}
+        neg     al
+{$else}
+   {$ifdef unix}
+        movzx   eax, dil
+   {$else}
+        .noframe
+        movzx   eax, cl
+   {$endif}
+        neg     al
+{$endif}
+end;
+
+
 {Replacement for SysGetMem}
 
 function FastGetMem(ASize: {$ifdef XE2AndUp}NativeInt{$else}{$ifdef fpc}NativeUInt{$else}Integer{$endif}{$endif}
@@ -6108,15 +6164,15 @@ begin
       while True do
       begin
         {Try to lock the small block type}
-        if LockCmpxchg(0, 1, @LPSmallBlockType.BlockTypeLocked) = 0 then
+        if LockCmpxchg8(False, True, @(LPSmallBlockType.BlockTypeLocked)) = False then
           Break;
         {Try the next block type}
         Inc(PByte(LPSmallBlockType), SmallBlockTypeRecSize);
-        if LockCmpxchg(0, 1, @LPSmallBlockType.BlockTypeLocked) = 0 then
+        if LockCmpxchg8(False, True, @(LPSmallBlockType.BlockTypeLocked)) = False then
           Break;
         {Try up to two sizes past the requested size}
         Inc(PByte(LPSmallBlockType), SmallBlockTypeRecSize);
-        if LockCmpxchg(0, 1, @LPSmallBlockType.BlockTypeLocked) = 0 then
+        if LockCmpxchg8(False, True, @(LPSmallBlockType.BlockTypeLocked)) = False then
           Break;
         {All three sizes locked - given up and sleep}
         Dec(PByte(LPSmallBlockType), 2 * SmallBlockTypeRecSize);
@@ -6131,7 +6187,7 @@ begin
         {Both this block type and the next is in use: sleep}
         Sleep(InitialSleepTime);
         {Try the lock again}
-        if LockCmpxchg(0, 1, @LPSmallBlockType.BlockTypeLocked) = 0 then
+        if LockCmpxchg8(False, True, @LPSmallBlockType.BlockTypeLocked) = False then
           Break;
         {Sleep longer}
         Sleep(AdditionalSleepTime);
@@ -6357,7 +6413,7 @@ begin
       {Calculate the bin group}
       LBinGroupNumber := LBinNumber shr MediumBlockBinsPerGroupPowerOf2;
       {Is there a suitable block inside this group?}
-      LBinGroupMasked := MediumBlockBinBitmaps[LBinGroupNumber] and -(1 shl (LBinNumber and (MediumBlockBinsPerGroup-1)));
+      LBinGroupMasked := MediumBlockBinBitmaps[LBinGroupNumber] and NegCardinalMaskBit((1 shl (LBinNumber and (MediumBlockBinsPerGroup-1))));
       if LBinGroupMasked <> 0 then
       begin
         {Get the actual bin number}
@@ -6367,7 +6423,7 @@ begin
       begin
 {$ifndef FullDebugMode}
         {Try all groups greater than this group}
-        LBinGroupsMasked := MediumBlockBinGroupBitmap and -(2 shl LBinGroupNumber);
+        LBinGroupsMasked := MediumBlockBinGroupBitmap and NegCardinalMaskBit(2 shl LBinGroupNumber);
         if LBinGroupsMasked <> 0 then
         begin
           {There is a suitable group with space: get the bin number}
@@ -6532,6 +6588,7 @@ begin
 end;
 {$else}
 {$ifdef 32Bit}
+assembler;
 asm
   {On entry:
     eax = ASize}
@@ -6979,9 +7036,15 @@ asm
 end;
 {$else}
 {64-bit BASM implementation}
+assembler;
 asm
   {On entry:
     rcx = ASize}
+
+  {Do not put ".noframe" here, for the reasons given explained at the comment
+  at the "BinMediumSequentialFeedRemainder" function at the start of the
+  64-bit BASM code}
+
   .params 2
   .pushnv rbx
   .pushnv rsi
@@ -7645,7 +7708,7 @@ begin
     if IsMultiThread then
 {$endif}
     begin
-      while (LockCmpxchg(0, 1, @LPSmallBlockType.BlockTypeLocked) <> 0) do
+      while (LockCmpxchg8(False, True, @(LPSmallBlockType.BlockTypeLocked)) <> False) do
       begin
 {$ifdef UseReleaseStack}
         LPReleaseStack := @LPSmallBlockType.ReleaseStack[GetStackSlot];
@@ -7665,7 +7728,7 @@ begin
   {$endif}
 {$else}
         Sleep(InitialSleepTime);
-        if LockCmpxchg(0, 1, @LPSmallBlockType.BlockTypeLocked) = 0 then
+        if LockCmpxchg8(False, True, @(LPSmallBlockType.BlockTypeLocked)) = False then
           Break;
         Sleep(AdditionalSleepTime);
 {$endif}
@@ -7776,6 +7839,7 @@ begin
 end;
 {$else}
 {$ifdef 32Bit}
+assembler;
 asm
   {$ifdef fpc}
   test eax, eax
@@ -8138,7 +8202,11 @@ end;
 {$else}
 
 {---------------64-bit BASM FastFreeMem---------------}
+assembler;
 asm
+  {Do not put ".noframe" here, for the reasons given explained at the comment
+  at the "BinMediumSequentialFeedRemainder" function at the start of the
+  64-bit BASM code}
   .params 3
   .pushnv rbx
   .pushnv rsi
@@ -8851,6 +8919,7 @@ begin
 end;
 {$else}
 {$ifdef 32Bit}
+assembler;
 asm
 {$ifdef fpc}
   push esi
@@ -9429,7 +9498,11 @@ end;
 {$else}
 
 {-----------------64-bit BASM FastReallocMem-----------------}
+assembler;
 asm
+  {Do not put ".noframe" here, for the reasons given explained at the comment
+  at the "BinMediumSequentialFeedRemainder" function at the start of the
+  64-bit BASM code}
   .params 3
   .pushnv rbx
   .pushnv rsi
@@ -9885,6 +9958,7 @@ begin
 end;
 {$else}
 {$ifdef 32Bit}
+assembler;
 asm
   push ebx
   {Get the size rounded down to the previous multiple of 4 into ebx}
@@ -9930,7 +10004,9 @@ end;
 {$else}
 
 {---------------64-bit BASM FastAllocMem---------------}
+assembler;
 asm
+  {Do not put ".noframe" here since it calls other functions.}
   .params 1
   .pushnv rbx
   {Get the size rounded down to the previous multiple of SizeOf(Pointer) into
@@ -9973,7 +10049,7 @@ end;
 {$endif}
 
 {$ifdef fpc}
-Function FastFreeMemSize(p: pointer; size: NativeUInt):NativeUInt;
+function FastFreeMemSize(p: pointer; size: NativeUInt):NativeUInt;
 {$ifndef ASMVersion}
 begin
   if size=0 then
@@ -9981,6 +10057,7 @@ begin
   { can't free partial blocks, ignore size }
   result := FastFreeMem(p);
 {$else}
+assembler;
 asm
   test edx, edx
   jne @SizeNotZero
@@ -9994,8 +10071,9 @@ end;
 function FastMemSize(p: pointer): NativeUInt;
 {$ifndef ASMVersion}
 begin
-  result := GetAvailableSpaceInBlock(p);
+  Result := GetAvailableSpaceInBlock(p);
 {$else}
+assembler;
 asm
   call GetAvailableSpaceInBlock
 {$endif}
@@ -10009,14 +10087,14 @@ end;
 function InvalidGetMem(ASize: {$ifdef XE2AndUp}NativeInt{$else}{$ifdef fpc}NativeUInt{$else}Integer{$endif}{$endif}): Pointer;
 {$ifndef NoMessageBoxes}
 var
-  LErrorMessageTitle: array[0..1023] of AnsiChar;
+  LErrorMessageTitle: array[0..MaxDisplayMessageLength-1] of AnsiChar;
 {$endif}
 begin
 {$ifdef UseOutputDebugString}
   OutputDebugStringA(InvalidGetMemMsg);
 {$endif}
 {$ifndef NoMessageBoxes}
-  AppendStringToModuleName(InvalidOperationTitle, LErrorMessageTitle);
+  AppendStringToModuleName(InvalidOperationTitle, LErrorMessageTitle, Length(InvalidOperationTitle), (SizeOf(LErrorMessageTitle) div SizeOf(LErrorMessageTitle[0])-1));
   ShowMessageBox(InvalidGetMemMsg, LErrorMessageTitle);
 {$endif}
   Result := nil;
@@ -10025,14 +10103,14 @@ end;
 function InvalidFreeMem(APointer: Pointer): {$ifdef fpc}NativeUInt{$else}Integer{$endif};
 {$ifndef NoMessageBoxes}
 var
-  LErrorMessageTitle: array[0..1023] of AnsiChar;
+  LErrorMessageTitle: array[0..MaxDisplayMessageLength-1] of AnsiChar;
 {$endif}
 begin
 {$ifdef UseOutputDebugString}
   OutputDebugStringA(InvalidFreeMemMsg);
 {$endif}
 {$ifndef NoMessageBoxes}
-  AppendStringToModuleName(InvalidOperationTitle, LErrorMessageTitle);
+  AppendStringToModuleName(InvalidOperationTitle, LErrorMessageTitle, Length(InvalidOperationTitle), (SizeOf(LErrorMessageTitle) div SizeOf(LErrorMessageTitle[0])-1));
   ShowMessageBox(InvalidFreeMemMsg, LErrorMessageTitle);
 {$endif}
   Result := -1;
@@ -10041,14 +10119,14 @@ end;
 function InvalidReallocMem({$ifdef fpc}var {$endif}APointer: Pointer; ANewSize: {$ifdef XE2AndUp}NativeInt{$else}{$ifdef fpc}NativeUInt{$else}Integer{$endif}{$endif}): Pointer;
 {$ifndef NoMessageBoxes}
 var
-  LErrorMessageTitle: array[0..1023] of AnsiChar;
+  LErrorMessageTitle: array[0..MaxDisplayMessageLength-1] of AnsiChar;
 {$endif}
 begin
 {$ifdef UseOutputDebugString}
   OutputDebugStringA(InvalidReallocMemMsg);
 {$endif}
 {$ifndef NoMessageBoxes}
-  AppendStringToModuleName(InvalidOperationTitle, LErrorMessageTitle);
+  AppendStringToModuleName(InvalidOperationTitle, LErrorMessageTitle, Length(InvalidOperationTitle), (SizeOf(LErrorMessageTitle) div SizeOf(LErrorMessageTitle[0])-1));
   ShowMessageBox(InvalidReallocMemMsg, LErrorMessageTitle);
 {$endif}
   Result := nil;
@@ -10057,14 +10135,14 @@ end;
 function InvalidAllocMem(ASize: {$ifdef XE2AndUp}NativeInt{$else}{$ifdef fpc}NativeUInt{$else}Cardinal{$endif}{$endif}): Pointer;
 {$ifndef NoMessageBoxes}
 var
-  LErrorMessageTitle: array[0..1023] of AnsiChar;
+  LErrorMessageTitle: array[0..MaxDisplayMessageLength-1] of AnsiChar;
 {$endif}
 begin
 {$ifdef UseOutputDebugString}
   OutputDebugStringA(InvalidAllocMemMsg);
 {$endif}
 {$ifndef NoMessageBoxes}
-  AppendStringToModuleName(InvalidOperationTitle, LErrorMessageTitle);
+  AppendStringToModuleName(InvalidOperationTitle, LErrorMessageTitle, Length(InvalidOperationTitle), (SizeOf(LErrorMessageTitle) div SizeOf(LErrorMessageTitle[0]))-1);
   ShowMessageBox(InvalidAllocMemMsg, LErrorMessageTitle);
 {$endif}
   Result := nil;
@@ -10117,11 +10195,13 @@ const
   {Declared here, because it is not declared in the SHFolder.pas unit of some older Delphi versions.}
   SHGFP_TYPE_CURRENT = 0;
 var
-  LFileHandle, LBytesWritten: Cardinal;
-  LEventHeader: array[0..1023] of AnsiChar;
-  LAlternateLogFileName: array[0..2047] of AnsiChar;
+  LFileHandle: THandle; {use NativeUint if THandle is not available}
+  LBytesWritten: Cardinal;
+  LEventHeader: array[0..MaxDisplayMessageLength-1] of AnsiChar;
+  LAlternateLogFileName: array[0..MaxFileNameLengthDouble-1] of AnsiChar;
   LPathLen, LNameLength: Integer;
-  LMsgPtr, LPFileName: PAnsiChar;
+  LInitialPtr, LMsgPtr, LPFileName: PAnsiChar;
+  LInitialSize: Cardinal;
   LSystemTime: TSystemTime;
 begin
   {Try to open the log file in read/write mode.}
@@ -10132,10 +10212,10 @@ begin
   if (LFileHandle = INVALID_HANDLE_VALUE)
    {$IFNDEF MACOS}
 {$ifdef Delphi4or5}
-    and SHGetSpecialFolderPathA(0, @LAlternateLogFileName, CSIDL_PERSONAL, True) then
+    and SHGetSpecialFolderPathA(0, @(LAlternateLogFileName[0]), CSIDL_PERSONAL, True) then
 {$else}
     and (SHGetFolderPathA(0, CSIDL_PERSONAL or CSIDL_FLAG_CREATE, 0,
-      SHGFP_TYPE_CURRENT, @LAlternateLogFileName) = S_OK) then
+      SHGFP_TYPE_CURRENT, @(LAlternateLogFileName[0])) = S_OK) then
 {$endif}
   {$ELSE}
   then
@@ -10151,8 +10231,8 @@ begin
       Inc(LPathLen);
     end;
     {Add the filename to the path}
-    ExtractFileName(@MMLogFileName, LPFileName, LNameLength);
-    System.Move(LPFileName^, LAlternateLogFileName[LPathLen], LNameLength + 1);
+    ExtractFileName(@(MMLogFileName[0]), LPFileName, LNameLength);
+    System.Move(LPFileName^, LAlternateLogFileName[LPathLen], (LNameLength + 1)*SizeOf(LPFileName[0]));
     {Try to open the alternate log file}
     LFileHandle := CreateFileA(LAlternateLogFileName, GENERIC_READ or GENERIC_WRITE,
       0, nil, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, 0);
@@ -10163,20 +10243,23 @@ begin
     {Seek to the end of the file}
     SetFilePointer(LFileHandle, 0, nil, FILE_END);
     {Set the separator}
-    LMsgPtr := AppendStringToBuffer(CRLF, @LEventHeader[0], Length(CRLF));
-    LMsgPtr := AppendStringToBuffer(EventSeparator, LMsgPtr, Length(EventSeparator));
+    LMsgPtr := @LEventHeader[0];
+    LInitialPtr := LMsgPtr;
+    LInitialSize := (SizeOf(LEventHeader) div SizeOf(LEventHeader[0]))-1;
+    LMsgPtr := AppendStringToBuffer(CRLF, @LEventHeader[0], Length(CRLF), (SizeOf(LEventHeader) div SizeOf(LEventHeader[0])-1));
+    LMsgPtr := AppendStringToBuffer(EventSeparator, LMsgPtr, Length(EventSeparator), LInitialSize-NativeUint(LMsgPtr-LInitialPtr));
     {Set the date & time}
     GetLocalTime(LSystemTime);
-    LMsgPtr := NativeUIntToStrBuf(LSystemTime.wYear, LMsgPtr);
+    LMsgPtr := NativeUIntToStrBuf(LSystemTime.wYear, LMsgPtr, LInitialSize-NativeUint(LMsgPtr-LInitialPtr));
     LMsgPtr^ := '/';
     Inc(LMsgPtr);
-    LMsgPtr := NativeUIntToStrBuf(LSystemTime.wMonth, LMsgPtr);
+    LMsgPtr := NativeUIntToStrBuf(LSystemTime.wMonth, LMsgPtr, LInitialSize-NativeUint(LMsgPtr-LInitialPtr));
     LMsgPtr^ := '/';
     Inc(LMsgPtr);
-    LMsgPtr := NativeUIntToStrBuf(LSystemTime.wDay, LMsgPtr);
+    LMsgPtr := NativeUIntToStrBuf(LSystemTime.wDay, LMsgPtr, LInitialSize-NativeUint(LMsgPtr-LInitialPtr));
     LMsgPtr^ := ' ';
     Inc(LMsgPtr);
-    LMsgPtr := NativeUIntToStrBuf(LSystemTime.wHour, LMsgPtr);
+    LMsgPtr := NativeUIntToStrBuf(LSystemTime.wHour, LMsgPtr, LInitialSize-NativeUint(LMsgPtr-LInitialPtr));
     LMsgPtr^ := ':';
     Inc(LMsgPtr);
     if LSystemTime.wMinute < 10 then
@@ -10184,7 +10267,7 @@ begin
       LMsgPtr^ := '0';
       Inc(LMsgPtr);
     end;
-    LMsgPtr := NativeUIntToStrBuf(LSystemTime.wMinute, LMsgPtr);
+    LMsgPtr := NativeUIntToStrBuf(LSystemTime.wMinute, LMsgPtr, LInitialSize-NativeUint(LMsgPtr-LInitialPtr));
     LMsgPtr^ := ':';
     Inc(LMsgPtr);
     if LSystemTime.wSecond < 10 then
@@ -10192,10 +10275,10 @@ begin
       LMsgPtr^ := '0';
       Inc(LMsgPtr);
     end;
-    LMsgPtr := NativeUIntToStrBuf(LSystemTime.WSecond, LMsgPtr);
+    LMsgPtr := NativeUIntToStrBuf(LSystemTime.WSecond, LMsgPtr, LInitialSize-NativeUint(LMsgPtr-LInitialPtr));
     {Write the header}
-    LMsgPtr := AppendStringToBuffer(EventSeparator, LMsgPtr, Length(EventSeparator));
-    LMsgPtr := AppendStringToBuffer(CRLF, LMsgPtr, Length(CRLF));
+    LMsgPtr := AppendStringToBuffer(EventSeparator, LMsgPtr, Length(EventSeparator), LInitialSize-NativeUint(LMsgPtr-LInitialPtr));
+    LMsgPtr := AppendStringToBuffer(CRLF, LMsgPtr, Length(CRLF), LInitialSize-NativeUint(LMsgPtr-LInitialPtr));
     WriteFile(LFileHandle, LEventHeader[0], NativeUInt(LMsgPtr) - NativeUInt(@LEventHeader[0]), LBytesWritten, nil);
     {Write the data}
     WriteFile(LFileHandle, ABuffer^, ACount, LBytesWritten, nil);
@@ -10210,22 +10293,21 @@ const
   LogFileExtAnsi: PAnsiChar = LogFileExtension;
 var
   LEnvVarLength, LModuleNameLength: Cardinal;
-  LPathOverride: array[0..2047] of AnsiChar;
+  LPathOverride: array[0..MaxFileNameLengthDouble-1] of AnsiChar;
   LPFileName: PAnsiChar;
   LFileNameLength: Integer;
 begin
   {Get the name of the application}
-  LModuleNameLength := AppendModuleFileName(@MMLogFileName[0]);
+  LModuleNameLength := AppendModuleFileName(@(MMLogFileName[0]), SizeOf(MMLogFileName));
   {Replace the last few characters of the module name, and optionally override
    the path.}
   if LModuleNameLength > 0 then
   begin
     {Change the filename}
-    System.Move(LogFileExtAnsi^, MMLogFileName[LModuleNameLength - 4],
-      StrLen(LogFileExtAnsi) + 1);
+    System.Move(LogFileExtAnsi^, MMLogFileName[LModuleNameLength - 4], (StrLen(LogFileExtAnsi) + 1)*SizeOf(LogFileExtAnsi[0]));
     {Try to read the FastMMLogFilePath environment variable}
     LEnvVarLength := GetEnvironmentVariableA('FastMMLogFilePath',
-      @LPathOverride, 1023);
+      @LPathOverride[0], SizeOf(LPathOverride) div SizeOf(LPathOverride[0])-1);
     {Does the environment variable exist? If so, override the log file path.}
     if LEnvVarLength > 0 then
     begin
@@ -10237,9 +10319,9 @@ begin
       end;
       {Add the filename to the path override}
       ExtractFileName(@MMLogFileName[0], LPFileName, LFileNameLength);
-      System.Move(LPFileName^, LPathOverride[LEnvVarLength], LFileNameLength + 1);
+      System.Move(LPFileName^, LPathOverride[LEnvVarLength], (LFileNameLength + 1)*SizeOf(LPFileName[0]));
       {Copy the override path back to the filename buffer}
-      System.Move(LPathOverride, MMLogFileName, SizeOf(MMLogFileName) - 1);
+      System.Move(LPathOverride[0], MMLogFileName[0], SizeOf(MMLogFileName) - SizeOf(MMLogFileName[0]));
     end;
   end;
 end;
@@ -10258,7 +10340,7 @@ begin
     if LLogFileNameLen < Length(MMLogFileName) then
     begin
       {Set the log file name}
-      System.Move(ALogFileName^, MMLogFileName, LLogFileNameLen + 1);
+      System.Move(ALogFileName^, MMLogFileName, (LLogFileNameLen + 1)*SizeOf(ALogFileName[0]));
       Exit;
     end;
   end;
@@ -10274,22 +10356,27 @@ end;
 {Compare [AAddress], CompareVal:
  If Equal: [AAddress] := NewVal and result = CompareVal
  If Unequal: Result := [AAddress]}
-function LockCmpxchg32(CompareVal, NewVal: Integer; AAddress: PInteger): Integer;
+function LockCmpxchg32(CompareVal, NewVal: Integer; AAddress: PInteger): Integer; assembler;
 asm
 {$ifdef 32Bit}
-  {On entry:
+  {On entry for 32-bit Windows:
     eax = CompareVal,
     edx = NewVal,
     ecx = AAddress}
-  lock cmpxchg [ecx], edx
+    lock cmpxchg [ecx], edx
+    xor edx, edx {Clear the edx and ecx value on exit just for safety}
+    xor ecx, ecx
 {$else}
 .noframe
-  {On entry:
+  {On entry for 64-bit Windows:
     ecx = CompareVal,
     edx = NewVal,
     r8 = AAddress}
-  mov eax, ecx
-  lock cmpxchg [r8], edx
+    mov eax, ecx // higher bits 63-32 are automatically cleared
+    xor ecx, ecx {Clear the ecx value on entry just for safety, after we had save the value to eax}
+    lock cmpxchg [r8], edx
+    xor edx, edx
+    xor r8, r8
 {$endif}
 end;
 
@@ -10326,7 +10413,7 @@ begin
   end;
 end;
 
-procedure DoneChangingFullDebugModeBlock;
+procedure DoneChangingFullDebugModeBlock; assembler;
 asm
 {$ifdef 32Bit}
   lock dec ThreadsInFullDebugModeRoutine
@@ -10338,7 +10425,7 @@ asm
 end;
 
 {Increments the allocation number}
-procedure IncrementAllocationNumber;
+procedure IncrementAllocationNumber; assembler;
 asm
 {$ifdef 32Bit}
   lock inc CurrentAllocationNumber
@@ -10430,7 +10517,7 @@ end;
 {Sums all the dwords starting at the given address. ACount must be > 0 and a
  multiple of SizeOf(Pointer).}
 function SumNativeUInts(AStartValue: NativeUInt; APointer: PNativeUInt;
-  ACount: NativeUInt): NativeUInt;
+  ACount: NativeUInt): NativeUInt; assembler;
 asm
 {$ifdef 32Bit}
   {On entry: eax = AStartValue, edx = APointer; ecx = ACount}
@@ -10441,6 +10528,7 @@ asm
   add ecx, 4
   js @AddLoop
 {$else}
+  .noframe
   {On entry: rcx = AStartValue, rdx = APointer; r8 = ACount}
   add rdx, r8
   neg r8
@@ -10456,7 +10544,7 @@ end;
  Returns True if all bytes are all valid. ACount must be >0 and a multiple of
  SizeOf(Pointer).}
 function CheckFillPattern(APointer: Pointer; ACount: NativeUInt;
-  AFillPattern: NativeUInt): Boolean;
+  AFillPattern: NativeUInt): Boolean; assembler;
 asm
 {$ifdef 32Bit}
   {On entry: eax = APointer; edx = ACount; ecx = AFillPattern}
@@ -10471,6 +10559,7 @@ asm
   sete al
 {$else}
   {On entry: rcx = APointer; rdx = ACount; r8 = AFillPattern}
+  .noframe
   add rcx, rdx
   neg rdx
 @CheckLoop:
@@ -10502,28 +10591,52 @@ begin
   PNativeUInt(PByte(APointer) + SizeOf(TFullDebugBlockHeader) + APointer.UserSize)^ := not LHeaderCheckSum;
 end;
 
-function LogCurrentThreadAndStackTrace(ASkipFrames: Cardinal; ABuffer: PAnsiChar): PAnsiChar;
+function LogCurrentThreadAndStackTrace(ASkipFrames: Cardinal; ABuffer: PAnsiChar; ABufferLengthChars: Cardinal): PAnsiChar;
 var
   LCurrentStackTrace: TStackTrace;
+  LInitialBufPtr: PAnsiChar;
+  LDiff, LInitialLengthChars, LC: Cardinal;
+  L: Integer;
 begin
   {Get the current call stack}
   GetStackTrace(@LCurrentStackTrace[0], StackTraceDepth, ASkipFrames);
   {Log the thread ID}
-  Result := AppendStringToBuffer(CurrentThreadIDMsg, ABuffer, Length(CurrentThreadIDMsg));
-  Result := NativeUIntToHexBuf(GetThreadID, Result);
-  {List the stack trace}
-  Result := AppendStringToBuffer(CurrentStackTraceMsg, Result, Length(CurrentStackTraceMsg));
-  Result := LogStackTrace(@LCurrentStackTrace, StackTraceDepth, Result);
+  Result := ABuffer;
+  L := Length(CurrentThreadIDMsg);
+  if (L > 0) then
+  begin
+    LC := L;
+    if LC < ABufferLengthChars then
+    begin
+      Result := AppendStringToBuffer(CurrentThreadIDMsg, ABuffer, Length(CurrentThreadIDMsg), ABufferLengthChars);
+      Dec(ABufferLengthChars, Length(CurrentThreadIDMsg));
+      LInitialBufPtr := Result;
+      LInitialLengthChars := ABufferLengthChars;
+      Result := NativeUIntToHexBuf(GetThreadID, Result, LInitialLengthChars-NativeUInt(LInitialBufPtr-Result));
+      {List the stack trace}
+      LDiff := LInitialBufPtr-Result;
+      if LDiff <= LInitialLengthChars then
+      begin
+        Result := AppendStringToBuffer(CurrentStackTraceMsg, Result, Length(CurrentStackTraceMsg), LInitialLengthChars-LDiff);
+        LDiff := LInitialBufPtr-Result;
+        if LDiff <= LInitialLengthChars then
+        begin
+          Result := LogStackTrace(@LCurrentStackTrace[0], StackTraceDepth, Result);
+        end;
+      end;
+    end;
+  end;
 end;
 
 {$ifndef DisableLoggingOfMemoryDumps}
-function LogMemoryDump(APointer: PFullDebugBlockHeader; ABuffer: PAnsiChar): PAnsiChar;
+function LogMemoryDump(APointer: PFullDebugBlockHeader; ABuffer: PAnsiChar; ABufSize: Cardinal): PAnsiChar;
 var
   LByteNum, LVal: Cardinal;
   LDataPtr: PByte;
 begin
-  Result := AppendStringToBuffer(MemoryDumpMsg, ABuffer, Length(MemoryDumpMsg));
-  Result := NativeUIntToHexBuf(NativeUInt(APointer) + SizeOf(TFullDebugBlockHeader), Result);
+  Result := AppendStringToBuffer(MemoryDumpMsg, ABuffer, Length(MemoryDumpMsg), ABufSize);
+  {todo: Implement ABufSize checking and in this function}
+  Result := NativeUIntToHexBuf(NativeUInt(APointer) + SizeOf(TFullDebugBlockHeader), Result, ABufSize{todo});
   Result^ := ':';
   Inc(Result);
   {Add the bytes}
@@ -10583,12 +10696,13 @@ end;
 {$endif}
 
 {Rotates AValue ABitCount bits to the right}
-function RotateRight(AValue, ABitCount: NativeUInt): NativeUInt;
+function RotateRight(AValue, ABitCount: NativeUInt): NativeUInt; assembler;
 asm
 {$ifdef 32Bit}
   mov ecx, edx
   ror eax, cl
 {$else}
+  .noframe
   mov rax, rcx
   mov rcx, rdx
   ror rax, cl
@@ -10619,7 +10733,7 @@ begin
     Byte(RotateRight(LFillPattern, (AUserOffset and (SizeOf(Pointer) - 1)) * 8));
 end;
 
-function LogBlockChanges(APointer: PFullDebugBlockHeader; ABuffer: PAnsiChar): PAnsiChar;
+function LogBlockChanges(APointer: PFullDebugBlockHeader; ABuffer: PAnsiChar; ABufSize: Cardinal): PAnsiChar;
 var
   LOffset, LChangeStart, LCount: NativeUInt;
   LLogCount: Integer;
@@ -10649,19 +10763,19 @@ begin
       {Got the offset and length, now log it.}
       if LLogCount = 0 then
       begin
-        ABuffer := AppendStringToBuffer(FreeModifiedDetailMsg, ABuffer, Length(FreeModifiedDetailMsg));
+        ABuffer := AppendStringToBuffer(FreeModifiedDetailMsg, ABuffer, Length(FreeModifiedDetailMsg), ABufSize{todo: Implement ABufSize checking and in this function});
       end
       else
       begin
         ABuffer^ := ',';
-        Inc(ABuffer);
+        Inc(ABuffer);{todo: implement buffer size checking}
         ABuffer^ := ' ';
-        Inc(ABuffer);
+        Inc(ABuffer);{todo: ibidem}
       end;
-      ABuffer := NativeUIntToStrBuf(LChangeStart, ABuffer);
+      ABuffer := NativeUIntToStrBuf(LChangeStart, ABuffer, ABufSize{todo: ibidem});
       ABuffer^ := '(';
       Inc(ABuffer);
-      ABuffer := NativeUIntToStrBuf(LCount, ABuffer);
+      ABuffer := NativeUIntToStrBuf(LCount, ABuffer, ABufSize{todo: ibidem});
       ABuffer^ := ')';
       Inc(ABuffer);
       {Increment the log count}
@@ -10676,25 +10790,31 @@ end;
 
 procedure LogBlockError(APointer: PFullDebugBlockHeader; AOperation: TBlockOperation; LHeaderValid, LFooterValid: Boolean);
 var
-  LMsgPtr: PAnsiChar;
-  LErrorMessage: array[0..32767] of AnsiChar;
+  LInitialPtr, LMsgPtr: PAnsiChar;
+  LErrorMessage: array[0..MaxLogMessageLength-1] of AnsiChar;
 {$ifndef NoMessageBoxes}
-  LErrorMessageTitle: array[0..1023] of AnsiChar;
+  LErrorMessageTitle: array[0..MaxDisplayMessageLength-1] of AnsiChar;
 {$endif}
   LClass: TClass;
   {$ifdef CheckCppObjectTypeEnabled}
   LCppObjectTypeName: PAnsiChar;
   {$endif}
+  LInitialSize, Left: Cardinal;
 begin
   {Display the error header and the operation type.}
-  LMsgPtr := AppendStringToBuffer(ErrorMsgHeader, @LErrorMessage[0], Length(ErrorMsgHeader));
+  LMsgPtr := @(LErrorMessage[0]);
+  LInitialPtr := LMsgPtr;
+  LInitialSize := (SizeOf(LErrorMessage) div SizeOf(LErrorMessage[0]))-1;
+  LMsgPtr := AppendStringToBuffer(ErrorMsgHeader, LMsgPtr, Length(ErrorMsgHeader), LInitialSize);
+  Left := LInitialSize-NativeUint(LMsgPtr-LInitialPtr);
   case AOperation of
-    boGetMem: LMsgPtr := AppendStringToBuffer(GetMemMsg, LMsgPtr, Length(GetMemMsg));
-    boFreeMem: LMsgPtr := AppendStringToBuffer(FreeMemMsg, LMsgPtr, Length(FreeMemMsg));
-    boReallocMem: LMsgPtr := AppendStringToBuffer(ReallocMemMsg, LMsgPtr, Length(ReallocMemMsg));
-    boBlockCheck: LMsgPtr := AppendStringToBuffer(BlockCheckMsg, LMsgPtr, Length(BlockCheckMsg));
+    boGetMem: LMsgPtr := AppendStringToBuffer(GetMemMsg, LMsgPtr, Length(GetMemMsg), Left);
+    boFreeMem: LMsgPtr := AppendStringToBuffer(FreeMemMsg, LMsgPtr, Length(FreeMemMsg), Left);
+    boReallocMem: LMsgPtr := AppendStringToBuffer(ReallocMemMsg, LMsgPtr, Length(ReallocMemMsg), Left);
+    boBlockCheck: LMsgPtr := AppendStringToBuffer(BlockCheckMsg, LMsgPtr, Length(BlockCheckMsg), Left);
   end;
-  LMsgPtr := AppendStringToBuffer(OperationMsg, LMsgPtr, Length(OperationMsg));
+  Left := LInitialSize-NativeUint(LMsgPtr-LInitialPtr);
+  LMsgPtr := AppendStringToBuffer(OperationMsg, LMsgPtr, Length(OperationMsg), Left);
   {Is the header still intact?}
   if LHeaderValid then
   begin
@@ -10706,47 +10826,67 @@ begin
        instance of FastMM.}
       if AOperation <= boGetMem then
       begin
-        LMsgPtr := AppendStringToBuffer(FreeModifiedErrorMsg, LMsgPtr, Length(FreeModifiedErrorMsg));
+        Left := LInitialSize-NativeUint(LMsgPtr-LInitialPtr);
+        LMsgPtr := AppendStringToBuffer(FreeModifiedErrorMsg, LMsgPtr, Length(FreeModifiedErrorMsg), Left);
+
         {Log the exact changes that caused the error.}
-        LMsgPtr := LogBlockChanges(APointer, LMsgPtr);
+        Left := LInitialSize-NativeUint(LMsgPtr-LInitialPtr);
+        LMsgPtr := LogBlockChanges(APointer, LMsgPtr, Left);
       end
       else
       begin
         {It is either a double free, or an attempt was made to free a block
          that was allocated via a different memory manager.}
+        Left := LInitialSize-NativeUint(LMsgPtr-LInitialPtr);
+
         if APointer.AllocatedByRoutine = nil then
-          LMsgPtr := AppendStringToBuffer(DoubleFreeErrorMsg, LMsgPtr, Length(DoubleFreeErrorMsg))
+          LMsgPtr := AppendStringToBuffer(DoubleFreeErrorMsg, LMsgPtr, Length(DoubleFreeErrorMsg), Left)
         else
-          LMsgPtr := AppendStringToBuffer(WrongMMFreeErrorMsg, LMsgPtr, Length(WrongMMFreeErrorMsg));
+          LMsgPtr := AppendStringToBuffer(WrongMMFreeErrorMsg, LMsgPtr, Length(WrongMMFreeErrorMsg), Left);
       end;
     end
     else
     begin
-      LMsgPtr := AppendStringToBuffer(BlockFooterCorruptedMsg, LMsgPtr, Length(BlockFooterCorruptedMsg))
+      Left := LInitialSize-NativeUint(LMsgPtr-LInitialPtr);
+      LMsgPtr := AppendStringToBuffer(BlockFooterCorruptedMsg, LMsgPtr, Length(BlockFooterCorruptedMsg), Left)
     end;
     {Set the block size message}
+    Left := LInitialSize-NativeUint(LMsgPtr-LInitialPtr);
     if AOperation <= boGetMem then
-      LMsgPtr := AppendStringToBuffer(PreviousBlockSizeMsg, LMsgPtr, Length(PreviousBlockSizeMsg))
+      LMsgPtr := AppendStringToBuffer(PreviousBlockSizeMsg, LMsgPtr, Length(PreviousBlockSizeMsg), Left)
     else
-      LMsgPtr := AppendStringToBuffer(CurrentBlockSizeMsg, LMsgPtr, Length(CurrentBlockSizeMsg));
-    LMsgPtr := NativeUIntToStrBuf(APointer.UserSize, LMsgPtr);
+      LMsgPtr := AppendStringToBuffer(CurrentBlockSizeMsg, LMsgPtr, Length(CurrentBlockSizeMsg), Left);
+
+    Left := LInitialSize-NativeUint(LMsgPtr-LInitialPtr);
+    LMsgPtr := NativeUIntToStrBuf(APointer.UserSize, LMsgPtr, Left);
     {The header is still intact - display info about the this/previous allocation}
     if APointer.AllocationStackTrace[0] <> 0 then
     begin
+      Left := LInitialSize-NativeUint(LMsgPtr-LInitialPtr);
       if AOperation <= boGetMem then
-        LMsgPtr := AppendStringToBuffer(ThreadIDPrevAllocMsg, LMsgPtr, Length(ThreadIDPrevAllocMsg))
+        LMsgPtr := AppendStringToBuffer(ThreadIDPrevAllocMsg, LMsgPtr, Length(ThreadIDPrevAllocMsg), Left)
       else
-        LMsgPtr := AppendStringToBuffer(ThreadIDAtAllocMsg, LMsgPtr, Length(ThreadIDAtAllocMsg));
-      LMsgPtr := NativeUIntToHexBuf(APointer.AllocatedByThread, LMsgPtr);
-      LMsgPtr := AppendStringToBuffer(StackTraceMsg, LMsgPtr, Length(StackTraceMsg));
-      LMsgPtr := LogStackTrace(@APointer.AllocationStackTrace, StackTraceDepth, LMsgPtr);
+        LMsgPtr := AppendStringToBuffer(ThreadIDAtAllocMsg, LMsgPtr, Length(ThreadIDAtAllocMsg), Left);
+
+      Left := LInitialSize-NativeUint(LMsgPtr-LInitialPtr);
+      LMsgPtr := NativeUIntToHexBuf(APointer.AllocatedByThread, LMsgPtr, Left);
+
+      Left := LInitialSize-NativeUint(LMsgPtr-LInitialPtr);
+      LMsgPtr := AppendStringToBuffer(StackTraceMsg, LMsgPtr, Length(StackTraceMsg), Left);
+      
+
+      Left := LInitialSize-NativeUint(LMsgPtr-LInitialPtr);
+      LMsgPtr := LogStackTrace(@APointer.AllocationStackTrace[0], StackTraceDepth, LMsgPtr{, Left} {todo: implement});
     end;
     {Get the class this block was used for previously}
     LClass := DetectClassInstance(@APointer.PreviouslyUsedByClass);
     if (LClass <> nil) and (IntPtr(LClass) <> IntPtr(@FreedObjectVMT.VMTMethods[0])) then
     begin
-      LMsgPtr := AppendStringToBuffer(PreviousObjectClassMsg, LMsgPtr, Length(PreviousObjectClassMsg));
-      LMsgPtr := AppendClassNameToBuffer(LClass, LMsgPtr);
+      Left := LInitialSize-NativeUint(LMsgPtr-LInitialPtr);
+      LMsgPtr := AppendStringToBuffer(PreviousObjectClassMsg, LMsgPtr, Length(PreviousObjectClassMsg), Left);
+
+      Left := LInitialSize-NativeUint(LMsgPtr-LInitialPtr);
+      LMsgPtr := AppendClassNameToBuffer(LClass, LMsgPtr, Left);
     end;
     {$ifdef CheckCppObjectTypeEnabled}
     if (LClass = nil) and Assigned(GetCppVirtObjTypeNameByVTablePtrFunc) then
@@ -10762,12 +10902,14 @@ begin
     {Get the current class for this block}
     if (AOperation > boGetMem) and (APointer.AllocatedByRoutine <> nil) then
     begin
-      LMsgPtr := AppendStringToBuffer(CurrentObjectClassMsg, LMsgPtr, Length(CurrentObjectClassMsg));
+      Left := LInitialSize-NativeUint(LMsgPtr-LInitialPtr);
+      LMsgPtr := AppendStringToBuffer(CurrentObjectClassMsg, LMsgPtr, Length(CurrentObjectClassMsg), Left);
       LClass := DetectClassInstance(Pointer(PByte(APointer) + SizeOf(TFullDebugBlockHeader)));
       if IntPtr(LClass) = IntPtr(@FreedObjectVMT.VMTMethods[0]) then
         LClass := nil;
       {$ifndef CheckCppObjectTypeEnabled}
-      LMsgPtr := AppendClassNameToBuffer(LClass, LMsgPtr);
+      Left := LInitialSize-NativeUint(LMsgPtr-LInitialPtr);
+      LMsgPtr := AppendClassNameToBuffer(LClass, LMsgPtr, Left);
       {$else}
       if (LClass = nil) and Assigned(GetCppVirtObjTypeNameFunc) then
       begin
@@ -10786,50 +10928,75 @@ begin
       {Log the allocation group}
       if APointer.AllocationGroup > 0 then
       begin
-        LMsgPtr := AppendStringToBuffer(CurrentAllocationGroupMsg, LMsgPtr, Length(CurrentAllocationGroupMsg));
-        LMsgPtr := NativeUIntToStrBuf(APointer.AllocationGroup, LMsgPtr);
+        Left := LInitialSize-NativeUint(LMsgPtr-LInitialPtr);
+        LMsgPtr := AppendStringToBuffer(CurrentAllocationGroupMsg, LMsgPtr, Length(CurrentAllocationGroupMsg), Left);
+
+        Left := LInitialSize-NativeUint(LMsgPtr-LInitialPtr);
+        LMsgPtr := NativeUIntToStrBuf(APointer.AllocationGroup, LMsgPtr, Left);
       end;
       {Log the allocation number}
-      LMsgPtr := AppendStringToBuffer(CurrentAllocationNumberMsg, LMsgPtr, Length(CurrentAllocationNumberMsg));
-      LMsgPtr := NativeUIntToStrBuf(APointer.AllocationNumber, LMsgPtr);
+      Left := LInitialSize-NativeUint(LMsgPtr-LInitialPtr);
+      LMsgPtr := AppendStringToBuffer(CurrentAllocationNumberMsg, LMsgPtr, Length(CurrentAllocationNumberMsg), Left);
+
+      Left := LInitialSize-NativeUint(LMsgPtr-LInitialPtr);
+      LMsgPtr := NativeUIntToStrBuf(APointer.AllocationNumber, LMsgPtr, Left);
     end
     else
     begin
       {Log the allocation group}
       if APointer.AllocationGroup > 0 then
       begin
-        LMsgPtr := AppendStringToBuffer(PreviousAllocationGroupMsg, LMsgPtr, Length(PreviousAllocationGroupMsg));
-        LMsgPtr := NativeUIntToStrBuf(APointer.AllocationGroup, LMsgPtr);
+        Left := LInitialSize-NativeUint(LMsgPtr-LInitialPtr);
+        LMsgPtr := AppendStringToBuffer(PreviousAllocationGroupMsg, LMsgPtr, Length(PreviousAllocationGroupMsg), Left);
+
+        Left := LInitialSize-NativeUint(LMsgPtr-LInitialPtr);
+        LMsgPtr := NativeUIntToStrBuf(APointer.AllocationGroup, LMsgPtr, Left);
       end;
       {Log the allocation number}
-      LMsgPtr := AppendStringToBuffer(PreviousAllocationNumberMsg, LMsgPtr, Length(PreviousAllocationNumberMsg));
-      LMsgPtr := NativeUIntToStrBuf(APointer.AllocationNumber, LMsgPtr);
+      Left := LInitialSize-NativeUint(LMsgPtr-LInitialPtr);
+      LMsgPtr := AppendStringToBuffer(PreviousAllocationNumberMsg, LMsgPtr, Length(PreviousAllocationNumberMsg), Left);
+
+      Left := LInitialSize-NativeUint(LMsgPtr-LInitialPtr);
+      LMsgPtr := NativeUIntToStrBuf(APointer.AllocationNumber, LMsgPtr, Left);
     end;
     {Get the call stack for the previous free}
     if APointer.FreeStackTrace[0] <> 0 then
     begin
-      LMsgPtr := AppendStringToBuffer(ThreadIDAtFreeMsg, LMsgPtr, Length(ThreadIDAtFreeMsg));
-      LMsgPtr := NativeUIntToHexBuf(APointer.FreedByThread, LMsgPtr);
-      LMsgPtr := AppendStringToBuffer(StackTraceMsg, LMsgPtr, Length(StackTraceMsg));
-      LMsgPtr := LogStackTrace(@APointer.FreeStackTrace, StackTraceDepth, LMsgPtr);
+      Left := LInitialSize-NativeUint(LMsgPtr-LInitialPtr);
+      LMsgPtr := AppendStringToBuffer(ThreadIDAtFreeMsg, LMsgPtr, Length(ThreadIDAtFreeMsg), Left);
+      Left := LInitialSize-NativeUint(LMsgPtr-LInitialPtr);
+      LMsgPtr := NativeUIntToHexBuf(APointer.FreedByThread, LMsgPtr, Left);
+      Left := LInitialSize-NativeUint(LMsgPtr-LInitialPtr);
+      LMsgPtr := AppendStringToBuffer(StackTraceMsg, LMsgPtr, Length(StackTraceMsg), Left);
+      Left := LInitialSize-NativeUint(LMsgPtr-LInitialPtr);
+      LMsgPtr := LogStackTrace(@APointer.FreeStackTrace[0], StackTraceDepth, LMsgPtr{, Left}{todo: Implement});
     end;
   end
   else
   begin
     {Header has been corrupted}
-    LMsgPtr := AppendStringToBuffer(BlockHeaderCorruptedMsg, LMsgPtr, Length(BlockHeaderCorruptedMsg));
+    Left := LInitialSize-NativeUint(LMsgPtr-LInitialPtr);
+    LMsgPtr := AppendStringToBuffer(BlockHeaderCorruptedMsg, LMsgPtr, Length(BlockHeaderCorruptedMsg), Left);
   end;
   {Add the current stack trace}
-  LMsgPtr := LogCurrentThreadAndStackTrace(3 + Ord(AOperation <> boGetMem) + Ord(AOperation = boReallocMem), LMsgPtr);
+  Left := LInitialSize-NativeUint(LMsgPtr-LInitialPtr);
+  LMsgPtr := LogCurrentThreadAndStackTrace(3 + Ord(AOperation <> boGetMem) + Ord(AOperation = boReallocMem), LMsgPtr, Left);
 {$ifndef DisableLoggingOfMemoryDumps}
   {Add the memory dump}
-  LMsgPtr := LogMemoryDump(APointer, LMsgPtr);
+  Left := LInitialSize-NativeUint(LMsgPtr-LInitialPtr);
+  LMsgPtr := LogMemoryDump(APointer, LMsgPtr, Left);
 {$endif}
+
   {Trailing CRLF}
-  LMsgPtr^ := #13;
-  Inc(LMsgPtr);
-  LMsgPtr^ := #10;
-  Inc(LMsgPtr);
+  if Left > 2 then
+  begin
+    LMsgPtr^ := #13;
+    Inc(LMsgPtr);
+    LMsgPtr^ := #10;
+    Inc(LMsgPtr);
+  end;
+  Left := LInitialSize-NativeUint(LMsgPtr-LInitialPtr);
+  
   {Trailing #0}
   LMsgPtr^ := #0;
 {$ifdef LogErrorsToFile}
@@ -10841,7 +11008,7 @@ begin
 {$endif}
   {Show the message}
 {$ifndef NoMessageBoxes}
-  AppendStringToModuleName(BlockErrorMsgTitle, LErrorMessageTitle);
+  AppendStringToModuleName(BlockErrorMsgTitle, LErrorMessageTitle, Length(BlockErrorMsgTitle), (SizeOf(LErrorMessageTitle) div SizeOf(LErrorMessageTitle[0]))-1);
   ShowMessageBox(LErrorMessage, LErrorMessageTitle);
 {$endif}
 end;
@@ -10850,19 +11017,25 @@ end;
 procedure LogMemoryLeakOrAllocatedBlock(APointer: PFullDebugBlockHeader; IsALeak: Boolean);
 var
   LHeaderValid: Boolean;
-  LMsgPtr: PAnsiChar;
-  LErrorMessage: array[0..32767] of AnsiChar;
+  LInitialPtr, LMsgPtr: PAnsiChar;
+  LErrorMessage: array[0..MaxLogMessageLength-1] of AnsiChar;
   LClass: TClass;
   {$ifdef CheckCppObjectTypeEnabled}
   LCppObjectTypeName: PAnsiChar;
   {$endif}
+  LInitialSize: Cardinal;
 begin
   {Display the error header and the operation type.}
+
+  LMsgPtr := @LErrorMessage[0];
+  LInitialPtr := LMsgPtr;
+  LInitialSize := (SizeOf(LErrorMessage) div SizeOf(LErrorMessage[0]))-1;
+
   if IsALeak then
-    LMsgPtr := AppendStringToBuffer(LeakLogHeader, @LErrorMessage[0], Length(LeakLogHeader))
+    LMsgPtr := AppendStringToBuffer(LeakLogHeader, LMsgPtr, Length(LeakLogHeader), LInitialSize-NativeUint(LMsgPtr-LInitialPtr))
   else
-    LMsgPtr := AppendStringToBuffer(BlockScanLogHeader, @LErrorMessage[0], Length(BlockScanLogHeader));
-  LMsgPtr := NativeUIntToStrBuf(GetAvailableSpaceInBlock(APointer) - FullDebugBlockOverhead, LMsgPtr);
+    LMsgPtr := AppendStringToBuffer(BlockScanLogHeader, LMsgPtr, Length(BlockScanLogHeader), LInitialSize-NativeUint(LMsgPtr-LInitialPtr));
+  LMsgPtr := NativeUIntToStrBuf(GetAvailableSpaceInBlock(APointer) - FullDebugBlockOverhead, LMsgPtr, LInitialSize-NativeUint(LMsgPtr-LInitialPtr));
   {Is the debug info surrounding the block valid?}
   LHeaderValid := CalculateHeaderCheckSum(APointer) = APointer.HeaderCheckSum;
   {Is the header still intact?}
@@ -10871,12 +11044,12 @@ begin
     {The header is still intact - display info about this/previous allocation}
     if APointer.AllocationStackTrace[0] <> 0 then
     begin
-      LMsgPtr := AppendStringToBuffer(ThreadIDAtAllocMsg, LMsgPtr, Length(ThreadIDAtAllocMsg));
-      LMsgPtr := NativeUIntToHexBuf(APointer.AllocatedByThread, LMsgPtr);
-      LMsgPtr := AppendStringToBuffer(StackTraceMsg, LMsgPtr, Length(StackTraceMsg));
-      LMsgPtr := LogStackTrace(@APointer.AllocationStackTrace, StackTraceDepth, LMsgPtr);
+      LMsgPtr := AppendStringToBuffer(ThreadIDAtAllocMsg, LMsgPtr, Length(ThreadIDAtAllocMsg), LInitialSize-NativeUint(LMsgPtr-LInitialPtr));
+      LMsgPtr := NativeUIntToHexBuf(APointer.AllocatedByThread, LMsgPtr, LInitialSize-NativeUint(LMsgPtr-LInitialPtr));
+      LMsgPtr := AppendStringToBuffer(StackTraceMsg, LMsgPtr, Length(StackTraceMsg), LInitialSize-NativeUint(LMsgPtr-LInitialPtr));
+      LMsgPtr := LogStackTrace(@(APointer.AllocationStackTrace[0]), StackTraceDepth, LMsgPtr {, LInitialSize-NativeUint(LMsgPtr-LInitialPtr)}{todo: Implement});
     end;
-    LMsgPtr := AppendStringToBuffer(CurrentObjectClassMsg, LMsgPtr, Length(CurrentObjectClassMsg));
+    LMsgPtr := AppendStringToBuffer(CurrentObjectClassMsg, LMsgPtr, Length(CurrentObjectClassMsg), LInitialSize-NativeUint(LMsgPtr-LInitialPtr));
     {Get the current class for this block}
     LClass := DetectClassInstance(Pointer(PByte(APointer) + SizeOf(TFullDebugBlockHeader)));
     if IntPtr(LClass) = IntPtr(@FreedObjectVMT.VMTMethods[0]) then
@@ -10884,14 +11057,14 @@ begin
     {$ifndef CheckCppObjectTypeEnabled}
     if LClass <> nil then
     begin
-      LMsgPtr := AppendClassNameToBuffer(LClass, LMsgPtr);
+      LMsgPtr := AppendClassNameToBuffer(LClass, LMsgPtr, LInitialSize-NativeUint(LMsgPtr-LInitialPtr));
     end
     else
     begin
       case DetectStringData(Pointer(PByte(APointer) + SizeOf(TFullDebugBlockHeader)), APointer.UserSize) of
-        stUnknown: LMsgPtr := AppendClassNameToBuffer(nil, LMsgPtr);
-        stAnsiString: LMsgPtr := AppendStringToBuffer(AnsiStringBlockMessage, LMsgPtr, Length(AnsiStringBlockMessage));
-        stUnicodeString: LMsgPtr := AppendStringToBuffer(UnicodeStringBlockMessage, LMsgPtr, Length(UnicodeStringBlockMessage));
+        stUnknown: LMsgPtr := AppendClassNameToBuffer(nil, LMsgPtr, LInitialSize-NativeUint(LMsgPtr-LInitialPtr));
+        stAnsiString: LMsgPtr := AppendStringToBuffer(AnsiStringBlockMessage, LMsgPtr, Length(AnsiStringBlockMessage), LInitialSize-NativeUint(LMsgPtr-LInitialPtr));
+        stUnicodeString: LMsgPtr := AppendStringToBuffer(UnicodeStringBlockMessage, LMsgPtr, Length(UnicodeStringBlockMessage), LInitialSize-NativeUint(LMsgPtr-LInitialPtr));
       end;
     end;
     {$else}
@@ -10916,25 +11089,28 @@ begin
     {Log the allocation group}
     if APointer.AllocationGroup > 0 then
     begin
-      LMsgPtr := AppendStringToBuffer(CurrentAllocationGroupMsg, LMsgPtr, Length(CurrentAllocationGroupMsg));
-      LMsgPtr := NativeUIntToStrBuf(APointer.AllocationGroup, LMsgPtr);
+      LMsgPtr := AppendStringToBuffer(CurrentAllocationGroupMsg, LMsgPtr, Length(CurrentAllocationGroupMsg), LInitialSize-NativeUint(LMsgPtr-LInitialPtr));
+      LMsgPtr := NativeUIntToStrBuf(APointer.AllocationGroup, LMsgPtr, LInitialSize-NativeUint(LMsgPtr-LInitialPtr));
     end;
     {Log the allocation number}
-    LMsgPtr := AppendStringToBuffer(CurrentAllocationNumberMsg, LMsgPtr, Length(CurrentAllocationNumberMsg));
-    LMsgPtr := NativeUIntToStrBuf(APointer.AllocationNumber, LMsgPtr);
+    LMsgPtr := AppendStringToBuffer(CurrentAllocationNumberMsg, LMsgPtr, Length(CurrentAllocationNumberMsg), LInitialSize-NativeUint(LMsgPtr-LInitialPtr));
+    LMsgPtr := NativeUIntToStrBuf(APointer.AllocationNumber, LMsgPtr, LInitialSize-NativeUint(LMsgPtr-LInitialPtr));
   end
   else
   begin
     {Header has been corrupted}
-    LMsgPtr^ := '.';
-    Inc(LMsgPtr);
-    LMsgPtr^ := ' ';
-    Inc(LMsgPtr);
-    LMsgPtr := AppendStringToBuffer(BlockHeaderCorruptedMsg, LMsgPtr, Length(BlockHeaderCorruptedMsg));
+    if LInitialSize-NativeUint(LMsgPtr-LInitialPtr) > 3 then
+    begin
+      LMsgPtr^ := '.';
+      Inc(LMsgPtr);
+      LMsgPtr^ := ' ';
+      Inc(LMsgPtr);
+      LMsgPtr := AppendStringToBuffer(BlockHeaderCorruptedMsg, LMsgPtr, Length(BlockHeaderCorruptedMsg), LInitialSize-NativeUint(LMsgPtr-LInitialPtr));
+    end;
   end;
 {$ifndef DisableLoggingOfMemoryDumps}
   {Add the memory dump}
-  LMsgPtr := LogMemoryDump(APointer, LMsgPtr);
+  LMsgPtr := LogMemoryDump(APointer, LMsgPtr, LInitialSize-NativeUint(LMsgPtr-LInitialPtr));
 {$endif}
   {Trailing CRLF}
   LMsgPtr^ := #13;
@@ -11014,7 +11190,7 @@ begin
         or CheckFreeBlockUnmodified(Result, GetAvailableSpaceInBlock(Result) + BlockHeaderSize, boGetMem) then
       begin
         {Set the allocation call stack}
-        GetStackTrace(@PFullDebugBlockHeader(Result).AllocationStackTrace, StackTraceDepth, 1);
+        GetStackTrace(@(PFullDebugBlockHeader(Result).AllocationStackTrace[0]), StackTraceDepth, 1);
 {$ifdef LogLockContention}
         if assigned(LCollector) then
           LCollector.Add(@PFullDebugBlockHeader(Result).AllocationStackTrace[0], StackTraceDepth);
@@ -11162,7 +11338,7 @@ begin
         {Get the class the block was used for}
         LActualBlock.PreviouslyUsedByClass := PNativeUInt(APointer)^;
         {Set the free call stack}
-        GetStackTrace(@LActualBlock.FreeStackTrace, StackTraceDepth, 1);
+        GetStackTrace(@LActualBlock.FreeStackTrace[0], StackTraceDepth, 1);
         {Set the thread ID of the thread that freed the block}
         LActualBlock.FreedByThread := GetThreadID;
         {Block is now free}
@@ -11480,7 +11656,7 @@ end;
 
 {Used to determine the index of the virtual method call on the freed object.
  Do not change this without updating MaxFakeVMTEntries. Currently 200.}
-procedure TFreedObject.GetVirtualMethodIndex;
+procedure TFreedObject.GetVirtualMethodIndex; assembler;
 asm
   Inc(VMIndex); Inc(VMIndex); Inc(VMIndex); Inc(VMIndex); Inc(VMIndex);
   Inc(VMIndex); Inc(VMIndex); Inc(VMIndex); Inc(VMIndex); Inc(VMIndex);
@@ -11536,13 +11712,14 @@ end;
 procedure TFreedObject.VirtualMethodError;
 var
   LVMOffset: Integer;
-  LMsgPtr: PAnsiChar;
-  LErrorMessage: array[0..32767] of AnsiChar;
+  LInitialPtr, LMsgPtr: PAnsiChar;
+  LErrorMessage: array[0..MaxLogMessageLength-1] of AnsiChar;
 {$ifndef NoMessageBoxes}
-  LErrorMessageTitle: array[0..1023] of AnsiChar;
+  LErrorMessageTitle: array[0..MaxDisplayMessageLength-1] of AnsiChar;
 {$endif}
   LClass: TClass;
   LActualBlock: PFullDebugBlockHeader;
+  LInitialSize: Cardinal;
 begin
   {Get the offset of the virtual method}
   LVMOffset := (MaxFakeVMTEntries - VMIndex) * SizeOf(Pointer) + vmtParent + SizeOf(Pointer);
@@ -11550,8 +11727,14 @@ begin
   VMIndex := 0;
   {Get the address of the actual block}
   LActualBlock := PFullDebugBlockHeader(PByte(Self) - SizeOf(TFullDebugBlockHeader));
+
+  LMsgPtr := @LErrorMessage[0];
+  LInitialPtr := LMsgPtr;
+  LInitialSize := (SizeOf(LErrorMessage) div SizeOf(LErrorMessage[0]))-1;
+
+
   {Display the error header}
-  LMsgPtr := AppendStringToBuffer(VirtualMethodErrorHeader, @LErrorMessage[0], Length(VirtualMethodErrorHeader));
+  LMsgPtr := AppendStringToBuffer(VirtualMethodErrorHeader, @LErrorMessage[0], Length(VirtualMethodErrorHeader), LInitialSize-NativeUint(LMsgPtr-LInitialPtr));
   {Is the debug info surrounding the block valid?}
   if CalculateHeaderCheckSum(LActualBlock) = LActualBlock.HeaderCheckSum then
   begin
@@ -11559,62 +11742,62 @@ begin
     LClass := DetectClassInstance(@LActualBlock.PreviouslyUsedByClass);
     if (LClass <> nil) and (IntPtr(LClass) <> IntPtr(@FreedObjectVMT.VMTMethods[0])) then
     begin
-      LMsgPtr := AppendStringToBuffer(FreedObjectClassMsg, LMsgPtr, Length(FreedObjectClassMsg));
-      LMsgPtr := AppendClassNameToBuffer(LClass, LMsgPtr);
+      LMsgPtr := AppendStringToBuffer(FreedObjectClassMsg, LMsgPtr, Length(FreedObjectClassMsg), LInitialSize-NativeUint(LMsgPtr-LInitialPtr));
+      LMsgPtr := AppendClassNameToBuffer(LClass, LMsgPtr, LInitialSize-NativeUint(LMsgPtr-LInitialPtr));
     end;
     {Get the virtual method name}
-    LMsgPtr := AppendStringToBuffer(VirtualMethodName, LMsgPtr, Length(VirtualMethodName));
+    LMsgPtr := AppendStringToBuffer(VirtualMethodName, LMsgPtr, Length(VirtualMethodName), LInitialSize-NativeUint(LMsgPtr-LInitialPtr));
     if LVMOffset < 0 then
     begin
-      LMsgPtr := AppendStringToBuffer(StandardVirtualMethodNames[LVMOffset div SizeOf(Pointer)], LMsgPtr, Length(StandardVirtualMethodNames[LVMOffset div SizeOf(Pointer)]));
+      LMsgPtr := AppendStringToBuffer(StandardVirtualMethodNames[LVMOffset div SizeOf(Pointer)], LMsgPtr, Length(StandardVirtualMethodNames[LVMOffset div SizeOf(Pointer)]), LInitialSize-NativeUint(LMsgPtr-LInitialPtr));
     end
     else
     begin
-      LMsgPtr := AppendStringToBuffer(VirtualMethodOffset, LMsgPtr, Length(VirtualMethodOffset));
-      LMsgPtr := NativeUIntToStrBuf(LVMOffset, LMsgPtr);
+      LMsgPtr := AppendStringToBuffer(VirtualMethodOffset, LMsgPtr, Length(VirtualMethodOffset), LInitialSize-NativeUint(LMsgPtr-LInitialPtr));
+      LMsgPtr := NativeUIntToStrBuf(LVMOffset, LMsgPtr, LInitialSize-NativeUint(LMsgPtr-LInitialPtr));
     end;
     {Virtual method address}
     if (LClass <> nil) and (IntPtr(LClass) <> IntPtr(@FreedObjectVMT.VMTMethods[0])) then
     begin
-      LMsgPtr := AppendStringToBuffer(VirtualMethodAddress, LMsgPtr, Length(VirtualMethodAddress));
-      LMsgPtr := NativeUIntToHexBuf(PNativeUInt(PByte(LClass) + LVMOffset)^, LMsgPtr);
+      LMsgPtr := AppendStringToBuffer(VirtualMethodAddress, LMsgPtr, Length(VirtualMethodAddress), LInitialSize-NativeUint(LMsgPtr-LInitialPtr));
+      LMsgPtr := NativeUIntToHexBuf(PNativeUInt(PByte(LClass) + LVMOffset)^, LMsgPtr, LInitialSize-NativeUint(LMsgPtr-LInitialPtr));
     end;
     {Log the allocation group}
     if LActualBlock.AllocationGroup > 0 then
     begin
-      LMsgPtr := AppendStringToBuffer(PreviousAllocationGroupMsg, LMsgPtr, Length(PreviousAllocationGroupMsg));
-      LMsgPtr := NativeUIntToStrBuf(LActualBlock.AllocationGroup, LMsgPtr);
+      LMsgPtr := AppendStringToBuffer(PreviousAllocationGroupMsg, LMsgPtr, Length(PreviousAllocationGroupMsg), LInitialSize-NativeUint(LMsgPtr-LInitialPtr));
+      LMsgPtr := NativeUIntToStrBuf(LActualBlock.AllocationGroup, LMsgPtr, LInitialSize-NativeUint(LMsgPtr-LInitialPtr));
     end;
     {Log the allocation number}
-    LMsgPtr := AppendStringToBuffer(PreviousAllocationNumberMsg, LMsgPtr, Length(PreviousAllocationNumberMsg));
-    LMsgPtr := NativeUIntToStrBuf(LActualBlock.AllocationNumber, LMsgPtr);
+    LMsgPtr := AppendStringToBuffer(PreviousAllocationNumberMsg, LMsgPtr, Length(PreviousAllocationNumberMsg), LInitialSize-NativeUint(LMsgPtr-LInitialPtr));
+    LMsgPtr := NativeUIntToStrBuf(LActualBlock.AllocationNumber, LMsgPtr, LInitialSize-NativeUint(LMsgPtr-LInitialPtr));
     {The header is still intact - display info about the this/previous allocation}
     if LActualBlock.AllocationStackTrace[0] <> 0 then
     begin
-      LMsgPtr := AppendStringToBuffer(ThreadIDAtObjectAllocMsg, LMsgPtr, Length(ThreadIDAtObjectAllocMsg));
-      LMsgPtr := NativeUIntToHexBuf(LActualBlock.AllocatedByThread, LMsgPtr);
-      LMsgPtr := AppendStringToBuffer(StackTraceMsg, LMsgPtr, Length(StackTraceMsg));
-      LMsgPtr := LogStackTrace(@LActualBlock.AllocationStackTrace, StackTraceDepth, LMsgPtr);
+      LMsgPtr := AppendStringToBuffer(ThreadIDAtObjectAllocMsg, LMsgPtr, Length(ThreadIDAtObjectAllocMsg), LInitialSize-NativeUint(LMsgPtr-LInitialPtr));
+      LMsgPtr := NativeUIntToHexBuf(LActualBlock.AllocatedByThread, LMsgPtr, LInitialSize-NativeUint(LMsgPtr-LInitialPtr));
+      LMsgPtr := AppendStringToBuffer(StackTraceMsg, LMsgPtr, Length(StackTraceMsg), LInitialSize-NativeUint(LMsgPtr-LInitialPtr));
+      LMsgPtr := LogStackTrace(@LActualBlock.AllocationStackTrace[0], StackTraceDepth, LMsgPtr);
     end;
     {Get the call stack for the previous free}
     if LActualBlock.FreeStackTrace[0] <> 0 then
     begin
-      LMsgPtr := AppendStringToBuffer(ThreadIDAtObjectFreeMsg, LMsgPtr, Length(ThreadIDAtObjectFreeMsg));
-      LMsgPtr := NativeUIntToHexBuf(LActualBlock.FreedByThread, LMsgPtr);
-      LMsgPtr := AppendStringToBuffer(StackTraceMsg, LMsgPtr, Length(StackTraceMsg));
-      LMsgPtr := LogStackTrace(@LActualBlock.FreeStackTrace, StackTraceDepth, LMsgPtr);
+      LMsgPtr := AppendStringToBuffer(ThreadIDAtObjectFreeMsg, LMsgPtr, Length(ThreadIDAtObjectFreeMsg), LInitialSize-NativeUint(LMsgPtr-LInitialPtr));
+      LMsgPtr := NativeUIntToHexBuf(LActualBlock.FreedByThread, LMsgPtr, LInitialSize-NativeUint(LMsgPtr-LInitialPtr));
+      LMsgPtr := AppendStringToBuffer(StackTraceMsg, LMsgPtr, Length(StackTraceMsg), LInitialSize-NativeUint(LMsgPtr-LInitialPtr));
+      LMsgPtr := LogStackTrace(@LActualBlock.FreeStackTrace[0], StackTraceDepth, LMsgPtr);
     end;
   end
   else
   begin
     {Header has been corrupted}
-    LMsgPtr := AppendStringToBuffer(BlockHeaderCorruptedNoHistoryMsg, LMsgPtr, Length(BlockHeaderCorruptedNoHistoryMsg));
+    LMsgPtr := AppendStringToBuffer(BlockHeaderCorruptedNoHistoryMsg, LMsgPtr, Length(BlockHeaderCorruptedNoHistoryMsg), LInitialSize-NativeUint(LMsgPtr-LInitialPtr));
   end;
   {Add the current stack trace}
-  LMsgPtr := LogCurrentThreadAndStackTrace(2, LMsgPtr);
+  LMsgPtr := LogCurrentThreadAndStackTrace(2, LMsgPtr, LInitialSize-NativeUint(LMsgPtr-LInitialPtr));
 {$ifndef DisableLoggingOfMemoryDumps}
   {Add the pointer address}
-  LMsgPtr := LogMemoryDump(LActualBlock, LMsgPtr);
+  LMsgPtr := LogMemoryDump(LActualBlock, LMsgPtr, LInitialSize-NativeUint(LMsgPtr-LInitialPtr));
 {$endif}
   {Trailing CRLF}
   LMsgPtr^ := #13;
@@ -11632,7 +11815,7 @@ begin
 {$endif}
 {$ifndef NoMessageBoxes}
   {Show the message}
-  AppendStringToModuleName(BlockErrorMsgTitle, LErrorMessageTitle);
+  AppendStringToModuleName(BlockErrorMsgTitle, LErrorMessageTitle, Length(BlockErrorMsgTitle), (SizeOf(LErrorMessageTitle) div SizeOf(LErrorMessageTitle[0]))-1);
   ShowMessageBox(LErrorMessage, LErrorMessageTitle);
 {$endif}
   {Raise an access violation}
@@ -11644,9 +11827,9 @@ procedure TFreedObject.InterfaceError;
 var
   LMsgPtr: PAnsiChar;
 {$ifndef NoMessageBoxes}
-  LErrorMessageTitle: array[0..1023] of AnsiChar;
+  LErrorMessageTitle: array[0..MaxDisplayMessageLength-1] of AnsiChar;
 {$endif}
-  LErrorMessage: array[0..4000] of AnsiChar;
+  LErrorMessage: array[0..MaxLogMessageLength-1] of AnsiChar;
 begin
   {Display the error header}
   LMsgPtr := AppendStringToBuffer(InterfaceErrorHeader, @LErrorMessage[0], Length(InterfaceErrorHeader));
@@ -11668,7 +11851,7 @@ begin
 {$endif}
 {$ifndef NoMessageBoxes}
   {Show the message}
-  AppendStringToModuleName(BlockErrorMsgTitle, LErrorMessageTitle);
+  AppendStringToModuleName(BlockErrorMsgTitle, LErrorMessageTitle, Length(BlockErrorMsgTitle), (SizeOf(LErrorMessageTitle) div SizeOf(LErrorMessageTitle[0]))-1);
   ShowMessageBox(LErrorMessage, LErrorMessageTitle);
 {$endif}
   {Raise an access violation}
@@ -11794,7 +11977,7 @@ begin
   if IsMultiThread then
 {$endif}
   begin
-    while LockCmpxchg(0, 1, @ExpectedMemoryLeaksListLocked) <> 0 do
+    while LockCmpxchg8(False, True, @ExpectedMemoryLeaksListLocked) <> False do
     begin
 {$ifdef NeverSleepOnThreadContention}
   {$ifdef UseSwitchToThread}
@@ -11802,7 +11985,7 @@ begin
   {$endif}
 {$else}
       Sleep(InitialSleepTime);
-      if LockCmpxchg(0, 1, @ExpectedMemoryLeaksListLocked) = 0 then
+      if LockCmpxchg8(False, True, @ExpectedMemoryLeaksListLocked) = False then
         Break;
       Sleep(AdditionalSleepTime);
 {$endif}
@@ -12287,11 +12470,22 @@ begin
   Inc(LPClassNode.TotalMemoryUsage, ABlockSize);
 end;
 
+{This function is only needed to copy with an error given when using 
+the "typed @ operator" compiler option. We are having just one typecast
+in this function to avoid using typecasts throught the entire program.}
+function GetNodeListFromNode(ANode: PMemoryLogNode): PMemoryLogNodes; inline;
+begin
+  {We have only one typecast here, in other places we have strict type checking}
+  Result := PMemoryLogNodes(ANode);
+end;
+
 {LogMemoryManagerStateToFile subroutine: A median-of-3 quicksort routine for sorting a TMemoryLogNodes array.}
 procedure QuickSortLogNodes(APLeftItem: PMemoryLogNodes; ARightIndex: Integer);
 var
   M, I, J: Integer;
   LPivot, LTempItem: TMemoryLogNode;
+  PMemLogNode: PMemoryLogNode; {This variable is just neede to simplify the accomodation
+                                to "typed @ operator" - stores an intermediary value}
 begin
   while True do
   begin
@@ -12353,7 +12547,8 @@ begin
     if J >= (QuickSortMinimumItemsInPartition - 1) then
       QuickSortLogNodes(APLeftItem, J);
     {Sort the right-hand partition}
-    APLeftItem := @APLeftItem[I + 1];
+    PMemLogNode := @(APLeftItem[I + 1]);
+    APLeftItem := GetNodeListFromNode(PMemLogNode);
     ARightIndex := ARightIndex - I - 1;
     if ARightIndex < (QuickSortMinimumItemsInPartition - 1) then
       Break;
@@ -12400,11 +12595,15 @@ var
   LInd: Integer;
   LPNode: PMemoryLogNode;
   LMsgBuffer: array[0..MsgBufferSize - 1] of AnsiChar;
-  LPMsg: PAnsiChar;
+  LPInitialMsgPtr, LPMsg: PAnsiChar;
   LBufferSpaceUsed, LBytesWritten: Cardinal;
-  LFileHandle: NativeUInt;
+  LFileHandle: THandle; {use NativeUint if THandle is not available}
   LMemoryManagerUsageSummary: TMemoryManagerUsageSummary;
   LUTF8Str: AnsiString;
+  LMemLogNode: PMemoryLogNode; {Just to store an interim result. Needed for 
+                                "typed @ operator", to simplify things and remove 
+                                typecasts that pose potential dannger.}
+  LInitialSize: Cardinal;
 begin
   {Get the current memory manager usage summary.}
   GetMemoryManagerUsageSummary(LMemoryManagerUsageSummary);
@@ -12418,9 +12617,13 @@ begin
       {Sort the classes by total memory usage: Do the initial QuickSort pass over the list to sort the list in groups
        of QuickSortMinimumItemsInPartition size.}
       if LPLogInfo.NodeCount >= QuickSortMinimumItemsInPartition then
-        QuickSortLogNodes(@LPLogInfo.Nodes[0], LPLogInfo.NodeCount - 1);
+      begin
+        LMemLogNode := @(LPLogInfo.Nodes[0]);
+        QuickSortLogNodes(GetNodeListFromNode(LMemLogNode), LPLogInfo.NodeCount - 1);
+      end;
       {Do the final InsertionSort pass.}
-      InsertionSortLogNodes(@LPLogInfo.Nodes[0], LPLogInfo.NodeCount - 1);
+      LMemLogNode := @(LPLogInfo.Nodes[0]);
+      InsertionSortLogNodes(GetNodeListFromNode(LMemLogNode), LPLogInfo.NodeCount - 1);
       {Create the output file}
       {$ifdef POSIX}
       lFileHandle := FileCreate(AFilename);
@@ -12432,14 +12635,16 @@ begin
       begin
         try
           {Log the usage summary}
-          LPMsg := @LMsgBuffer;
-          LPMsg := AppendStringToBuffer(LogStateHeaderMsg, LPMsg, Length(LogStateHeaderMsg));
-          LPMsg := NativeUIntToStrBuf(LMemoryManagerUsageSummary.AllocatedBytes shr 10, LPMsg);
-          LPMsg := AppendStringToBuffer(LogStateAllocatedMsg, LPMsg, Length(LogStateAllocatedMsg));
-          LPMsg := NativeUIntToStrBuf(LMemoryManagerUsageSummary.OverheadBytes shr 10, LPMsg);
-          LPMsg := AppendStringToBuffer(LogStateOverheadMsg, LPMsg, Length(LogStateOverheadMsg));
-          LPMsg := NativeUIntToStrBuf(Round(LMemoryManagerUsageSummary.EfficiencyPercentage), LPMsg);
-          LPMsg := AppendStringToBuffer(LogStateEfficiencyMsg, LPMsg, Length(LogStateEfficiencyMsg));
+          LPMsg := @(LMsgBuffer[0]);
+          LPInitialMsgPtr := LPMsg;
+          LInitialSize := (SizeOf(LMsgBuffer) div SizeOf(LMsgBuffer[0]))-1;
+          LPMsg := AppendStringToBuffer(LogStateHeaderMsg, LPMsg, Length(LogStateHeaderMsg), LInitialSize-NativeUInt(LPMsg-LPInitialMsgPtr));
+          LPMsg := NativeUIntToStrBuf(LMemoryManagerUsageSummary.AllocatedBytes shr 10, LPMsg, LInitialSize-NativeUInt(LPMsg-LPInitialMsgPtr));
+          LPMsg := AppendStringToBuffer(LogStateAllocatedMsg, LPMsg, Length(LogStateAllocatedMsg), LInitialSize-NativeUInt(LPMsg-LPInitialMsgPtr));
+          LPMsg := NativeUIntToStrBuf(LMemoryManagerUsageSummary.OverheadBytes shr 10, LPMsg, LInitialSize-NativeUInt(LPMsg-LPInitialMsgPtr));
+          LPMsg := AppendStringToBuffer(LogStateOverheadMsg, LPMsg, Length(LogStateOverheadMsg), LInitialSize-NativeUInt(LPMsg-LPInitialMsgPtr));
+          LPMsg := NativeUIntToStrBuf(Round(LMemoryManagerUsageSummary.EfficiencyPercentage), LPMsg, LInitialSize-NativeUInt(LPMsg-LPInitialMsgPtr));
+          LPMsg := AppendStringToBuffer(LogStateEfficiencyMsg, LPMsg, Length(LogStateEfficiencyMsg), LInitialSize-NativeUInt(LPMsg-LPInitialMsgPtr));
           {Log the allocation detail}
           for LInd := LPLogInfo.NodeCount - 1 downto 0 do
           begin
@@ -12447,29 +12652,29 @@ begin
             {Add the allocated size}
             LPMsg^ := ' ';
             Inc(LPMsg);
-            LPMsg := NativeUIntToStrBuf(LPNode.TotalMemoryUsage, LPMsg);
-            LPMsg := AppendStringToBuffer(BytesMessage, LPMsg, Length(BytesMessage));
+            LPMsg := NativeUIntToStrBuf(LPNode.TotalMemoryUsage, LPMsg, LInitialSize-NativeUInt(LPMsg-LPInitialMsgPtr));
+            LPMsg := AppendStringToBuffer(BytesMessage, LPMsg, Length(BytesMessage), LInitialSize-NativeUInt(LPMsg-LPInitialMsgPtr));
             {Add the class type}
             case NativeInt(LPNode.ClassPtr) of
               {Unknown}
               0:
               begin
-                LPMsg := AppendStringToBuffer(UnknownClassNameMsg, LPMsg, Length(UnknownClassNameMsg));
+                LPMsg := AppendStringToBuffer(UnknownClassNameMsg, LPMsg, Length(UnknownClassNameMsg), LInitialSize-NativeUInt(LPMsg-LPInitialMsgPtr));
               end;
               {AnsiString}
               1:
               begin
-                LPMsg := AppendStringToBuffer(AnsiStringBlockMessage, LPMsg, Length(AnsiStringBlockMessage));
+                LPMsg := AppendStringToBuffer(AnsiStringBlockMessage, LPMsg, Length(AnsiStringBlockMessage), LInitialSize-NativeUInt(LPMsg-LPInitialMsgPtr));
               end;
               {UnicodeString}
               2:
               begin
-                LPMsg := AppendStringToBuffer(UnicodeStringBlockMessage, LPMsg, Length(UnicodeStringBlockMessage));
+                LPMsg := AppendStringToBuffer(UnicodeStringBlockMessage, LPMsg, Length(UnicodeStringBlockMessage), LInitialSize-NativeUInt(LPMsg-LPInitialMsgPtr));
               end;
               {Classes}
             else
               begin
-                LPMsg := AppendClassNameToBuffer(LPNode.ClassPtr, LPMsg);
+                LPMsg := AppendClassNameToBuffer(LPNode.ClassPtr, LPMsg, LInitialSize-NativeUInt(LPMsg-LPInitialMsgPtr));
               end;
             end;
             {Add the count}
@@ -12479,20 +12684,20 @@ begin
             Inc(LPMsg);
             LPMsg^ := ' ';
             Inc(LPMsg);
-            LPMsg := NativeUIntToStrBuf(LPNode.InstanceCount, LPMsg);
-            LPMsg := AppendStringToBuffer(AverageSizeLeadText, LPMsg, Length(AverageSizeLeadText));
-            LPMsg := NativeUIntToStrBuf(LPNode.TotalMemoryUsage div LPNode.InstanceCount, LPMsg);
-            LPMsg := AppendStringToBuffer(AverageSizeTrailingText, LPMsg, Length(AverageSizeTrailingText));
+            LPMsg := NativeUIntToStrBuf(LPNode.InstanceCount, LPMsg, LInitialSize-NativeUInt(LPMsg-LPInitialMsgPtr));
+            LPMsg := AppendStringToBuffer(AverageSizeLeadText, LPMsg, Length(AverageSizeLeadText), LInitialSize-NativeUInt(LPMsg-LPInitialMsgPtr));
+            LPMsg := NativeUIntToStrBuf(LPNode.TotalMemoryUsage div LPNode.InstanceCount, LPMsg, LInitialSize-NativeUInt(LPMsg-LPInitialMsgPtr));
+            LPMsg := AppendStringToBuffer(AverageSizeTrailingText, LPMsg, Length(AverageSizeTrailingText), LInitialSize-NativeUInt(LPMsg-LPInitialMsgPtr));
             {Flush the buffer?}
             LBufferSpaceUsed := NativeInt(LPMsg) - NativeInt(@LMsgBuffer);
             if LBufferSpaceUsed > (MsgBufferSize - MaxLineLength) then
             begin
               WriteFile(LFileHandle, LMsgBuffer, LBufferSpaceUsed, LBytesWritten, nil);
-              LPMsg := @LMsgBuffer;
+              LPMsg := @(LMsgBuffer[0]);
             end;
           end;
           if AAdditionalDetails <> '' then
-            LPMsg := AppendStringToBuffer(LogStateAdditionalInfoMsg, LPMsg, Length(LogStateAdditionalInfoMsg));
+            LPMsg := AppendStringToBuffer(LogStateAdditionalInfoMsg, LPMsg, Length(LogStateAdditionalInfoMsg), LInitialSize-NativeUInt(LPMsg-LPInitialMsgPtr));
           {Flush any remaining bytes}
           LBufferSpaceUsed := NativeInt(LPMsg) - NativeInt(@LMsgBuffer);
           if LBufferSpaceUsed > 0 then
@@ -12565,11 +12770,12 @@ var
   LMediumAndLargeBlockLeaks: TMediumAndLargeBlockLeaks;
   LNumMediumAndLargeLeaks: Integer;
   LPLargeBlock: PLargeBlockHeader;
-  LLeakMessage: array[0..32767] of AnsiChar;
+  LLeakMessage: array[0..MaxLogMessageLength-1] of AnsiChar;
   {$ifndef NoMessageBoxes}
-  LMessageTitleBuffer: array[0..1023] of AnsiChar;
+  LMessageTitleBuffer: array[0..MaxDisplayMessageLength-1] of AnsiChar;
   {$endif}
-  LMsgPtr: PAnsiChar;
+  LPInitialPtr, LMsgPtr: PAnsiChar;
+  LInitialSize: Cardinal;
   LExpectedLeaksOnly, LSmallLeakHeaderAdded, LBlockSizeHeaderAdded: Boolean;
   LBlockTypeInd, LClassInd, LBlockInd: Cardinal;
   LMediumBlockSize, LPreviousBlockSize, LLargeBlockSize, LThisBlockSize: NativeUInt;
@@ -12899,15 +13105,25 @@ begin
       LSmallLeakHeaderAdded := False;
       LPreviousBlockSize := 0;
       {Set up the leak message header so long}
-      LMsgPtr := AppendStringToBuffer(LeakMessageHeader, @LLeakMessage[0], length(LeakMessageHeader));
+
+      LMsgPtr := @LLeakMessage[0];
+      LPInitialPtr := LMsgPtr;
+      LInitialSize := (SizeOf(LLeakMessage) div SizeOf(LLeakMessage[0]))-1;
+      
+     
+      LMsgPtr := AppendStringToBuffer(LeakMessageHeader, LMsgPtr, length(LeakMessageHeader), LInitialSize);
       {Step through all the small block types}
       for LBlockTypeInd := 0 to NumSmallBlockTypes - 1 do
       begin
         LThisBlockSize := SmallBlockTypes[LBlockTypeInd].BlockSize - BlockHeaderSize;
   {$ifdef FullDebugMode}
-        Dec(LThisBlockSize, FullDebugBlockOverhead);
-        if NativeInt(LThisBlockSize) < 0 then
+        if LThisBlockSize > FullDebugBlockOverhead then
+        begin
+          Dec(LThisBlockSize, FullDebugBlockOverhead);
+        end else
+        begin
           LThisBlockSize := 0;
+        end;
   {$endif}
         LBlockSizeHeaderAdded := False;
         {Any leaks?}
@@ -12915,7 +13131,7 @@ begin
         begin
           {Is there still space in the message buffer? Reserve space for the message
            footer.}
-          if LMsgPtr > @LLeakMessage[High(LLeakMessage) - 2048] then
+          if LMsgPtr > @LLeakMessage[High(LLeakMessage) - MaxFileNameLengthDouble] then
             Break;
           {Check the count}
           if LSmallBlockLeaks[LBlockTypeInd][LClassInd].NumLeaks > 0 then
@@ -12923,7 +13139,7 @@ begin
             {Need to add the header?}
             if not LSmallLeakHeaderAdded then
             begin
-              LMsgPtr := AppendStringToBuffer(SmallLeakDetail, LMsgPtr, Length(SmallLeakDetail));
+              LMsgPtr := AppendStringToBuffer(SmallLeakDetail, LMsgPtr, Length(SmallLeakDetail), LInitialSize-NativeUInt(LMsgPtr-LPInitialPtr));
               LSmallLeakHeaderAdded := True;
             end;
             {Need to add the size header?}
@@ -12933,15 +13149,15 @@ begin
               Inc(LMsgPtr);
               LMsgPtr^ := #10;
               Inc(LMsgPtr);
-              LMsgPtr := NativeUIntToStrBuf(LPreviousBlockSize + 1, LMsgPtr);
+              LMsgPtr := NativeUIntToStrBuf(LPreviousBlockSize + 1, LMsgPtr, LInitialSize-NativeUInt(LMsgPtr-LPInitialPtr));
               LMsgPtr^ := ' ';
               Inc(LMsgPtr);
               LMsgPtr^ := '-';
               Inc(LMsgPtr);
               LMsgPtr^ := ' ';
               Inc(LMsgPtr);
-              LMsgPtr := NativeUIntToStrBuf(LThisBlockSize, LMsgPtr);
-              LMsgPtr := AppendStringToBuffer(BytesMessage, LMsgPtr, Length(BytesMessage));
+              LMsgPtr := NativeUIntToStrBuf(LThisBlockSize, LMsgPtr, LInitialSize-NativeUInt(LMsgPtr-LPInitialPtr));
+              LMsgPtr := AppendStringToBuffer(BytesMessage, LMsgPtr, Length(BytesMessage), LInitialSize-NativeUInt(LMsgPtr-LPInitialPtr));
               LBlockSizeHeaderAdded := True;
             end
             else
@@ -12956,17 +13172,17 @@ begin
               {Unknown}
               0:
               begin
-                LMsgPtr := AppendStringToBuffer(UnknownClassNameMsg, LMsgPtr, Length(UnknownClassNameMsg));
+                LMsgPtr := AppendStringToBuffer(UnknownClassNameMsg, LMsgPtr, Length(UnknownClassNameMsg), LInitialSize-NativeUInt(LMsgPtr-LPInitialPtr));
               end;
               {AnsiString}
               1:
               begin
-                LMsgPtr := AppendStringToBuffer(AnsiStringBlockMessage, LMsgPtr, Length(AnsiStringBlockMessage));
+                LMsgPtr := AppendStringToBuffer(AnsiStringBlockMessage, LMsgPtr, Length(AnsiStringBlockMessage), LInitialSize-NativeUInt(LMsgPtr-LPInitialPtr));
               end;
               {UnicodeString}
               2:
               begin
-                LMsgPtr := AppendStringToBuffer(UnicodeStringBlockMessage, LMsgPtr, Length(UnicodeStringBlockMessage));
+                LMsgPtr := AppendStringToBuffer(UnicodeStringBlockMessage, LMsgPtr, Length(UnicodeStringBlockMessage), LInitialSize-NativeUInt(LMsgPtr-LPInitialPtr));
               end;
               {Classes}
             else
@@ -12985,7 +13201,7 @@ begin
                 else
                 begin
                 {$endif}
-                  LMsgPtr := AppendClassNameToBuffer(LSmallBlockLeaks[LBlockTypeInd][LClassInd].ClassPointer, LMsgPtr);
+                  LMsgPtr := AppendClassNameToBuffer(LSmallBlockLeaks[LBlockTypeInd][LClassInd].ClassPointer, LMsgPtr, LInitialSize-NativeUInt(LMsgPtr-LPInitialPtr));
                 {$ifdef CheckCppObjectTypeEnabled}
                 end;
                 {$endif}
@@ -12998,7 +13214,7 @@ begin
             Inc(LMsgPtr);
             LMsgPtr^ := ' ';
             Inc(LMsgPtr);
-            LMsgPtr := NativeUIntToStrBuf(LSmallBlockLeaks[LBlockTypeInd][LClassInd].NumLeaks, LMsgPtr);
+            LMsgPtr := NativeUIntToStrBuf(LSmallBlockLeaks[LBlockTypeInd][LClassInd].NumLeaks, LMsgPtr, LInitialSize-NativeUInt(LMsgPtr-LPInitialPtr));
           end;
         end;
         LPreviousBlockSize := LThisBlockSize;
@@ -13019,7 +13235,7 @@ begin
           Inc(LMsgPtr);
         end;
         {Add the medium/large block leak message}
-        LMsgPtr := AppendStringToBuffer(LargeLeakDetail, LMsgPtr, Length(LargeLeakDetail));
+        LMsgPtr := AppendStringToBuffer(LargeLeakDetail, LMsgPtr, Length(LargeLeakDetail), LInitialSize-NativeUInt(LMsgPtr-LPInitialPtr));
         {List all the blocks}
         for LBlockInd := 0 to LNumMediumAndLargeLeaks - 1 do
         begin
@@ -13030,28 +13246,28 @@ begin
             LMsgPtr^ :=  ' ';
             Inc(LMsgPtr);
           end;
-          LMsgPtr := NativeUIntToStrBuf(LMediumAndLargeBlockLeaks[LBlockInd], LMsgPtr);
+          LMsgPtr := NativeUIntToStrBuf(LMediumAndLargeBlockLeaks[LBlockInd], LMsgPtr, LInitialSize-NativeUInt(LMsgPtr-LPInitialPtr));
           {Is there still space in the message buffer? Reserve space for the
            message footer.}
-          if LMsgPtr > @LLeakMessage[High(LLeakMessage) - 2048] then
+          if LMsgPtr > @LLeakMessage[High(LLeakMessage) - MaxFileNameLengthDouble] then
             Break;
         end;
       end;
   {$ifdef LogErrorsToFile}
      {Set the message footer}
-      LMsgPtr := AppendStringToBuffer(LeakMessageFooter, LMsgPtr, Length(LeakMessageFooter));
+      LMsgPtr := AppendStringToBuffer(LeakMessageFooter, LMsgPtr, Length(LeakMessageFooter), LInitialSize-NativeUInt(LMsgPtr-LPInitialPtr));
       {Append the message to the memory errors file}
       AppendEventLog(@LLeakMessage[0], UIntPtr(LMsgPtr) - UIntPtr(@LLeakMessage[1]));
   {$else}
       {Set the message footer}
-      AppendStringToBuffer(LeakMessageFooter, LMsgPtr, Length(LeakMessageFooter));
+      AppendStringToBuffer(LeakMessageFooter, LMsgPtr, Length(LeakMessageFooter), LInitialSize-NativeUInt(LMsgPtr-LPInitialPtr));
   {$endif}
   {$ifdef UseOutputDebugString}
       OutputDebugStringA(LLeakMessage);
   {$endif}
   {$ifndef NoMessageBoxes}
       {Show the message}
-      AppendStringToModuleName(LeakMessageTitle, LMessageTitleBuffer);
+      AppendStringToModuleName(LeakMessageTitle, LMessageTitleBuffer, Length(LeakMessageTitle), (SizeOf(LMessageTitleBuffer) div SizeOf(LMessageTitleBuffer[0]))-1);
       ShowMessageBox(LLeakMessage, LMessageTitleBuffer);
   {$endif}
     end;
@@ -13274,6 +13490,16 @@ begin
 end;
 {$endif}
 
+{This function is a helper function neede when using the "typed @ operator"
+to have lowest possible number of typecats - just in this function. It is defined ad
+"inline", so, when optimization compiler directive is turned on, this function will
+be implemented in such a way that no actual code will be needed and no call/return.}
+function SmallBlockTypePtrToPoolHeaderPtr(ASmallBlockTypePtr: PSmallBlockType): PSmallBlockPoolHeader; inline;
+begin
+  {This function just does one typecast to avoid typecasts elsewhere}
+  Result := PSmallBlockPoolHeader(ASmallBlockTypePtr);
+end;
+
 {Returns summarised information about the state of the memory manager. (For
  backward compatibility.)}
 function FastGetHeapStatus: THeapStatus;
@@ -13385,6 +13611,9 @@ var
   LPMediumBlockPoolHeader, LPNextMediumBlockPoolHeader: PMediumBlockPoolHeader;
   LPMediumFreeBlock: PMediumFreeBlock;
   LPLargeBlock, LPNextLargeBlock: PLargeBlockHeader;
+  LPSmallBlockPoolHeader: PSmallBlockPoolHeader; {This is needed for simplicity, to 
+												  mitigate typecasts when used "typed @".}
+  LPSmallBlockType: PSmallBlockType; 
   LInd: Integer;
 begin
   {Free all block pools}
@@ -13408,8 +13637,10 @@ begin
   {Clear all small block types}
   for LInd := 0 to High(SmallBlockTypes) do
   begin
-    SmallBlockTypes[Lind].PreviousPartiallyFreePool := @SmallBlockTypes[Lind];
-    SmallBlockTypes[Lind].NextPartiallyFreePool := @SmallBlockTypes[Lind];
+    LPSmallBlockType := @(SmallBlockTypes[Lind]);
+    LPSmallBlockPoolHeader := SmallBlockTypePtrToPoolHeaderPtr(LPSmallBlockType);
+    SmallBlockTypes[Lind].PreviousPartiallyFreePool := LPSmallBlockPoolHeader;
+    SmallBlockTypes[Lind].NextPartiallyFreePool := LPSmallBlockPoolHeader;
     SmallBlockTypes[Lind].NextSequentialFeedBlockAddress := Pointer(1);
     SmallBlockTypes[Lind].MaxSequentialFeedBlockAddress := nil;
   end;
@@ -13452,8 +13683,8 @@ var
   count: Integer;
   data: TStaticCollector.TCollectedData;
   i: Integer;
-  LErrorMessage: array[0..32767] of AnsiChar;
-  LMessageTitleBuffer: array[0..200] of AnsiChar;
+  LErrorMessage: array[0..MaxLogMessageLength-1] of AnsiChar;
+  LMessageTitleBuffer: array[0..MaxDisplayMessageLength-1] of AnsiChar;
   LMsgPtr: PAnsiChar;
   mergedCount: Integer;
   mergedData: TStaticCollector.TCollectedData;
@@ -13490,7 +13721,7 @@ begin
       LMsgPtr := LogStackTrace(@mergedData[i].Data.Pointers[1], mergedData[i].Data.Count, LMsgPtr);
       LMsgPtr := AppendStringToBuffer(CRLF, LMsgPtr, Length(CRLF));
     end;
-    AppendStringToModuleName(LockingReportTitle, LMessageTitleBuffer);
+    AppendStringToModuleName(LockingReportTitle, LMessageTitleBuffer, Length(LockingReportTitle), (SizeOf(LMessageTitleBuffer) div SizeOf(LMessageTitleBuffer[0]))-1);
     ShowMessageBox(LErrorMessage, LMessageTitleBuffer);
     for i := 4 to 10 do
     begin
@@ -13562,7 +13793,7 @@ procedure LogReleaseStackUsage;
 var
   LCount: integer;
   LInd: Integer;
-  LMessage: array[0..32767] of AnsiChar;
+  LMessage: array[0..MaxLogMessageLength-1] of AnsiChar;
   LMsgPtr: PAnsiChar;
   LSize: NativeUInt;
   LSlot: Integer;
@@ -13733,34 +13964,53 @@ const
   MAXIMUM_XSTATE_FEATURES             = (64);
 {$endif}
 
-function GetCpuXCR(Arg: Integer): Int64; assembler;
-{$ifndef unix}
+{Use the NativeUint argument type to make Delphi clear the trash and not pass 
+it in bits 63-32 under 64-bit, although the xgetbv instruction only accepts
+32-bits from the ECX/RCX register even under 64-bit mode}
+
+function GetCpuXCR(Arg: NativeUint): Int64; assembler;
 asm
-{ EDX:EAX <- XCR[ECX]; }
- {$IFDEF WIN64}
+ {$IFDEF 64bit}
+
+{$ifdef unix}
+
+{Under Unix 64-bit, the first six integer or pointer arguments are passed 
+in registers RDI, RSI, RDX, RCX (R10 in the Linux kernel interface), R8, and R9.
+The return value is stored in RAX and RDX.
+So Unix uses the same register for return value as Microsoft; don't correct 
+output registers, but correct the input one}
+   mov    ecx, edi // this will also clear the highest bits in ecx (63-32).
+{$else}
+   .noframe
+{$endif}   
    xor   eax, eax
    xor   edx, edx
+{ EDX:EAX <- XCR[ECX]; }
    xgetbv
+
+{The output of xgetbv is a 64-bit value returned in two 32-bit registers: 
+eax/edx, even in 64-bit mode, so we should pack eax/edx intto rax}
+
    shl   rdx, 32
    or    rax, rdx
    xor   rdx, rdx
+
  {$ELSE}
    mov   ecx, eax
    xor   eax, eax
    xor   edx, edx
-   db $0F, $01, $D0 // 32-bit assembler doesn't understand XGETBV instruction :(
+{The 32-bit Delphi Tokyo 10.2 assembler doesn't understand XGETBV instruction :(
+}   
+   db $0F, $01, $D0 
  {$ENDIF}
 end;
-{$else}
-Not implemented for Unix yet
-{$endif}
 
 {Checks that no other memory manager has been installed after the RTL MM and
  that there are currently no live pointers allocated through the RTL MM.}
 function CheckCanInstallMemoryManager: Boolean;
 {$ifndef NoMessageBoxes}
 var
-  LErrorMessageTitle: array[0..1023] of AnsiChar;
+  LErrorMessageTitle: array[0..MaxDisplayMessageLength-1] of AnsiChar;
 {$endif}
 begin
   {Default to error}
@@ -13782,7 +14032,7 @@ begin
     OutputDebugStringA(AlreadyInstalledMsg);
 {$endif}
 {$ifndef NoMessageBoxes}
-    AppendStringToModuleName(AlreadyInstalledTitle, LErrorMessageTitle);
+    AppendStringToModuleName(AlreadyInstalledTitle, LErrorMessageTitle, Length(AlreadyInstalledTitle), (SizeOf(LErrorMessageTitle) div SizeOf(LErrorMessageTitle[0]))-1);
     ShowMessageBox(AlreadyInstalledMsg, LErrorMessageTitle);
 {$endif}
     Exit;
@@ -13799,7 +14049,7 @@ begin
     OutputDebugStringA(OtherMMInstalledMsg);
   {$endif}
   {$ifndef NoMessageBoxes}
-    AppendStringToModuleName(OtherMMInstalledTitle, LErrorMessageTitle);
+    AppendStringToModuleName(OtherMMInstalledTitle, LErrorMessageTitle, Length(OtherMMInstalledTitle), (SizeOf(LErrorMessageTitle) div SizeOf(LErrorMessageTitle[0]))-1);
     ShowMessageBox(OtherMMInstalledMsg, LErrorMessageTitle);
   {$endif}
 {$endif}
@@ -13813,7 +14063,7 @@ begin
     OutputDebugStringA(MemoryAllocatedMsg);
 {$endif}
   {$ifndef NoMessageBoxes}
-    AppendStringToModuleName(MemoryAllocatedTitle, LErrorMessageTitle);
+    AppendStringToModuleName(MemoryAllocatedTitle, LErrorMessageTitle, Length(MemoryAllocatedTitle), (SizeOf(LErrorMessageTitle) div SizeOf(LErrorMessageTitle[0]))-1);
     ShowMessageBox(MemoryAllocatedMsg, LErrorMessageTitle);
   {$endif}
     Exit;
@@ -13835,6 +14085,8 @@ type
 {$ENDIF}
 
 var
+  LPSmallBlockPoolHeader: PSmallBlockPoolHeader;
+  LPSmallBlockType: PSmallBlockType;
 {$IFDEF Use_GetEnabledXStateFeatures_WindowsAPICall}
   FGetEnabledXStateFeatures: TGetEnabledXStateFeatures;
   EnabledXStateFeatures: Int64;
@@ -13853,7 +14105,7 @@ var
   {$ifdef LoadDebugDLLDynamically}
     {$ifdef RestrictDebugDLLLoadPath}
     LModuleHandle: HModule;
-    LFullFileName: array[0..2047] of Char;
+    LFullFileName: array[0..MaxFileNameLengthDouble-1] of Char;
     {$endif}
   {$endif}
 {$endif}
@@ -14038,71 +14290,25 @@ ENDQUOTE}
     if (FastMMCpuFeatures and FastMMCpuFeatureAVX2) <> 0 then
     begin
       case SmallBlockTypes[LInd].BlockSize of
-{$ifndef Align32Bytes}
-{$ifndef Align16Bytes}
-         24: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move20AVX2;
-{$endif}
-{$endif}
-         32: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move24AVX2;
-{$ifndef Align32Bytes}
-{$ifndef Align16Bytes}
-         40: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move36AVX2;
-{$endif}
-         48: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move40AVX2;
-{$ifndef Align16Bytes}
-         56: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move52AVX2;
-{$endif}
-{$endif}
-         64: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move56AVX2;
-{$ifndef Align32Bytes}
-{$ifndef Align16Bytes}
-         72: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move68AVX2;
-{$endif}
-         80: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move72AVX2;
-{$endif}
-         96: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move88AVX2;
-{$ifndef Align32Bytes}
-         112: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move104AVX2;
-{$endif}
-         128: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move120AVX2;
-{$ifndef Align32Bytes}
-         144: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move136AVX2;
-{$endif}
+         32*1: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move24AVX2;
+         32*2: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move56AVX2;
+         32*3: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move88AVX2;
+         32*4: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move120AVX2;
+         32*5: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move152AVX2;
+         32*6: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move184AVX2;
+         32*7: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move216AVX2;
       end;
     end else
     if (FastMMCpuFeatures and FastMMCpuFeatureAVX1) <> 0 then
     begin
       case SmallBlockTypes[LInd].BlockSize of
-{$ifndef Align32Bytes}
-{$ifndef Align16Bytes}
-         24: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move20AVX1;
-{$endif}
-{$endif}
-         32: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move24AVX1;
-{$ifndef Align32Bytes}
-{$ifndef Align16Bytes}
-         40: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move36AVX1;
-{$endif}
-         48: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move40AVX1;
-{$ifndef Align16Bytes}
-         56: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move52AVX1;
-{$endif}
-{$endif}
-         64: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move56AVX1;
-{$ifndef Align32Bytes}
-{$ifndef Align16Bytes}
-         72: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move68AVX1;
-{$endif}
-         80: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move72AVX1;
-{$endif}
-         96: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move88AVX1;
-{$ifndef Align32Bytes}
-         112: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move104AVX1;
-{$endif}
-         128: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move120AVX1;
-{$ifndef Align32Bytes}
-         144: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move136AVX1;
-{$endif}
+         32*1: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move24AVX1;
+         32*2: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move56AVX1;
+         32*3: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move88AVX1;
+         32*4: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move120AVX1;
+         32*5: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move152AVX1;
+         32*6: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move184AVX1;
+         32*7: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move216AVX1;
      end;
     end;
 {$endif}
@@ -14158,8 +14364,10 @@ ENDQUOTE}
     {Set the first "available pool" to the block type itself, so that the
      allocation routines know that there are currently no pools with free
      blocks of this size.}
-    SmallBlockTypes[LInd].PreviousPartiallyFreePool := @SmallBlockTypes[LInd];
-    SmallBlockTypes[LInd].NextPartiallyFreePool := @SmallBlockTypes[LInd];
+    LPSmallBlockType := @(SmallBlockTypes[LInd]);
+    LPSmallBlockPoolHeader := SmallBlockTypePtrToPoolHeaderPtr(LPSmallBlockType);
+    SmallBlockTypes[LInd].PreviousPartiallyFreePool := LPSmallBlockPoolHeader;
+    SmallBlockTypes[LInd].NextPartiallyFreePool := LPSmallBlockPoolHeader;
     {Set the block size to block type index translation table}
     for LSizeInd := (LPreviousBlockSize div SmallBlockGranularity) to ((SmallBlockTypes[LInd].BlockSize - 1) div SmallBlockGranularity) do
    {$ifdef AllocSize2SmallBlockTypesPrecomputedOffsets}
@@ -14184,8 +14392,9 @@ ENDQUOTE}
     {Too large?}
     if LGroupNumber > 7 then
       LGroupNumber := 7;
+
     {Set the bitmap}
-    SmallBlockTypes[LInd].AllowedGroupsForBlockPoolBitmap := Byte(-(1 shl LGroupNumber));
+    SmallBlockTypes[LInd].AllowedGroupsForBlockPoolBitmap := NegByteMaskBit(1 shl LGroupNumber);
     {Set the minimum pool size}
     SmallBlockTypes[LInd].MinimumBlockPoolSize := MinimumMediumBlockSize + (LGroupNumber shl (MediumBlockGranularityPowerOf2 + MediumBlockBinsPerGroupPowerOf2));
     {Get the optimal block pool size}
@@ -14562,7 +14771,7 @@ begin
     for LSlot := 0 to NumStacksPerBlock - 1 do
     begin
       if (not MediumReleaseStack[LSlot].IsEmpty)
-        and (LockCmpxchg(0, 1, @MediumBlocksLocked) = 0) then
+        and (LockCmpxchg8(False, True, @MediumBlocksLocked) = False) then
       begin
         if MediumReleaseStack[LSlot].Pop(LMemBlock) then
           FreeMediumBlock(LMemBlock, True)
@@ -14570,7 +14779,7 @@ begin
           MediumBlocksLocked := False;
       end;
       if (not LargeReleaseStack[LSlot].IsEmpty)
-        and (LockCmpxchg(0, 1, @LargeBlocksLocked) = 0) then
+        and (LockCmpxchg8(False, True, @LargeBlocksLocked) = False) then
       begin
         if LargeReleaseStack[LSlot].Pop(LMemBlock) then
           FreeLargeBlock(LMemBlock, True)

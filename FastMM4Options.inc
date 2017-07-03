@@ -290,6 +290,47 @@ Combine it with the two options below for further fine-tuning.}
 
 {$endif}
 
+{$ifdef EnableAVX}
+  {If AVX is enabled, you can optionally disable one or more
+  of the following AVX modes:
+  - the first version - initial AVX (DisableAVX1); or
+  - the second version AVX2 (DisableAVX2); or
+  - AVX-512 (DisableAVX512);
+  but you can not disable all of the above modes at once.
+
+  {If you define DisableAVX1, it will not add to FastMM4 the instructions from
+  the inital (first) version of the Advanced Vector Extensions instruction set,
+  officially called just "AVX", proposed by Intel in March 2008 and first
+  supported by Intel with the Sandy Bridge processor shipping in Q1 2011
+  and later on by AMD with the Bulldozer processor shipping in Q3 2011. }
+
+  {If you define DisableAVX2, it will not add to FastMM4 the instructions from
+  the second version of the Advanced Vector Extensions - officially called
+  "AVX2", also known as Haswell New Instructions, which is an expansion of the
+  AVX instruction set introduced in Intel's Haswell microarchitecture.
+  Intel has shipped first processors with AVX2 on June 2, 2013: Core i7 4770,
+  Core i5 4670, etc., and AMD has shipped first processors with AVX in Q2 2015
+  (Carrizo processor). AMD Ryzen processor (Q1 2017) also supports AVX2.
+  We use separate code for AVX1 and AVX2 because AVX2 doesn't use "vzeroupper"
+  and uses the new, faster instruction "vpxor" which was not available in the
+  initial AVX, which, in its turn, uses "vxorps" and "vzeroupper" before and
+  after any AVX code to counteract the AVX-SSE transition penalties.
+  FastMM4 checks whether AVX2 is supported by the CPU, and, if supported, never
+  calls AVX1 functions, since calling "vzeroupper" even once in a thread
+  significantly slows down all susequent SSE code, which is not documented:
+  neither in the Intel 64 and IA-32 Architectures Software Developer’s Manual
+  nor in the Intel 64 and IA-32 Architectures Optimization Reference Manual.
+
+  The code of AVX1 is grouped separately from the code of AVX2, to not scatter
+  the cache}
+
+
+  {.$define DisableAVX1}
+  {.$define DisableAVX2}
+  {.$define DisableAVX512}
+{$endif}
+
+
 {$ifndef DisableERMS}
 
   {Set this option (EnableERMS) to enable Enhanced Rep Movsb/Stosb CPU feature,
