@@ -6609,16 +6609,16 @@ asm
   {Get the IsMultiThread variable so long}
 {$ifndef AssumeMultiThreaded}
   {$ifndef fpc}
-  mov cl, IsMultiThread
+  movxz ecx, byte ptr IsMultiThread {movzx removes dependency on previous data in ecx}
   {$else}
-  mov cl, BYTE IsMultiThread
+  movzx ecx, BYTE IsMultiThread
   {$endif}
 {$endif}
   {Is it a small block?}
   ja @NotASmallBlock
   {Do we need to lock the block type?}
 {$ifndef AssumeMultiThreaded}
-  test cl, cl
+  test ecx, ecx {operations with the whole register are faster}
 {$endif}
   {Get the small block type in ebx}
   movzx eax, byte ptr [AllocSize2SmallBlockTypesOfsDivScaleFactor + edx]
@@ -7066,7 +7066,8 @@ asm
   lea rbx, SmallBlockTypes
 {$ifndef AssumeMultiThreaded}
   {Get the IsMultiThread variable so long}
-  movzx esi, IsMultiThread
+  lea rsi, [IsMultiThread]
+  movzx esi, byte ptr [rsi] {this also clears highest bits of the rsi register}
 {$endif}
   {Is it a small block?}
   cmp rcx, (MaximumSmallBlockSize - BlockHeaderSize)
@@ -7854,8 +7855,6 @@ asm
   {$endif}
   {Get the block header in edx}
   mov edx, [eax - 4]
-  {Is it a small block in use?}
-  test dl, IsFreeBlockFlag + IsMediumBlockFlag + IsLargeBlockFlag
   {Save the pointer in ecx}
   mov ecx, eax
   {Save ebx}
@@ -7863,12 +7862,14 @@ asm
   {Get the IsMultiThread variable in bl}
 {$ifndef AssumeMultiThreaded}
   {$ifndef fpc}
-  mov bl, IsMultiThread
+  movzx ebx, byte ptr IsMultiThread
   {$else}
-  mov bl, BYTE IsMultiThread
+  movzx ebx, BYTE IsMultiThread
   {$endif}
 {$endif}
-  {Is it a small block that is in use?}
+  {Is it a small block in use?}
+  test dl, IsFreeBlockFlag + IsMediumBlockFlag + IsLargeBlockFlag
+  {the test+jnz instructions are together to allow micro-op fusion}
   jnz @NotSmallBlockInUse
 {$ifdef ClearSmallAndMediumBlocksInFreeMem}
   push edx
@@ -7969,9 +7970,9 @@ asm
   mov edx, [edx - 4]
 {$ifndef AssumeMultiThreaded}
   {$ifndef fpc}
-  mov bl, IsMultiThread
+  movzx ebx, byte ptr IsMultiThread {movzx removes dependency on previous ebx data}
   {$else}
-  mov bl, BYTE IsMultiThread
+  movzx ebx, BYTE IsMultiThread
   {$endif}
 {$endif}
   jmp @FreeMediumBlock
@@ -8217,13 +8218,13 @@ asm
   .pushnv rsi
   {Get the block header in rdx}
   mov rdx, [rcx - BlockHeaderSize]
+{$ifndef AssumeMultiThreaded}
+  {Get the IsMultiThread variable in bl}
+  movzx ebx, byte ptr IsMultiThread
+{$endif}
   {Is it a small block in use?}
   test dl, IsFreeBlockFlag + IsMediumBlockFlag + IsLargeBlockFlag
-  {Get the IsMultiThread variable in bl}
-{$ifndef AssumeMultiThreaded}
-  mov bl, IsMultiThread
-{$endif}
-  {Is it a small block that is in use?}
+  {put test+jnz together to allow micro-op fusion}
   jnz @NotSmallBlockInUse
 {$ifdef ClearSmallAndMediumBlocksInFreeMem}
   mov rsi, rcx
@@ -8307,7 +8308,7 @@ asm
   mov rcx, rdx
   mov rdx, [rdx - BlockHeaderSize]
 {$ifndef AssumeMultiThreaded}
-  mov bl, IsMultiThread
+  movzx ebx, byte ptr IsMultiThread
 {$endif}
   jmp @FreeMediumBlock
 @LockBlockTypeLoop:
