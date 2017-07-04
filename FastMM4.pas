@@ -1887,8 +1887,13 @@ const
   ExtractMediumAndLargeFlagsMask = 15;
 {$endif}
   {-------------Block resizing constants---------------}
-  SmallBlockDownsizeCheckAdder = 64;
-  SmallBlockUpsizeAdder = 32;
+  {The upsize and downsize checker must a a multiple of the granularity,
+   otherwise on big-granularity and small upsize/downsize constant values,
+   reallocating 1-byte blocks, keeping the same size as before, will return
+   different pointer, and, as a result, the FastCode validation suite
+   will not pass}
+  SmallBlockDownsizeCheckAdder = SmallBlockGranularity*4;
+  SmallBlockUpsizeAdder = SmallBlockGranularity*2;
   {When a medium block is reallocated to a size smaller than this, then it must
    be reallocated to a small block and the data moved. If not, then it is
    shrunk in place down to MinimumMediumBlockSize. Currently the limit is set
