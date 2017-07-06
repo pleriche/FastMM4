@@ -6912,10 +6912,10 @@ begin
                   LSmallBlockWithoutLock := False;
                 end;
                 {$ifdef SmallBlocksLockedCriticalSection}
-                if LSmallBlockCriticalSectionIndex <> MaxInt then
+                if LSmallBlockCriticalSectionIndex <> NativeUInt(MaxInt) then
                 begin
                   LeaveCriticalSection(SmallBlockCriticalSections[LSmallBlockCriticalSectionIndex]);
-                  LSmallBlockCriticalSectionIndex := MaxInt;
+                  LSmallBlockCriticalSectionIndex := NativeUInt(MaxInt);
                 end;
                 if LFailedToAcquireLock then
                 begin
@@ -6981,10 +6981,10 @@ begin
         LSmallBlockWithoutLock := False;
       end;
       {$ifdef SmallBlocksLockedCriticalSection}
-      if LSmallBlockCriticalSectionIndex <> MaxInt then
+      if LSmallBlockCriticalSectionIndex <> NativeUInt(MaxInt) then
       begin
         LeaveCriticalSection(SmallBlockCriticalSections[LSmallBlockCriticalSectionIndex]);
-        LSmallBlockCriticalSectionIndex := MaxInt;
+        LSmallBlockCriticalSectionIndex := NativeUInt(MaxInt);
       end;
       if LFailedToAcquireLock then
       begin
@@ -8546,7 +8546,7 @@ begin
             LSmallBlockWithoutLock := False;
           end;
           {$ifdef SmallBlocksLockedCriticalSection}
-          if LSmallBlockCriticalSectionIndex <> MaxInt then
+          if LSmallBlockCriticalSectionIndex <> NativeUInt(MaxInt) then
           begin
             LeaveCriticalSection(SmallBlockCriticalSections[LSmallBlockCriticalSectionIndex]);
             LSmallBlockCriticalSectionIndex := MaxInt;
@@ -8582,10 +8582,10 @@ begin
               LSmallBlockWithoutLock := False;
             end;
             {$ifdef SmallBlocksLockedCriticalSection}
-            if LSmallBlockCriticalSectionIndex <> MaxInt then
+            if LSmallBlockCriticalSectionIndex <> NativeUInt(MaxInt) then
             begin
               LeaveCriticalSection(SmallBlockCriticalSections[LSmallBlockCriticalSectionIndex]);
-              LSmallBlockCriticalSectionIndex := MaxInt;
+              LSmallBlockCriticalSectionIndex := NativeUInt(MaxInt);
             end;
             {$endif}
           end;
