@@ -20,7 +20,7 @@ Set the default options for FastMM here.
  (no Align16Bytes or Align32Bytes are defined), 
  Medium and large blocks are always 16-byte aligned.
  
- If you enable AVX, then the alignment will always be 32 bytes.
+ If you enable AVX, then the alignment will always be 32 bytes.}
 
 
 {.$define Align16Bytes}
@@ -298,13 +298,13 @@ Combine it with the two options below for further fine-tuning.}
   - AVX-512 (DisableAVX512);
   but you can not disable all of the above modes at once.
 
-  {If you define DisableAVX1, it will not add to FastMM4 the instructions from
+  If you define DisableAVX1, it will not add to FastMM4 the instructions from
   the inital (first) version of the Advanced Vector Extensions instruction set,
   officially called just "AVX", proposed by Intel in March 2008 and first
   supported by Intel with the Sandy Bridge processor shipping in Q1 2011
-  and later on by AMD with the Bulldozer processor shipping in Q3 2011. }
+  and later on by AMD with the Bulldozer processor shipping in Q3 2011.
 
-  {If you define DisableAVX2, it will not add to FastMM4 the instructions from
+  If you define DisableAVX2, it will not add to FastMM4 the instructions from
   the second version of the Advanced Vector Extensions - officially called
   "AVX2", also known as Haswell New Instructions, which is an expansion of the
   AVX instruction set introduced in Intel's Haswell microarchitecture.

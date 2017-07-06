@@ -15,7 +15,7 @@ type
     CMaxPointers = 11; // same as in FastMM4
   public type
     TPointers = record
-      Pointers: array [1..CMaxPointers] of pointer;
+      Pointers: array [1..CMaxPointers] of Pointer;
       Count   : integer;
       class operator Equal(const a, b: TPointers): boolean;
     end;
@@ -46,7 +46,7 @@ type
     FGeneration1   : array [1..CGeneration1Size] of TDataInfo;
     FGeneration2   : array [1..CGeneration2Size] of TDataInfo;
     FGenerationInfo: array [0..2] of TGenerationInfo; //gen0 is used for merging
-    FLocked        : boolean;
+    FLocked        : ByteBool;
     FPadding       : array [1..3] of byte;
     function GetGen1_PromoteCountOver: integer;
     function GetGen1_PromoteEvery_sec: integer;
@@ -86,8 +86,11 @@ uses
 
 {$RANGECHECKS OFF}
 
+type
+  PByteBool = ^ByteBool;
+
 // Copied from FastMM4.pas
-function LockCmpxchg(CompareVal, NewVal: Byte; AAddress: PByte): Byte;
+function LockCmpxchg8(CompareVal, NewVal: ByteBool; AAddress: PByteBool): ByteBool;
 asm
 {$if SizeOf(Pointer) = 4}
   {On entry:
@@ -243,7 +246,7 @@ procedure TStaticCollector.Initialize;
 begin
   Assert(SizeOf(TStaticCollector) mod SizeOf(pointer) = 0);
   with FGenerationInfo[1] do begin
-    Data := @FGeneration1;
+    Data := PGenerationPlaceholder(@FGeneration1);
     Size := CGeneration1Size;
     Last := 0;
     NextGeneration := 2;
@@ -252,7 +255,7 @@ begin
     LastCheck_ms := 0;
   end;
   with FGenerationInfo[2] do begin
-    Data := @FGeneration2;
+    Data := PGenerationPlaceholder(@FGeneration2);
     Size := CGeneration2Size;
     NextGeneration := 0;
   end;
@@ -299,7 +302,7 @@ begin
   if IsMultiThread then
 {$endif}
   begin
-    while LockCmpxchg(0, 1, @FLocked) <> 0 do
+    while LockCmpxchg8(False, True, @FLocked) <> False do
     begin
 {$ifdef NeverSleepOnThreadContention}
   {$ifdef UseSwitchToThread}
@@ -307,7 +310,7 @@ begin
   {$endif}
 {$else}
       Sleep(0);
-      if LockCmpxchg(0, 1, @FLocked) = 0 then
+      if LockCmpxchg8(False, True, @FLocked) = False then
         Break;
       Sleep(1);
 {$endif}
@@ -322,7 +325,7 @@ var
 begin
   // Merges two sorted arrays.
 
-  FGenerationInfo[0].Data := @mergedData;
+  FGenerationInfo[0].Data := PGenerationPlaceholder(@mergedData);
   FGenerationInfo[0].Last := mergedCount;
   FGenerationInfo[0].Size := CCollectedDataSize;
   FGenerationInfo[0].NextGeneration := 0;
