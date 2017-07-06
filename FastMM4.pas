@@ -15546,7 +15546,7 @@ ENDQUOTE}
   {Set up the virtual method table}
   for LInd := 0 to MaxFakeVMTEntries - 1 do
   begin
-    PNativeUInt(@FreedObjectVMT.VMTMethods[Low(FreedObjectVMT.VMTMethods) + NativeUInt(LInd * SizeOf(Pointer))])^ :=
+    PNativeUInt(@FreedObjectVMT.VMTMethods[Low(FreedObjectVMT.VMTMethods) + NativeInt(LInd * SizeOf(Pointer))])^ :=
       NativeUInt(@TFreedObject.GetVirtualMethodIndex) + LInd * VMTIndexIncCodeSize;
   {$ifdef CatchUseOfFreedInterfaces}
     VMTBadInterface[LInd] := @TFreedObject.InterfaceError;
