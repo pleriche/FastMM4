@@ -71,7 +71,10 @@ What was added to the fork:
    variables;
  - used simpler lock instructions: "lock xchg" rather than "lock cmpxchg";
  - implemented deidcated lock and unlock procedures; before that locking
-   operations were scattered thoughout the code;
+   operations were scattered thoughout the code; now the locking function
+   have meaningful names: AcquireLockByte and ReleaseLockByte; the values of the
+   lock byte is now checked for validity, for example, to not relase the same
+   lock twice;
  - removed spin-loops of Sleep(0) and Sleep(1) and replaced to
    EnterCriticalSection/LeaveCriticalSection to save valuable CPU cycles
    wasted by Sleep(0) and to improve speed tha was delayed each time by
@@ -6564,8 +6567,6 @@ const
 function FastGetMem(ASize: {$ifdef XE2AndUp}NativeInt{$else}{$ifdef fpc}NativeUInt{$else}Integer{$endif fpc}{$endif XE2AndUp}
   {$ifdef FullDebugMode}{$ifdef LogLockContention}; var ACollector: PStaticCollector{$endif}{$endif}): Pointer;
 {$ifndef ASMVersion}
-label
-  TakeLock;
 var
   LMediumBlock{$ifndef FullDebugMode}, LNextFreeBlock, LSecondSplit{$endif}: PMediumFreeBlock;
   LNextMediumBlockHeader: PNativeUInt;
@@ -6596,8 +6597,11 @@ var
   LWasMultiThread: Boolean;
 {$endif}
   LMediumBlocksLocked: Boolean;
+  LSmallBlockWithoutLock: Boolean;
 begin
   LMediumBlocksLocked := False;
+  LSmallBlockWithoutLock := False;
+
 {$ifndef AssumeMultiThreaded}
   LWasMultiThread := False;
 {$endif}
@@ -6643,7 +6647,6 @@ begin
       {$ifndef AssumeMultiThreaded}
       LWasMultiThread := True;
       {$endif}
-TakeLock:
       while True do
       begin
         {Try to lock the small block type (0)}
@@ -6718,13 +6721,11 @@ TakeLock:
         {Try the lock again}
         if not AcquireLockByte(@LPSmallBlockType.SmallBlockTypeLocked) then
         begin
-          LeaveCriticalSection(SmallBlockCriticalSections[LSmallBlockCriticalSectionIndex]);
-          LFailedToAcquireLock := False;
-          LSmallBlockCriticalSectionIndex := MaxInt;
-          Sleep(1);
           Pause;
-          SwitchToThreadIfSupported();
-          goto TakeLock;
+          if not AcquireLockByte(@LPSmallBlockType.SmallBlockTypeLocked) then
+          begin
+            LSmallBlockWithoutLock := True;
+          end;
         end;
       end;
 {$endif}
@@ -6903,7 +6904,13 @@ TakeLock:
                   UnlockMediumBlocks;
                 end;
                 {Unlock the block type}
-                ReleaseLockByte(@LPSmallBlockType.SmallBlockTypeLocked);
+                if not LSmallBlockWithoutLock then
+                begin
+                  ReleaseLockByte(@LPSmallBlockType.SmallBlockTypeLocked);
+                end else
+                begin
+                  LSmallBlockWithoutLock := False;
+                end;
                 {$ifdef SmallBlocksLockedCriticalSection}
                 if LSmallBlockCriticalSectionIndex <> MaxInt then
                 begin
@@ -6913,7 +6920,6 @@ TakeLock:
                 if LFailedToAcquireLock then
                 begin
                   Pause;
-                  SwitchToThreadIfSupported();
                 end;
                 {$endif}
               end;
@@ -6967,7 +6973,13 @@ TakeLock:
     {$endif}
     begin
       {Unlock the block type}
-      ReleaseLockByte(@LPSmallBlockType.SmallBlockTypeLocked);
+      if not LSmallBlockWithoutLock then
+      begin
+        ReleaseLockByte(@LPSmallBlockType.SmallBlockTypeLocked);
+      end else
+      begin
+        LSmallBlockWithoutLock := False;
+      end;
       {$ifdef SmallBlocksLockedCriticalSection}
       if LSmallBlockCriticalSectionIndex <> MaxInt then
       begin
@@ -6977,7 +6989,6 @@ TakeLock:
       if LFailedToAcquireLock then
       begin
         Pause;
-        SwitchToThreadIfSupported();
       end;
       {$endif}
     end;
@@ -8349,8 +8360,6 @@ end;
 {Replacement for SysFreeMem}
 function FastFreeMem(APointer: Pointer): {$ifdef fpc}NativeUInt{$else}Integer{$endif};
 {$ifndef ASMVersion}
-label
-  TakeLock;
 var
   LPSmallBlockPool{$ifndef FullDebugMode}, LPPreviousPool, LPNextPool{$endif},
     LPOldFirstPool: PSmallBlockPoolHeader;
@@ -8371,7 +8380,9 @@ var
 {$ifndef AssumeMultiThreaded}
   LWasMultithread: Boolean;
 {$endif}
+  LSmallBlockWithoutLock: Boolean;
 begin
+  LSmallBlockWithoutLock := True;
 {$ifndef AssumeMultiThreaded}
   LWasMultithread := False;
 {$endif}
@@ -8411,7 +8422,6 @@ begin
       {$endif}
 
 {$ifdef SmallBlocksLockedCriticalSection}
-TakeLock:
       {Locking code similar to one of GetMem}
       while True do
       begin
@@ -8436,13 +8446,11 @@ TakeLock:
       begin
         if not AcquireLockByte(@(LPSmallBlockType.SmallBlockTypeLocked)) then
         begin
-          LeaveCriticalSection(SmallBlockCriticalSections[LSmallBlockCriticalSectionIndex]);
-          LSmallBlockCriticalSectionIndex := MaxInt;
-          LFailedToAcquireLock := False;
           Pause;
-          Sleep(1);
-          SwitchToThreadIfSupported();
-          goto TakeLock;
+          if not AcquireLockByte(@(LPSmallBlockType.SmallBlockTypeLocked)) then
+          begin
+            LSmallBlockWithoutLock := True;
+          end;
         end;
       end;
 
@@ -8530,7 +8538,13 @@ TakeLock:
         {$endif}
         begin
           {Unlock this block type}
-          ReleaseLockByte(@LPSmallBlockType.SmallBlockTypeLocked);
+          if not LSmallBlockWithoutLock then
+          begin
+            ReleaseLockByte(@LPSmallBlockType.SmallBlockTypeLocked);
+          end else
+          begin
+            LSmallBlockWithoutLock := False;
+          end;
           {$ifdef SmallBlocksLockedCriticalSection}
           if LSmallBlockCriticalSectionIndex <> MaxInt then
           begin
@@ -8560,7 +8574,13 @@ TakeLock:
           {$endif}
           begin
           {Unlock this block type}
-            ReleaseLockByte(@LPSmallBlockType.SmallBlockTypeLocked);
+            if not LSmallBlockWithoutLock then
+            begin
+              ReleaseLockByte(@LPSmallBlockType.SmallBlockTypeLocked);
+            end else
+            begin
+              LSmallBlockWithoutLock := False;
+            end;
             {$ifdef SmallBlocksLockedCriticalSection}
             if LSmallBlockCriticalSectionIndex <> MaxInt then
             begin
@@ -8612,7 +8632,6 @@ TakeLock:
   if LFailedToAcquireLock then
   begin
     Pause;
-    SwitchToThreadIfSupported();
   end;
 {$endif}
 
