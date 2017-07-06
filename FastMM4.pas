@@ -81,8 +81,7 @@ What was added to the fork:
    at least 1 millisecond by Sleep(1); on the other hand, the CriticalSections
    are much more CPU-friendly and have definitely lower latency than Sleep(1);
  - the code works in such a way to minimize thread switch while a block was
-   locked: if there were a thread contention, after releasing the lock, the
-   SwitchToThread is called.
+   locked.
 
 
 
