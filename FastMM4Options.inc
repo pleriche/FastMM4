@@ -10,16 +10,16 @@ Set the default options for FastMM here.
 
 {Enable Align16Bytes define to align all blocks on 16 byte boundaries,
  or enable Align32Bytes define to align all blocks on 32 byte boundaries,
- so aligned SSE instructions can be used safely. 
+ so aligned SSE instructions can be used safely.
 
  If neither of these options are enabled, then some of the
  smallest block sizes will be 8-byte aligned instead which may result in a
- reduction in memory usage. 
+ reduction in memory usage.
 
- Even when small blocks are aligned by 8 bytes 
- (no Align16Bytes or Align32Bytes are defined), 
+ Even when small blocks are aligned by 8 bytes
+ (no Align16Bytes or Align32Bytes are defined),
  Medium and large blocks are always 16-byte aligned.
- 
+
  If you enable AVX, then the alignment will always be 32 bytes.}
 
 
@@ -68,7 +68,7 @@ Set the default options for FastMM here.
 
 {Enable to always assume that the application is multithreaded. Enabling this
  option will cause a significant performance hit with single threaded
- applications. Enable if you are using multi-threaded third party tools that do
+ applications. Enable if you are using multi-threaded third-party tools that do
  not properly set the IsMultiThread variable. Also set this option if you are
  going to share this memory manager between a single threaded application and a
  multi-threaded DLL.}
@@ -83,13 +83,39 @@ Set the default options for FastMM here.
  Sleep.}
 {.$define NeverSleepOnThreadContention}
 
-  {Set this option to call SwitchToThread instead of sitting in a "busy waiting"
-   loop when a thread contention occurs. This is used in conjunction with the
-   NeverSleepOnThreadContention option, and has no effect unless
-   NeverSleepOnThreadContention is also defined. This option may improve
-   performance with many CPU cores and/or threads of different priorities. Note
-   that the SwitchToThread API call is only available on Windows 2000 and later.}
-  {.$define UseSwitchToThread}
+{Set this option to call SwitchToThread instead of sitting in a "busy waiting"
+ loop when a thread contention occurs. This is used in conjunction with the
+ NeverSleepOnThreadContention option, and has no effect unless
+ NeverSleepOnThreadContention is also defined. This option may improve
+ performance with many CPU cores and/or threads of different priorities. Note
+ that the SwitchToThread API call is only available on Windows 2000 and later,
+ but FastMM4 loads it dynamically, so it would not fail even under very old
+ versions of Windows   }
+{.$define UseSwitchToThread}
+
+{This option uses a simpler instruction to acquire a lock: "lock xchg",
+instead of "lock cmpxchg" used in earlier versions of FastMM4: there is
+actually no reason to use "cmpxchg", because  the simple instruction - "xchg" -
+perfectly suits our need. Although "xchg" has exactly the same latency and
+costs in terms of CPU cycles as "cmpxghg", it is just simper way to do the
+lock that we need, and, according to the Occam's razor principle, simple things
+are better.}
+{$define SimplifiedInterlockedExchangeByte}
+
+
+{These 3 options make FastMM4 to use a new approach to waiting for a lock:
+CriticalSections instead of Sleep(). With these options, the Sleep() will
+never be used but EnterCriticalSection/LeaveCriticalSection will be
+used instead. Testing has shown that the approach of using CriticalSections
+instead of Sleep (which was used by default before in FastMM4) provides
+significant gain in situations when the number of threads working with the
+memory manager is the same or higher than the number of physical cores.}
+
+{$define SmallBlocksLockedCriticalSection}
+{$define MediumBlocksLockedCriticalSection}
+{$define LargeBlocksLockedCriticalSection}
+
+
 
 {-----------------------------Debugging Options-------------------------------}
 
@@ -127,7 +153,7 @@ Set the default options for FastMM here.
 
 {Set the following option to do extensive checking of all memory blocks. All
  blocks are padded with both a header and trailer that are used to verify the
- integrity of the heap. Freed blocks are also cleared to to ensure that they
+ integrity of the heap. Freed blocks are also cleared to ensure that they
  cannot be reused after being freed. This option slows down memory operations
  dramatically and should only be used to debug an application that is
  overwriting memory or reusing freed pointers. Setting this option
@@ -231,7 +257,7 @@ Combine it with the two options below for further fine-tuning.}
 
   {Set this option to require the program to be run inside the IDE debugger to
    report memory leaks. This option has no effect if the option
-   "EnableMemoryLeakReporting" is not also set. Note that this option does not 
+   "EnableMemoryLeakReporting" is not also set. Note that this option does not
    work with libraries, only EXE projects.}
   {$define RequireDebuggerPresenceForLeakReporting}
 
@@ -296,13 +322,13 @@ Combine it with the two options below for further fine-tuning.}
   - the first version - initial AVX (DisableAVX1); or
   - the second version AVX2 (DisableAVX2); or
   - AVX-512 (DisableAVX512);
-  but you can not disable all of the above modes at once.
+  but you cannot disable all of the above modes at once.
 
   If you define DisableAVX1, it will not add to FastMM4 the instructions from
-  the inital (first) version of the Advanced Vector Extensions instruction set,
+  the initial (first) version of the Advanced Vector Extensions instruction set,
   officially called just "AVX", proposed by Intel in March 2008 and first
   supported by Intel with the Sandy Bridge processor shipping in Q1 2011
-  and later on by AMD with the Bulldozer processor shipping in Q3 2011.
+  and later, on by AMD with the Bulldozer processor shipping in Q3 2011.
 
   If you define DisableAVX2, it will not add to FastMM4 the instructions from
   the second version of the Advanced Vector Extensions - officially called
@@ -317,7 +343,7 @@ Combine it with the two options below for further fine-tuning.}
   after any AVX code to counteract the AVX-SSE transition penalties.
   FastMM4 checks whether AVX2 is supported by the CPU, and, if supported, never
   calls AVX1 functions, since calling "vzeroupper" even once in a thread
-  significantly slows down all susequent SSE code, which is not documented:
+  significantly slows down all subsequent SSE code, which is not documented:
   neither in the Intel 64 and IA-32 Architectures Software Developer’s Manual
   nor in the Intel 64 and IA-32 Architectures Optimization Reference Manual.
 
@@ -334,7 +360,7 @@ Combine it with the two options below for further fine-tuning.}
 {$ifndef DisableERMS}
 
   {Set this option (EnableERMS) to enable Enhanced Rep Movsb/Stosb CPU feature,
-  which improves speed of medium and large block memory copy 
+  which improves speed of medium and large block memory copy
   under 32-bit or 64-bit modes}
   {$define EnableERMS}
 

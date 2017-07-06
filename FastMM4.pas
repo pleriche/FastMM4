@@ -5,11 +5,11 @@ FastMM4AVX (AVX1/AVX2/ERMS support for FastMM4)
 Version 1.0
 
 This is a fork of the Fast Memory Manager 4.992 by Pierre le Riche
-(see below for the The original FastMM4 description)
+(see below for the original FastMM4 description)
 
 What was added to the fork:
  - support for FreePascal 1.6.4 (FastMM4 4.992 did require modifications,
-   it did't work under FreePascal 1.6.4 out-of-the-box;
+   it didn't work under FreePascal 1.6.4 out-of-the-box;
  - if the CPU supports Enhanced REP MOVSB/STOSB (ERMS), use this feature
    for faster memory copy (under 32 bit or 64-bit) (see the EnableERMS define,
    on by default, use DisableERMS to turn it off);
@@ -31,7 +31,7 @@ What was added to the fork:
    subsequent SSE code under Skylake / Kaby Lake;
  - names assigned to some constants that used to be "magic constants",
    i.e. unnamed numerical constants - plenty of them were present
-   throuout the whole code.
+   throughout the whole code.
  - multiplication and division by constant which is a power of 2
    replaced to shl/shr, because Delphi64 compiler doesn't replace such
    multiplications and divisions to shl/shr processor instructions,
@@ -48,18 +48,18 @@ What was added to the fork:
  - the move procedures that are not needed under the defined architecture are
    excluded from compiling, to not rely on the "smart" linker
    that is supposedly makes this job for us;
- - added length parameter do what were dangerous nul-terminated string 
+ - added length parameter do what were dangerous nul-terminated string
    operations via PAnsiChar, to prevent potential stack buffer overruns
    (or maybe even stack-based exploitation?), and there some Pascal functions
    also left, the argument is not yet checked, see the "todo" comments
-   to figure out where the lenghts is not yet checked. Anyway, since these
-   memory functions are only used in Debug mode, i.e. in development 
-   environment, not in Release (production), the impact of this 
+   to figure out where the length is not yet checked. Anyway, since these
+   memory functions are only used in Debug mode, i.e. in development
+   environment, not in Release (production), the impact of this
    "vulnerability" is minimal (questionable);
- - removed some typecasts; the code is more strict to let the compiler
+ - removed some typecasts; the code is stricter to let the compiler
    do the job, check everything and mitigate probable error. You can
-   even compile the code with "integer overflow checking" and 
-   "range checking", as well as with "typed @ operator" - for safer 
+   even compile the code with "integer overflow checking" and
+   "range checking", as well as with "typed @ operator" - for safer
    code. Also added round bracket in the places where the typed @ operator
    was used, to better emphasize on who's address is taken;
  - one-byte data types of memory areas used for "lock cmpxchg" replaced
@@ -70,14 +70,14 @@ What was added to the fork:
    use, at the same time, the the 0 or 1 ordinal values on Byte
    variables;
  - used simpler lock instructions: "lock xchg" rather than "lock cmpxchg";
- - implemented deidcated lock and unlock procedures; before that locking
-   operations were scattered thoughout the code; now the locking function
+ - implemented dedicated lock and unlock procedures; before that locking
+   operations were scattered throughout the code; now the locking function
    have meaningful names: AcquireLockByte and ReleaseLockByte; the values of the
    lock byte is now checked for validity, for example, to not relase the same
    lock twice;
  - removed spin-loops of Sleep(0) and Sleep(1) and replaced to
    EnterCriticalSection/LeaveCriticalSection to save valuable CPU cycles
-   wasted by Sleep(0) and to improve speed tha was delayed each time by
+   wasted by Sleep(0) and to improve speed that was affected each time by
    at least 1 millisecond by Sleep(1); on the other hand, the CriticalSections
    are much more CPU-friendly and have definitely lower latency than Sleep(1);
  - the code works in such a way to minimize thread switch while a block was
@@ -129,7 +129,7 @@ Advantages:
    or 32-byte alignment.
  - Good scaling under multi-threaded applications
  - Intelligent reallocations. Avoids slow memory move operations through
-   not performing unneccesary downsizes and by having a minimum percentage
+   not performing unnecessary downsizes and by having a minimum percentage
    block size growth factor when an in-place block upsize is not possible.
  - Resistant to address space fragmentation
  - No external DLL required when sharing memory between the application and
@@ -195,7 +195,7 @@ Support:
 
 Disclaimer:
  FastMM has been tested extensively with both single and multithreaded
- applications on various hardware platforms, but unfortunately I am not in a
+ applications on various hardware platforms, but unfortunately, I am not in a
  position to make any guarantees. Use it at your own risk.
 
 Acknowledgements (for version 4):
@@ -376,7 +376,7 @@ Change log:
   - Added the options "RequireDebugInfoForLeakReporting" and
     "RequireIDEPresenceForLeakReporting" as suggested by Pierre Y.
   - Fixed the "DelphiIsRunning" function not working under Delphi 5, and
-    consequently no leak checking. (Reported by Anders Isaksson and Greg.)
+    consequently, no leak checking. (Reported by Anders Isaksson and Greg.)
  Version 4.02 (8 June 2005):
   - Fixed the compilation error when both the "AssumeMultiThreaded" and
     "CheckHeapForCorruption options were set. (Reported by Francois Malan.)
@@ -669,7 +669,7 @@ Change log:
  - Added the following functions for use with FullDebugMode (and added the
    exports to the replacement BorlndMM.dll): SetMMLogFileName,
    GetCurrentAllocationGroup, PushAllocationGroup, PopAllocationGroup and
-   LogAllocatedBlocksToFile. The purpose of these functions are to allow you to
+   LogAllocatedBlocksToFile. The purpose of these functions is to allow you to
    identify and log related memory leaks while your application is still
    running.
  - Fixed a bug in the memory manager sharing mechanism affecting Windows
@@ -777,14 +777,14 @@ Change log:
   - Added a ScanMemoryPoolForCorruptions procedure that checks the entire
     memory pool for corruptions and raises an exception if one is found. It can
     be called at any time, but is only available in FullDebugMode. (Thanks to
-    Marcus Mönnig.)
+    Marcus Moennig.)
   - Added a global variable "FullDebugModeScanMemoryPoolBeforeEveryOperation".
     When this variable is set to true and FullDebugMode is enabled, then the
     entire memory pool is checked for consistency before every GetMem, FreeMem
     and ReallocMem operation. An "Out of Memory" error is raised if a
     corruption is found (and this variable is set to false to prevent recursive
     errors). This obviously incurs a massive performance hit, so enable it only
-    when hunting for elusive memory corruption bugs. (Thanks to Marcus Mönnig.)
+    when hunting for elusive memory corruption bugs. (Thanks to Marcus Moennig.)
   - Fixed a bug in AllocMem that caused the FPU stack to be shifted by one
     position.
   - Changed the default for option "EnableMMX" to false, since using MMX may
@@ -803,7 +803,7 @@ Change log:
     is disabled and an attempt is made to register a memory leak under Delphi
     2006 or later. (Thanks to Thomas Schulz.)
   - Added a global variable "SuppressMessageBoxes" to enable or disable
-    messageboxes at runtime. (Thanks to Craig Peterson.)
+    message boxes at runtime. (Thanks to Craig Peterson.)
   - Added the leak reporting code for C++ Builder, as well as various other
     C++ Builder bits written by JiYuan Xie. (Thank you!)
   - Added the new Usage Tracker written by Hanspeter Widmer. (Thank you!)
@@ -830,7 +830,7 @@ Change log:
     Lotauro and Christian-W. Budde.)
   - Changed a default setting in FastMM4Options.inc: RawStackTraces is now
     off by default due to the high number of support requests I receive with
-    regards to the false postives it may cause. I recommend compiling debug
+    regards to the false positives it may cause. I recommend compiling debug
     builds of applications with the "Stack Frames" option enabled.
   - Fixed a compilation error under Kylix. (Thanks to Werner Bochtler.)
   - Official support for Delphi 2009.
@@ -947,7 +947,7 @@ Change log:
   - Included the average block size in the memory state log file. (Thanks to
     Hallvard Vassbotn)
   - Support added for Free Pascal's OS X and Linux targets, both i386 and
-    x86-64. (Thanks to Zoë Peterson - some fixes by Arnaud Bouchez)
+    x86-64. (Thanks to Zoe Peterson - some fixes by Arnaud Bouchez)
   - Added the LogLockContention option which may be used to track down areas
     in the application that lead to frequent lock contentions in the memory
     manager. (Primoz Gabrijelcic)
@@ -2490,7 +2490,6 @@ var
 
 {$ifdef MediumBlocksLockedCriticalSection}
   MediumBlocksLockedCS: TRTLCriticalSection;
-  MediumBlocksLockedCount: LONG;
 {$else}
   MediumBlocksLocked: Byte;
 {$endif}
@@ -2513,7 +2512,6 @@ var
   {Are large blocks locked?}
 {$ifdef LargeBlocksLockedCriticalSection}
   LargeBlocksLockedCS: TRTLCriticalSection;
-  LargeBlocksLockedCount: LONG;
 {$else}
   LargeBlocksLocked: Byte;
 {$endif}
@@ -2900,7 +2898,6 @@ begin
         begin
           Result := False;
       {$ifndef SystemRunError}
-          Sleep(R);
           System.Error(reInvalidOp);
       {$else}
           System.RunError(reInvalidOp);
@@ -2921,7 +2918,6 @@ begin
     if R <> cLockByteLocked  then
     begin
       {$ifndef SystemRunError}
-        Sleep(R);
         System.Error(reInvalidOp);
       {$else}
         System.RunError(reInvalidOp);
@@ -5496,16 +5492,7 @@ begin
 {$endif}
 
 {$ifdef MediumBlocksLockedCriticalSection}
-  if {$ifdef UseSystemAtomicIntrinsics}
-        System.AtomicIncrement
-     {$else}
-        Windows.InterlockedIncrement
-     {$endif}
-     (MediumBlocksLockedCount) > 0 then
-  begin
-    Result := True;
-    Pause;
-  end;
+
   EnterCriticalSection(MediumBlocksLockedCS);
 {$else MediumBlocksLockedCriticalSection}
   while not AcquireLockByte(@MediumBlocksLocked) do
@@ -5596,16 +5583,7 @@ end;
 procedure UnlockMediumBlocks; {$ifndef DEBUG}inline;{$ENDIF}
 begin
   {$ifdef MediumBlocksLockedCriticalSection}
-
   LeaveCriticalSection(MediumBlocksLockedCS);
-
-  {$ifdef UseSystemAtomicIntrinsics}
-    System.AtomicDecrement(
-  {$else}
-    Windows.InterlockedDecrement(
-  {$endif}
-    MediumBlocksLockedCount);
-
   {$else}
   ReleaseLockByte(@MediumBlocksLocked);
   {$endif}
@@ -6098,9 +6076,7 @@ begin
 {$ifndef AssumeMultiThreaded}
   if not IsMultiThread then
   begin
-
     {The checks for IsMultiThread should be from outsize}
-
     {$ifndef SystemRunError}
        System.Error(reInvalidOp);
     {$else}
@@ -6110,21 +6086,8 @@ begin
 {$endif}
 
 {$ifdef LargeBlocksLockedCriticalSection}
-  {the LargeBlocksLockedCount initial value is -1}
-  if {$ifdef UseSystemAtomicIntrinsics}
-        System.AtomicIncrement
-     {$else}
-        Windows.InterlockedIncrement
-     {$endif}
-  (LargeBlocksLockedCount) > 0 then
-  begin
-    // more than one thread is wating
-    Result := True;
-    Pause;
-  end;
   EnterCriticalSection(LargeBlocksLockedCS);
 {$else LargeBlocksLockedCriticalSection}
-
   while not AcquireLockByte(@LargeBlocksLocked) do
   begin
     Result := True;
@@ -6162,12 +6125,6 @@ procedure UnlockLargeBlocks; {$ifndef DEBUG}inline;{$ENDIF}
 begin
   {$ifdef LargeBlocksLockedCriticalSection}
   LeaveCriticalSection(LargeBlocksLockedCS);
-  {$ifdef UseSystemAtomicIntrinsics}
-    System.AtomicDecrement(
-  {$else}
-    Windows.InterlockedDecrement(
-  {$endif}
-    LargeBlocksLockedCount);
   {$else}
   ReleaseLockByte(@LargeBlocksLocked);
   {$endif}
@@ -15511,7 +15468,6 @@ ENDQUOTE}
   FSwitchToThread := GetProcAddress(GetModuleHandle(Kernel32), 'SwitchToThread');
 
   {$ifdef MediumBlocksLockedCriticalSection}
-  MediumBlocksLockedCount := -1;
   InitializeCriticalSection(MediumBlocksLockedCS);
   {$else}
   MediumBlocksLocked := cLockByteAvailable;
@@ -15542,7 +15498,6 @@ ENDQUOTE}
   end;
   {------------------Set up the large blocks---------------------}
   {$ifdef LargeBlocksLockedCriticalSection}
-  LargeBlocksLockedCount := -1;
   InitializeCriticalSection(LargeBlocksLockedCS);
   {$else}
   LargeBlocksLocked := cLockByteAvailable;
@@ -16000,32 +15955,11 @@ begin
 
   {$ifdef MediumBlocksLockedCriticalSection}
   DeleteCriticalSection(MediumBlocksLockedCS);
-  {$ifdef DEBUG}
-  if MediumBlocksLockedCount <> -1 then
-  begin
-  {$ifdef BCB6OrDelphi7AndUp}
-     System.Error(reInvalidOp);
-  {$else}
-     System.RunError(reInvalidOp);
-  {$endif}
-  end;
-  {$endif DEBUG}
   {$else MediumBlocksLockedCriticalSection}
   LargeBlocksLocked := cLockByteFinished;
   {$endif MediumBlocksLockedCriticalSection}
 
   {$ifdef LargeBlocksLockedCriticalSection}
-  {$ifdef DEBUG}
-  DeleteCriticalSection(LargeBlocksLockedCS);
-  if LargeBlocksLockedCount <> -1 then
-  begin
-  {$ifdef BCB6OrDelphi7AndUp}
-     System.Error(reInvalidOp);
-  {$else}
-     System.RunError(reInvalidOp);
-  {$endif}
-  end;
-  {$endif DEBUG}
   {$else LargeBlocksLockedCriticalSection}
   LargeBlocksLocked := cLockByteFinished;
   {$endif LargeBlocksLockedCriticalSection}
