@@ -8381,7 +8381,7 @@ var
 {$endif}
   LSmallBlockWithoutLock: Boolean;
 begin
-  LSmallBlockWithoutLock := True;
+  LSmallBlockWithoutLock := False;
 {$ifndef AssumeMultiThreaded}
   LWasMultithread := False;
 {$endif}
