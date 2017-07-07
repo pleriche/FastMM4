@@ -1825,12 +1825,15 @@ const
       256
   {$endif};
 
+  UnsignedBit = NativeUInt(1);
+
+
   {According to the Intel 64 and IA-32 Architectures Software Developer’s Manual,
   p. 3.7.5 (Specifying an Offset) and 3.7.5.1 (Specifying an Offset in 64-Bit Mode):
   "Scale factor — A value of 2, 4, or 8 that is multiplied by the index value";
   The value of MaximumCpuScaleFactor is determined by the processor architecture}
   MaximumCpuScaleFactorPowerOf2 = 3;
-  MaximumCpuScaleFactor = 1 shl MaximumCpuScaleFactorPowerOf2;
+  MaximumCpuScaleFactor = UnsignedBit shl MaximumCpuScaleFactorPowerOf2;
 
   {The granularity of small blocks}
 {$ifdef Align32Bytes}
@@ -1842,15 +1845,15 @@ const
   SmallBlockGranularityPowerOf2 = 3;
 {$endif}
 {$endif}
-  SmallBlockGranularity = 1 shl SmallBlockGranularityPowerOf2;
+  SmallBlockGranularity = UnsignedBit shl SmallBlockGranularityPowerOf2;
 
 
   {The granularity of medium blocks. Newly allocated medium blocks are
    a multiple of this size plus MediumBlockSizeOffset, to avoid cache line
    conflicts}
   MediumBlockGranularityPowerOf2 = 8;
-  MediumBlockGranularity = 1 shl MediumBlockGranularityPowerOf2;
-  MediumBlockGranularityMask = NativeUInt(-MediumBlockGranularity);
+  MediumBlockGranularity = UnsignedBit shl MediumBlockGranularityPowerOf2;
+  MediumBlockGranularityMask = NativeUInt(-NativeInt(MediumBlockGranularity));
 {$ifdef Align32Bytes}
   MediumBlockSizeOffset = 64;
 {$else}
@@ -1875,7 +1878,7 @@ const
   {The number of bins reserved for medium blocks}
   MediumBlockBinsPerGroupPowerOf2 = 5;
   {Must be a power of 2, otherwise masks would not work}
-  MediumBlockBinsPerGroup = 1 shl MediumBlockBinsPerGroupPowerOf2;
+  MediumBlockBinsPerGroup = UnsignedBit shl MediumBlockBinsPerGroupPowerOf2;
   MediumBlockBinGroupCount = 32;
   MediumBlockBinCount = MediumBlockBinGroupCount * MediumBlockBinsPerGroup;
   {The maximum size allocatable through medium blocks. Blocks larger than this
@@ -2226,7 +2229,7 @@ const
   {$ifdef 64bit}
 	SmallBlockTypeRecSizePowerOf2 = 6;
   {$endif}
-  SmallBlockTypeRecSize = 1 shl SmallBlockTypeRecSizePowerOf2;
+  SmallBlockTypeRecSize = UnsignedBit shl SmallBlockTypeRecSizePowerOf2;
 {$endif}
 
 {$ifdef XE2AndUp}
@@ -2268,14 +2271,14 @@ const
   Intel 64 and IA-32 Architectures Optimization Reference Manual}
 
 {$ifdef EnableMMX}
-  FastMMCpuFeatureMMX  = 1 shl 0;
+  FastMMCpuFeatureMMX  = UnsignedBit shl 0;
 {$endif}
 {$ifdef EnableAVX}
-  FastMMCpuFeatureAVX1 = 1 shl 1;
-  FastMMCpuFeatureAVX2 = 1 shl 2;
+  FastMMCpuFeatureAVX1 = UnsignedBit shl 1;
+  FastMMCpuFeatureAVX2 = UnsignedBit shl 2;
 {$endif}
 {$ifdef EnableERMS}
-  FastMMCpuFeatureERMS = 1 shl 3;
+  FastMMCpuFeatureERMS = UnsignedBit shl 3;
 {$endif}
 
 
@@ -5615,13 +5618,13 @@ begin
     LBinGroupNumber := LBinNumber shr MediumBlockBinsPerGroupPowerOf2;
     {Flag this bin as empty}
     MediumBlockBinBitmaps[LBinGroupNumber] := MediumBlockBinBitmaps[LBinGroupNumber]
-      and (not (1 shl (LBinNumber and (MediumBlockBinsPerGroup-1))));
+      and (not (UnsignedBit shl (LBinNumber and (MediumBlockBinsPerGroup-1))));
     {Is the group now entirely empty?}
     if MediumBlockBinBitmaps[LBinGroupNumber] = 0 then
     begin
       {Flag this group as empty}
       MediumBlockBinGroupBitmap := MediumBlockBinGroupBitmap
-        and (not (1 shl LBinGroupNumber));
+        and (not (UnsignedBit shl LBinGroupNumber));
     end;
   end;
 end;
@@ -5732,10 +5735,10 @@ begin
     LBinGroupNumber := LBinNumber shr MediumBlockBinsPerGroupPowerOf2;
     {Flag this bin as used}
     MediumBlockBinBitmaps[LBinGroupNumber] := MediumBlockBinBitmaps[LBinGroupNumber]
-      or (1 shl (LBinNumber and (MediumBlockBinsPerGroup-1)));
+      or (UnsignedBit shl (LBinNumber and (MediumBlockBinsPerGroup-1)));
     {Flag the group as used}
     MediumBlockBinGroupBitmap := MediumBlockBinGroupBitmap
-      or (1 shl LBinGroupNumber);
+      or (UnsignedBit shl LBinGroupNumber);
   end;
 end;
 {$else}
@@ -6493,6 +6496,25 @@ asm
 {$endif}
 end;
 
+
+function NegNativeUIntMaskBit(A: NativeUInt): NativeUint; assembler;
+asm
+{$IFDEF 32bit}
+        neg     eax
+{$else}
+   {$ifdef unix}
+        mov     rax, rdi
+   {$else}
+     {$ifdef AllowAsmNoframe}
+       .noframe
+     {$endif}
+        mov     rax, rcx
+   {$endif}
+        neg     rax
+{$endif}
+end;
+
+
 {$ifndef ASMVersion}
 {Gets the first set bit in the 32-bit number, returning the bit index}
 function FindFirstSetBit(ACardinal: Cardinal): Cardinal; {$ifdef fpc64bit} assembler; nostackframe; {$endif}
@@ -6772,13 +6794,13 @@ begin
           begin
             {Flag this bin as empty}
             MediumBlockBinBitmaps[LBinGroupNumber] := MediumBlockBinBitmaps[LBinGroupNumber]
-              and (not (1 shl (LBinNumber and (MediumBlockBinsPerGroup-1))));
+              and (not (UnsignedBit shl (LBinNumber and (MediumBlockBinsPerGroup-1))));
             {Is the group now entirely empty?}
             if MediumBlockBinBitmaps[LBinGroupNumber] = 0 then
             begin
               {Flag this group as empty}
               MediumBlockBinGroupBitmap := MediumBlockBinGroupBitmap
-                and (not (1 shl LBinGroupNumber));
+                and (not (UnsignedBit shl LBinGroupNumber));
             end;
           end;
           {Get the size of the available medium block}
@@ -6982,7 +7004,7 @@ begin
       {Calculate the bin group}
       LBinGroupNumber := LBinNumber shr MediumBlockBinsPerGroupPowerOf2;
       {Is there a suitable block inside this group?}
-      LBinGroupMasked := MediumBlockBinBitmaps[LBinGroupNumber] and NegCardinalMaskBit((1 shl (LBinNumber and (MediumBlockBinsPerGroup-1))));
+      LBinGroupMasked := MediumBlockBinBitmaps[LBinGroupNumber] and NegNativeUIntMaskBit((UnsignedBit shl (LBinNumber and (MediumBlockBinsPerGroup-1))));
       if LBinGroupMasked <> 0 then
       begin
         {Get the actual bin number}
@@ -6992,7 +7014,7 @@ begin
       begin
 {$ifndef FullDebugMode}
         {Try all groups greater than this group}
-        LBinGroupsMasked := MediumBlockBinGroupBitmap and NegCardinalMaskBit(2 shl LBinGroupNumber);
+        LBinGroupsMasked := MediumBlockBinGroupBitmap and NegNativeUIntMaskBit(NativeUInt(2) shl LBinGroupNumber);
         if LBinGroupsMasked <> 0 then
         begin
           {There is a suitable group with space: get the bin number}
@@ -7674,7 +7696,7 @@ asm
   add rbx, rcx
   {Do we need to lock the block type?}
 {$ifndef AssumeMultiThreaded}
-  test r12, (1 shl StateBitIsMultithreaded)
+  test r12, (UnsignedBit shl StateBitIsMultithreaded)
   jnz @LockBlockTypeLoop
 {$else}
   jmp @LockBlockTypeLoop
@@ -7776,11 +7798,11 @@ asm
 @AllocateSmallBlockPool:
   {Do we need to lock the medium blocks?}
 {$ifndef AssumeMultiThreaded}
-  test r12, (1 shl StateBitIsMultithreaded)
+  test r12, (UnsignedBit shl StateBitIsMultithreaded)
   jz @MediumBlocksLockedForPool
 {$endif}
   call LockMediumBlocks
-  or r12, (1 shl StateBitMediumLocked)
+  or r12, (UnsignedBit shl StateBitMediumLocked)
 @MediumBlocksLockedForPool:
   {Are there any available blocks of a suitable size?}
   movsx esi, TSmallBlockType[rbx].AllowedGroupsForBlockPoolBitmap
@@ -7870,7 +7892,7 @@ asm
   mov rsi, rax
   test rax, rax
   jnz @GotMediumBlock
-  test r12, (1 shl StateBitMediumLocked)
+  test r12, (UnsignedBit shl StateBitMediumLocked)
   jz @NotLockedAfterAllocNewSequentialFeedMediumPool
   call UnlockMediumBlocks
   mov rax, rsi
@@ -7887,7 +7909,7 @@ asm
   lea ecx, [edi + IsMediumBlockFlag + IsSmallBlockPoolInUseFlag]
   mov [rsi - BlockHeaderSize], rcx
   {Unlock medium blocks}
-  test r12, (1 shl StateBitMediumLocked)
+  test r12, (UnsignedBit shl StateBitMediumLocked)
   jz @NotLockedAfterGotMediumBlock
   call UnlockMediumBlocks
 @NotLockedAfterGotMediumBlock:
@@ -7925,11 +7947,11 @@ asm
   add ebx, MediumBlockSizeOffset
   {Do we need to lock the medium blocks?}
 {$ifndef AssumeMultiThreaded}
-  test r12, (1 shl StateBitIsMultithreaded)
+  test r12, (UnsignedBit shl StateBitIsMultithreaded)
   jz @MediumBlocksLocked
 {$endif}
   call LockMediumBlocks
-  or r12, (1 shl StateBitMediumLocked)
+  or r12, (UnsignedBit shl StateBitMediumLocked)
 @MediumBlocksLocked:
   {Get the bin number in ecx and the group number in edx}
   lea edx, [ebx - MinimumMediumBlockSize]
@@ -7982,7 +8004,7 @@ asm
   mov ecx, ebx
   call AllocNewSequentialFeedMediumPool
 @MediumBlockGetDone:
-  test r12, (1 shl StateBitMediumLocked)
+  test r12, (UnsignedBit shl StateBitMediumLocked)
   jz @DontUnlockMediumBlocksAfterMediumBlockGetDone
   mov rsi, rax
   call UnlockMediumBlocks
@@ -8041,7 +8063,7 @@ asm
   lea rcx, [rbx + IsMediumBlockFlag]
   mov [rsi - BlockHeaderSize], rcx
   {Unlock medium blocks}
-  test r12, (1 shl StateBitMediumLocked)
+  test r12, (UnsignedBit shl StateBitMediumLocked)
   jz @DontUnlockMedimuBlocksAfterGotMediumBlockForMedium
   call UnlockMediumBlocks
 @DontUnlockMedimuBlocksAfterGotMediumBlockForMedium:
@@ -8999,7 +9021,7 @@ asm
   mov rbx, TSmallBlockPoolHeader[rdx].BlockType
   {Do we need to lock the block type?}
 {$ifndef AssumeMultiThreaded}
-  test r12, (1 shl StateBitIsMultithreaded)
+  test r12, (UnsignedBit shl StateBitIsMultithreaded)
   jnz @LockBlockTypeLoop // test+jnz are together to allow micro-op fusion
 {$else}
   jmp @LockBlockTypeLoop
@@ -9125,11 +9147,11 @@ asm
   mov rsi, rcx
   {Do we need to lock the medium blocks?}
 {$ifndef AssumeMultiThreaded}
-  test r12, (1 shl StateBitIsMultithreaded)
+  test r12, (UnsignedBit shl StateBitIsMultithreaded)
   jz @MediumBlocksLocked // put test+jz together to allow micro-op fusion
 {$endif}
   call LockMediumBlocks
-  or r12, (1 shl StateBitMediumLocked)
+  or r12, (UnsignedBit shl StateBitMediumLocked)
 @MediumBlocksLocked:
   {Can we combine this block with the next free block?}
   test qword ptr [rsi + rbx - BlockHeaderSize], IsFreeBlockFlag
@@ -9165,7 +9187,7 @@ asm
   call InsertMediumBlockIntoBin
   {All OK}
   {Unlock medium blocks}
-  test r12, (1 shl StateBitMediumLocked)
+  test r12, (UnsignedBit shl StateBitMediumLocked)
   jz @DontUnlockMediumBlocksAfterBinFreeMediumBlock
 
   call UnlockMediumBlocks
@@ -9212,7 +9234,7 @@ asm
   mov TMediumBlockPoolHeader[rax].NextMediumBlockPoolHeader, rdx
   mov TMediumBlockPoolHeader[rdx].PreviousMediumBlockPoolHeader, rax
   {Unlock medium blocks}
-  test r12, (1 shl StateBitMediumLocked)
+  test r12, (UnsignedBit shl StateBitMediumLocked)
   jz @DontUnlockMediumBlocksAfterEntireMediumPoolFree
   call UnlockMediumBlocks
 @DontUnlockMediumBlocksAfterEntireMediumPoolFree:
@@ -9247,7 +9269,7 @@ asm
   mov LastSequentiallyFedMediumBlock, rbx
   {Success}
   {Unlock medium blocks}
-  test r12, (1 shl StateBitMediumLocked)
+  test r12, (UnsignedBit shl StateBitMediumLocked)
   jz @DontUnlockMediumBlocksAfterMakeEmptyMediumPoolSequentialFeed
   call UnlockMediumBlocks
 @DontUnlockMediumBlocksAfterMakeEmptyMediumPoolSequentialFeed:
@@ -10523,7 +10545,7 @@ asm
   mov ebx, ecx // save ecx
   call LockMediumBlocks
   mov ecx, ebx // restore ecx
-  or r12, (1 shl StateBitMediumLocked)
+  or r12, (UnsignedBit shl StateBitMediumLocked)
   {Reread the flags - they may have changed before medium blocks could be
    locked.}
   mov rbx, ExtractMediumAndLargeFlagsMask
@@ -10632,7 +10654,7 @@ asm
   call LockMediumBlocks
   mov rcx, rbx // restore rcx
   mov rdx, r15 // restore rdx
-  or r12, (1 shl StateBitMediumLocked)
+  or r12, (UnsignedBit shl StateBitMediumLocked)
   {Re-read the info for this block (since it may have changed before the medium
    blocks could be locked)}
   mov rbx, ExtractMediumAndLargeFlagsMask
@@ -10701,7 +10723,7 @@ asm
   or r15, rbx
   mov [rsi - BlockHeaderSize], r15
   {Unlock the medium blocks}
-  test r12, (1 shl StateBitMediumLocked)
+  test r12, (UnsignedBit shl StateBitMediumLocked)
   jz @DontUnlockMediumBlocksAfterMediumUpsizeInPlaceDone
   call UnlockMediumBlocks
 @DontUnlockMediumBlocksAfterMediumUpsizeInPlaceDone:
@@ -10710,7 +10732,7 @@ asm
   jmp @Done
 @NextMediumBlockChanged:
   {The next medium block changed while the medium blocks were being locked}
-  test r12, (1 shl StateBitMediumLocked)
+  test r12, (UnsignedBit shl StateBitMediumLocked)
   jz @DontUnlockMediumBlocksAfterNextMediumBlockChanged
   mov rbx, rcx // save rcx
   mov r15, rdx // save rdx
@@ -15228,8 +15250,8 @@ This is because the operating system would not save the registers and the states
       end else
       begin
         EnabledXStateFeatures :=
-          (1 shl XSTATE_LEGACY_FLOATING_POINT) or
-          (1 shl XSTATE_LEGACY_SSE);
+          (UnsignedBit shl XSTATE_LEGACY_FLOATING_POINT) or
+          (UnsignedBit shl XSTATE_LEGACY_SSE);
       end;
 {$ENDIF}
 
@@ -15237,9 +15259,9 @@ This is because the operating system would not save the registers and the states
 
 {$ifdef EnableMMX}
       if
-        ((LReg1.RegEDX and (1 shl 23)) <> 0)
+        ((LReg1.RegEDX and (UnsignedBit shl 23)) <> 0)
 {$ifdef Use_GetEnabledXStateFeatures_WindowsAPICall}
-        and ((EnabledXStateFeatures and (1 shl XSTATE_LEGACY_SSE)) <> 0)
+        and ((EnabledXStateFeatures and (UnsignedBit shl XSTATE_LEGACY_SSE)) <> 0)
 {$endif}
       then
       begin
@@ -15254,7 +15276,7 @@ This is because the operating system would not save the registers and the states
 3) detect CPUID.1:ECX.AVX[bit 28] = 1 (AVX instructions supported).
 ENDQUOTE}
       if
-        ((LReg1.RegECX and (1 shl 27)) <> 0) {OSXSAVE bit} then
+        ((LReg1.RegECX and (UnsignedBit shl 27)) <> 0) {OSXSAVE bit} then
       begin
         CpuXCR0 := GetCpuXCR(0);
       end else
@@ -15264,9 +15286,9 @@ ENDQUOTE}
 
       {$ifdef EnableAVX}
       if (CpuXCR0 and 6 = 6) and
-        ((LReg1.RegECX and (1 shl 28)) <> 0) {AVX bit}
+        ((LReg1.RegECX and (UnsignedBit shl 28)) <> 0) {AVX bit}
           {$ifdef Use_GetEnabledXStateFeatures_WindowsAPICall}
-             and ((EnabledXStateFeatures and (1 shl XSTATE_AVX)) <> 0)
+             and ((EnabledXStateFeatures and (UnsignedBit shl XSTATE_AVX)) <> 0)
           {$endif}
       then FastMMCpuFeatures := FastMMCpuFeatures or FastMMCpuFeatureAVX1;
 
@@ -15275,7 +15297,7 @@ ENDQUOTE}
       { Application Software must identify that hardware supports AVX, after that it must also detect support for AVX2 by
         checking CPUID.(EAX=07H, ECX=0H):EBX.AVX2[bit 5].}
         if (MaxInputValueBasic > 7) and
-            ((LReg7_0.RegEBX and (1 shl 5))<> 0) then
+            ((LReg7_0.RegEBX and (UnsignedBit shl 5))<> 0) then
         begin
           FastMMCpuFeatures := FastMMCpuFeatures or FastMMCpuFeatureAVX2;
         end;
@@ -15285,7 +15307,7 @@ ENDQUOTE}
       {$ifdef EnableERMS}
       if (MaxInputValueBasic > 7) and
 {EBX: Bit 09: Supports Enhanced REP MOVSB/STOSB if 1.}
-      ((LReg7_0.RegEBX and (1 shl 9))<> 0) then
+      ((LReg7_0.RegEBX and (UnsignedBit shl 9))<> 0) then
       begin
         FastMMCpuFeatures := FastMMCpuFeatures or FastMMCpuFeatureERMS;
       end;
@@ -15400,7 +15422,7 @@ ENDQUOTE}
     SmallBlockTypes[LInd].PreviousPartiallyFreePool := LPSmallBlockPoolHeader;
     SmallBlockTypes[LInd].NextPartiallyFreePool := LPSmallBlockPoolHeader;
     {Set the block size to block type index translation table}
-    for LSizeInd := (LPreviousBlockSize div SmallBlockGranularity) to ((SmallBlockTypes[LInd].BlockSize - 1) div SmallBlockGranularity) do
+    for LSizeInd := (LPreviousBlockSize div SmallBlockGranularity) to (NativeUInt(SmallBlockTypes[LInd].BlockSize - 1) div SmallBlockGranularity) do
    {$ifdef AllocSize2SmallBlockTypesPrecomputedOffsets}
       AllocSize2SmallBlockTypesOfsDivScaleFactor[LSizeInd] := LInd shl (SmallBlockTypeRecSizePowerOf2 - MaximumCpuScaleFactorPowerOf2);
    {$else}
@@ -15425,7 +15447,7 @@ ENDQUOTE}
       LGroupNumber := 7;
 
     {Set the bitmap}
-    SmallBlockTypes[LInd].AllowedGroupsForBlockPoolBitmap := NegByteMaskBit(1 shl LGroupNumber);
+    SmallBlockTypes[LInd].AllowedGroupsForBlockPoolBitmap := NegByteMaskBit(UnsignedBit shl LGroupNumber);
     {Set the minimum pool size}
     SmallBlockTypes[LInd].MinimumBlockPoolSize := MinimumMediumBlockSize + (LGroupNumber shl (MediumBlockGranularityPowerOf2 + MediumBlockBinsPerGroupPowerOf2));
     {Get the optimal block pool size}
