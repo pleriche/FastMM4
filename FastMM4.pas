@@ -9368,7 +9368,7 @@ var
     LWasMultiThreadMediumBlocks := False;
 
     {Round up to the next medium block size}
-    LNewBlockSize := ((ANewSize + (BlockHeaderSize + MediumBlockGranularity - 1 - MediumBlockSizeOffset))
+    LNewBlockSize := ((NativeUInt(ANewSize) + (BlockHeaderSize + MediumBlockGranularity - 1 - MediumBlockSizeOffset))
       and MediumBlockGranularityMask) + MediumBlockSizeOffset;
     {Get the size of the second split}
     LSecondSplitSize := (LOldAvailableSize + BlockHeaderSize) - LNewBlockSize;
