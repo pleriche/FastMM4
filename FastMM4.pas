@@ -2271,15 +2271,16 @@ const
   Intel 64 and IA-32 Architectures Optimization Reference Manual}
 
 {$ifdef EnableMMX}
-  FastMMCpuFeatureMMX  = UnsignedBit shl 0;
+  FastMMCpuFeatureMMX   = UnsignedBit shl 0;
 {$endif}
 {$ifdef EnableAVX}
-  FastMMCpuFeatureAVX1 = UnsignedBit shl 1;
-  FastMMCpuFeatureAVX2 = UnsignedBit shl 2;
+  FastMMCpuFeatureAVX1  = UnsignedBit shl 1;
+  FastMMCpuFeatureAVX2  = UnsignedBit shl 2;
 {$endif}
 {$ifdef EnableERMS}
-  FastMMCpuFeatureERMS = UnsignedBit shl 3;
+  FastMMCpuFeatureERMS  = UnsignedBit shl 3;
 {$endif}
+  FastMMCpuFeaturePause = UnsignedBit shl 4;
 
 
 {-------------------------Private variables----------------------------}
@@ -2489,13 +2490,13 @@ var
   {A dummy medium block pool header: Maintains a circular list of all medium
    block pools to enable memory leak detection on program shutdown.}
   MediumBlockPoolsCircularList: TMediumBlockPoolHeader;
-  {Are medium blocks locked?}
 
+  {Are medium blocks locked?}
+  MediumBlocksLocked: Byte;
 {$ifdef MediumBlocksLockedCriticalSection}
   MediumBlocksLockedCS: TRTLCriticalSection;
-{$else}
-  MediumBlocksLocked: Byte;
 {$endif}
+
   {The sequential feed medium block pool.}
   LastSequentiallyFedMediumBlock: Pointer;
   MediumSequentialFeedBytesLeft: Cardinal;
@@ -2513,10 +2514,9 @@ var
   MediumBlockBins: array[0..MediumBlockBinCount - 1] of TMediumFreeBlock;
   {-----------------Large block management------------------}
   {Are large blocks locked?}
+  LargeBlocksLocked: Byte;
 {$ifdef LargeBlocksLockedCriticalSection}
   LargeBlocksLockedCS: TRTLCriticalSection;
-{$else}
-  LargeBlocksLocked: Byte;
 {$endif}
   {A dummy large block header: Maintains a list of all allocated large blocks
    to enable memory leak detection on program shutdown.}
@@ -2784,7 +2784,7 @@ Not implemented for Unix yet
  If Unequal: Result := [AAddress]}
 
 {$ifdef SimplifiedInterlockedExchangeByte}
-function InterlockedExchangeByte(Target: PByte; Value: Byte): Byte; assembler;
+function InterlockedExchangeByte(var Target: Byte; const Value: Byte): Byte; assembler;
 asm
 {$ifdef 32bit}
   {On entry:
@@ -2816,7 +2816,7 @@ end;
 
 {$else SimplifiedInterlockedExchangeByte}
 
-function InterlockedCompareExchangeByte(CompareVal, NewVal: Byte; AAddress: PByte): Byte; {$ifdef fpc64bit}assembler; nostackframe;{$endif}
+function InterlockedCompareExchangeByte(const CompareVal, NewVal: Byte; var Target: Byte): Byte; {$ifdef fpc64bit}assembler; nostackframe;{$endif}
 asm
 {$ifdef 32Bit}
   {On entry:
@@ -2885,7 +2885,85 @@ const
   cLockByteLocked    = 109;
   cLockByteFinished  = 113;
 
-function AcquireLockByte(Target: PByte): Boolean; {$IFNDEF DEBUG}inline;{$ENDIF}
+{$ifdef FullDebugMode}
+{$define DebugAcquireLockByte}
+{$define DebugReleaseLockByte}
+{$endif}
+
+{$ifdef KYLIX}
+procedure SwitchToThreadIfSupported;
+begin
+  sched_yield;
+end;
+{$else}
+type
+  TSwitchToThread = function: BOOL; stdcall;
+var
+  FSwitchToThread: TSwitchToThread;
+
+function SwitchToThreadIfSupported: BOOL;
+begin
+  if Assigned(FSwitchToThread) then
+  begin
+    Result := FSwitchToThread();
+  end else
+  begin
+    Result := False;
+  end;
+end;
+
+{$endif}
+
+
+function AcquireSpinLockByte(var Target: Byte): Boolean; assembler;
+asm
+{$IFDEF 64bit}
+   .noframe
+@Init:
+   mov  edx, cLockByteLocked
+   mov  r10, 1
+   mov  r9, -5000
+   mov  eax, edx
+@DidntLock:
+@NormalLoadLoop:
+   add  r9, r10 // add is faster than inc
+   jz   @SwitchToThread
+   pause
+   cmp  [rcx], al
+   je   @NormalLoadLoop
+   lock xchg [rcx], al
+   cmp  al, dl
+   je   @DidntLock
+   ret
+@SwitchToThread:
+   push  rcx
+   call  SwitchToThreadIfSupported
+   pop   rcx
+   jmp  @Init
+{$else}
+@Init:
+   mov  edx, -5000
+   mov  eax, cLockByteLocked
+@DidntLock:
+@NormalLoadLoop:
+   add  edx, 1 // add is faster than inc
+   jz   @SwitchToThread
+   pause
+   cmp  [ecx], al
+   je   @NormalLoadLoop
+   lock xchg [ecx], al
+   cmp  al, cLockByteLocked
+   je   @DidntLock
+   ret
+@SwitchToThread:
+   push  ecx
+   call  SwitchToThreadIfSupported
+   pop   ecx
+   jmp  @Init
+{$endif}
+end;
+
+function AcquireLockByte(var Target: Byte): Boolean; {$IFNDEF DEBUG}inline;{$ENDIF}
 var
   R: Byte;
 begin
@@ -2894,6 +2972,7 @@ begin
   {$else}
     R := InterlockedCompareExchangeByte(cLockByteAvailable, cLockByteLocked, Target);
   {$endif}
+  {$ifdef DebugAcquireLockByte}
     case R of
       cLockByteAvailable: Result := True;
       cLockByteLocked: Result := False;
@@ -2907,17 +2986,40 @@ begin
       {$endif}
         end;
     end;
+  {$else}
+    Result := R = cLockByteAvailable;
+  {$endif}
 end;
 
-procedure ReleaseLockByte(Target: PByte); {$IFNDEF DEBUG}inline;{$ENDIF}
+{Use this option - InterlockedRelease - if you need that releasing the lock
+to also use locked store (lock xchg), not just the normal store (mov)}
+{.$define InterlockedRelease}
+
+procedure ReleaseLockByte(var Target: Byte); {$IFNDEF DEBUG}inline;{$ENDIF}
+{$ifdef DebugReleaseLockByte}
 var
   R: Byte;
+{$endif}
 begin
-  {$ifdef SimplifiedInterlockedExchangeByte}
-    R := InterlockedExchangeByte(Target, cLockByteAvailable);
+  {$ifdef InterlockedRelease}
+    {$ifdef SimplifiedInterlockedExchangeByte}
+      {$ifdef DebugReleaseLockByte}
+      R :=
+      {$endif}
+        InterlockedExchangeByte(Target, cLockByteAvailable);
+    {$else}
+      {$ifdef DebugReleaseLockByte}
+      R :=
+      {$endif}
+        InterlockedCompareExchangeByte(cLockByteLocked, cLockByteAvailable, Target);
+    {$endif}
   {$else}
-    R := InterlockedCompareExchangeByte(cLockByteLocked, cLockByteAvailable, Target);
+     {$ifdef DebugReleaseLockByte}
+     R := Target;
+     {$endif}
+     Target := cLockByteAvailable;
   {$endif}
+    {$ifdef DebugReleaseLockByte}
     if R <> cLockByteLocked  then
     begin
       {$ifndef SystemRunError}
@@ -2926,6 +3028,7 @@ begin
         System.RunError(reInvalidOp);
       {$endif}
     end;
+    {$endif}
 end;
 
 
@@ -5329,31 +5432,6 @@ end;
 
 {-----------------Small Block Management------------------}
 
-
-{$ifdef KYLIX}
-procedure SwitchToThreadIfSupported;
-begin
-  sched_yield;
-end;
-{$else}
-type
-  TSwitchToThread = function: BOOL; stdcall;
-var
-  FSwitchToThread: TSwitchToThread;
-
-function SwitchToThreadIfSupported: BOOL;
-begin
-  if Assigned(FSwitchToThread) then
-  begin
-    Result := FSwitchToThread();
-  end else
-  begin
-    Result := False;
-  end;
-end;
-
-{$endif}
-
 {Locks all small block types}
 procedure LockAllSmallBlockTypes;
 var
@@ -5366,7 +5444,7 @@ begin
   begin
     for LInd := 0 to NumSmallBlockTypes - 1 do
     begin
-      while not AcquireLockByte(@(SmallBlockTypes[LInd].SmallBlockTypeLocked)) do
+      while not AcquireLockByte(SmallBlockTypes[LInd].SmallBlockTypeLocked) do
       begin
 {$ifdef NeverSleepOnThreadContention}
   {$ifdef UseSwitchToThread}
@@ -5374,7 +5452,7 @@ begin
   {$endif}
 {$else}
         Sleep(InitialSleepTime);
-        if AcquireLockByte(@(SmallBlockTypes[LInd].SmallBlockTypeLocked)) then
+        if AcquireLockByte(SmallBlockTypes[LInd].SmallBlockTypeLocked) then
           Break;
         Sleep(AdditionalSleepTime);
 {$endif}
@@ -5443,14 +5521,14 @@ begin
   end;
 end;
 
-procedure Pause; assembler;
+(*procedure Pause; assembler;
 asm
 {$ifdef 64bit}
   pause
 {$else}
   db $F3, $90 // pause
 {$endif}
-end;
+end;*)
 
 {$ifdef Use32BitAsm}
   {$ifndef MediumBlocksLockedCriticalSection}
@@ -5495,8 +5573,17 @@ begin
 {$endif}
 
 {$ifdef MediumBlocksLockedCriticalSection}
-
-  EnterCriticalSection(MediumBlocksLockedCS);
+  if FastMMCpuFeatures and FastMMCpuFeaturePause <> 0 then
+  begin
+    if not AcquireLockByte(MediumBlocksLocked) then
+    begin
+      Result := True;
+      AcquireSpinLockByte(MediumBlocksLocked);
+    end;
+  end else
+  begin
+    EnterCriticalSection(MediumBlocksLockedCS);
+  end
 {$else MediumBlocksLockedCriticalSection}
   while not AcquireLockByte(@MediumBlocksLocked) do
   begin
@@ -5586,9 +5673,15 @@ end;
 procedure UnlockMediumBlocks; {$ifndef DEBUG}inline;{$ENDIF}
 begin
   {$ifdef MediumBlocksLockedCriticalSection}
-  LeaveCriticalSection(MediumBlocksLockedCS);
+  if FastMMCpuFeatures and FastMMCpuFeaturePause <> 0 then
+  begin
+    ReleaseLockByte(MediumBlocksLocked);
+  end else
+  begin
+    LeaveCriticalSection(MediumBlocksLockedCS);
+  end;
   {$else}
-  ReleaseLockByte(@MediumBlocksLocked);
+  ReleaseLockByte(MediumBlocksLocked);
   {$endif}
 end;
 
@@ -6077,6 +6170,7 @@ begin
   {Lock the large blocks}
 
 {$ifndef AssumeMultiThreaded}
+{$ifdef FullDebugMode}
   if not IsMultiThread then
   begin
     {The checks for IsMultiThread should be from outsize}
@@ -6087,11 +6181,22 @@ begin
     {$endif}
   end;
 {$endif}
+{$endif}
 
 {$ifdef LargeBlocksLockedCriticalSection}
-  EnterCriticalSection(LargeBlocksLockedCS);
+  if FastMMCpuFeatures and FastMMCpuFeaturePause <> 0 then
+  begin
+    if not AcquireLockByte(LargeBlocksLocked) then
+    begin
+      Result := True;
+      AcquireSpinLockByte(LargeBlocksLocked);
+    end;
+  end else
+  begin
+    EnterCriticalSection(LargeBlocksLockedCS);
+  end;
 {$else LargeBlocksLockedCriticalSection}
-  while not AcquireLockByte(@LargeBlocksLocked) do
+  while not AcquireLockByte(LargeBlocksLocked) do
   begin
     Result := True;
 {$ifdef UseReleaseStack}
@@ -6112,7 +6217,7 @@ begin
 {$endif}
 {$else}
     Sleep(InitialSleepTime);
-    if AcquireLockByte(@LargeBlocksLocked) then
+    if AcquireLockByte(LargeBlocksLocked) then
       Break;
     Sleep(AdditionalSleepTime);
 {$endif}
@@ -6127,9 +6232,15 @@ end;
 procedure UnlockLargeBlocks; {$ifndef DEBUG}inline;{$ENDIF}
 begin
   {$ifdef LargeBlocksLockedCriticalSection}
-  LeaveCriticalSection(LargeBlocksLockedCS);
+  if FastMMCpuFeatures and FastMMCpuFeaturePause <> 0 then
+  begin
+    ReleaseLockByte(LargeBlocksLocked);
+  end else
+  begin
+    LeaveCriticalSection(LargeBlocksLockedCS);
+  end;
   {$else}
-  ReleaseLockByte(@LargeBlocksLocked);
+  ReleaseLockByte(LargeBlocksLocked);
   {$endif}
 end;
 
@@ -6628,44 +6739,31 @@ begin
       while True do
       begin
         {Try to lock the small block type (0)}
-        if AcquireLockByte(@(LPSmallBlockType.SmallBlockTypeLocked)) then
+        if AcquireLockByte(LPSmallBlockType.SmallBlockTypeLocked) then
           Break;
-
-        Pause;
-
-        {Check the same data after a pause (0)}
-        if AcquireLockByte(@(LPSmallBlockType.SmallBlockTypeLocked)) then
-          Break;
-
-        Pause;
 
         {Try the next block type (+1)}
         Inc(PByte(LPSmallBlockType), SmallBlockTypeRecSize);
-        if AcquireLockByte(@(LPSmallBlockType.SmallBlockTypeLocked)) then
+        if AcquireLockByte(LPSmallBlockType.SmallBlockTypeLocked) then
           Break;
-
-        Pause;
 
         {Try up to two sizes past the requested size (+2)}
         Inc(PByte(LPSmallBlockType), SmallBlockTypeRecSize);
-        if AcquireLockByte(@(LPSmallBlockType.SmallBlockTypeLocked)) then
+        if AcquireLockByte(LPSmallBlockType.SmallBlockTypeLocked) then
           Break;
-
-        Pause;
 
         {All three sizes locked - give up and sleep {revert pointer (-2))}
         Dec(PByte(LPSmallBlockType), 2 * SmallBlockTypeRecSize);
 
         {Try to once again, last time to lock the small block type (0)}
-        if AcquireLockByte(@(LPSmallBlockType.SmallBlockTypeLocked)) then
+        if AcquireLockByte(LPSmallBlockType.SmallBlockTypeLocked) then
           Break;
 
 {$ifdef SmallBlocksLockedCriticalSection}
         LFailedToAcquireLock := True;
         Break;
 {$else}
-
-  {$ifdef LogLockContention}
+   {$ifdef LogLockContention}
         ACollector := @LPSmallBlockType.BlockCollector;
   {$endif}
   {$ifdef NeverSleepOnThreadContention}
@@ -6685,22 +6783,26 @@ begin
       end;
 
 {$ifdef SmallBlocksLockedCriticalSection}
-
-      LSmallBlockCriticalSectionIndex := (NativeUint(LPSmallBlockType)-NativeUint(@SmallBlockTypes))
-        {$ifdef SmallBlockTypeRecSizeIsPowerOf2}
-          shr SmallBlockTypeRecSizePowerOf2
-        {$else}
-          div SmallBlockTypeRecSize
-       {$endif}
-      ;
-      EnterCriticalSection(SmallBlockCriticalSections[LSmallBlockCriticalSectionIndex]);
-      if LFailedToAcquireLock then
+      if FastMMCpuFeatures and FastMMCpuFeaturePause <> 0 then
       begin
-        {Try the lock again}
-        if not AcquireLockByte(@LPSmallBlockType.SmallBlockTypeLocked) then
+        if LFailedToAcquireLock then
         begin
-          Pause;
-          if not AcquireLockByte(@LPSmallBlockType.SmallBlockTypeLocked) then
+          AcquireSpinLockByte(LPSmallBlockType.SmallBlockTypeLocked);
+        end;
+      end else
+      begin
+        LSmallBlockCriticalSectionIndex := (NativeUint(LPSmallBlockType)-NativeUint(@SmallBlockTypes))
+          {$ifdef SmallBlockTypeRecSizeIsPowerOf2}
+            shr SmallBlockTypeRecSizePowerOf2
+          {$else}
+            div SmallBlockTypeRecSize
+         {$endif}
+        ;
+        EnterCriticalSection(SmallBlockCriticalSections[LSmallBlockCriticalSectionIndex]);
+        if LFailedToAcquireLock then
+        begin
+          {Try the lock again}
+          if not AcquireLockByte(LPSmallBlockType.SmallBlockTypeLocked) then
           begin
             LSmallBlockWithoutLock := True;
           end;
@@ -6884,7 +6986,7 @@ begin
                 {Unlock the block type}
                 if not LSmallBlockWithoutLock then
                 begin
-                  ReleaseLockByte(@LPSmallBlockType.SmallBlockTypeLocked);
+                  ReleaseLockByte(LPSmallBlockType.SmallBlockTypeLocked);
                 end else
                 begin
                   LSmallBlockWithoutLock := False;
@@ -6894,10 +6996,6 @@ begin
                 begin
                   LeaveCriticalSection(SmallBlockCriticalSections[LSmallBlockCriticalSectionIndex]);
                   LSmallBlockCriticalSectionIndex := NativeUInt(MaxInt);
-                end;
-                if LFailedToAcquireLock then
-                begin
-                  Pause;
                 end;
                 {$endif}
               end;
@@ -6953,7 +7051,7 @@ begin
       {Unlock the block type}
       if not LSmallBlockWithoutLock then
       begin
-        ReleaseLockByte(@LPSmallBlockType.SmallBlockTypeLocked);
+        ReleaseLockByte(LPSmallBlockType.SmallBlockTypeLocked);
       end else
       begin
         LSmallBlockWithoutLock := False;
@@ -6963,10 +7061,6 @@ begin
       begin
         LeaveCriticalSection(SmallBlockCriticalSections[LSmallBlockCriticalSectionIndex]);
         LSmallBlockCriticalSectionIndex := NativeUInt(MaxInt);
-      end;
-      if LFailedToAcquireLock then
-      begin
-        Pause;
       end;
       {$endif}
     end;
@@ -8400,32 +8494,28 @@ begin
       {$endif}
 
 {$ifdef SmallBlocksLockedCriticalSection}
-      {Locking code similar to one of GetMem}
-      while True do
+
+      if FastMMCpuFeatures and FastMMCpuFeaturePause <> 0 then
       begin
-        if (AcquireLockByte(@(LPSmallBlockType.SmallBlockTypeLocked))) then Break;
-        Pause;
-        {Try to a acquire the lock again, after a Pause}
-        if (AcquireLockByte(@(LPSmallBlockType.SmallBlockTypeLocked))) then Break;
-        {Clear CPU dependencies before EnterCriticalSection which is going to be blocking}
-        Pause;
-        LFailedToAcquireLock := True;
-        Break;
-      end;
-      LSmallBlockCriticalSectionIndex := (NativeUint(LPSmallBlockType)-NativeUint(@SmallBlockTypes))
-        {$ifdef SmallBlockTypeRecSizeIsPowerOf2}
-          shr SmallBlockTypeRecSizePowerOf2
-        {$else}
-          div SmallBlockTypeRecSize
-       {$endif}
-      ;
-      EnterCriticalSection(SmallBlockCriticalSections[LSmallBlockCriticalSectionIndex]);
-      if LFailedToAcquireLock then
-      begin
-        if not AcquireLockByte(@(LPSmallBlockType.SmallBlockTypeLocked)) then
+        if not AcquireLockByte(LPSmallBlockType.SmallBlockTypeLocked) then
         begin
-          Pause;
-          if not AcquireLockByte(@(LPSmallBlockType.SmallBlockTypeLocked)) then
+          LFailedToAcquireLock := True;
+          AcquireSpinLockByte(LPSmallBlockType.SmallBlockTypeLocked);
+        end;
+      end else
+      begin
+        LFailedToAcquireLock := not AcquireLockByte(LPSmallBlockType.SmallBlockTypeLocked);
+        LSmallBlockCriticalSectionIndex := (NativeUint(LPSmallBlockType)-NativeUint(@SmallBlockTypes))
+          {$ifdef SmallBlockTypeRecSizeIsPowerOf2}
+            shr SmallBlockTypeRecSizePowerOf2
+          {$else}
+            div SmallBlockTypeRecSize
+         {$endif}
+        ;
+        EnterCriticalSection(SmallBlockCriticalSections[LSmallBlockCriticalSectionIndex]);
+        if LFailedToAcquireLock then
+        begin
+          if not AcquireLockByte(LPSmallBlockType.SmallBlockTypeLocked) then
           begin
             LSmallBlockWithoutLock := True;
           end;
@@ -8518,7 +8608,7 @@ begin
           {Unlock this block type}
           if not LSmallBlockWithoutLock then
           begin
-            ReleaseLockByte(@LPSmallBlockType.SmallBlockTypeLocked);
+            ReleaseLockByte(LPSmallBlockType.SmallBlockTypeLocked);
           end else
           begin
             LSmallBlockWithoutLock := False;
@@ -8554,7 +8644,7 @@ begin
           {Unlock this block type}
             if not LSmallBlockWithoutLock then
             begin
-              ReleaseLockByte(@LPSmallBlockType.SmallBlockTypeLocked);
+              ReleaseLockByte(LPSmallBlockType.SmallBlockTypeLocked);
             end else
             begin
               LSmallBlockWithoutLock := False;
@@ -8605,14 +8695,6 @@ begin
         Result := {$ifdef fpc}NativeUInt(-1){$else}-1{$endif};
     end;
   end;
-
-{$ifdef SmallBlocksLockedCriticalSection}
-  if LFailedToAcquireLock then
-  begin
-    Pause;
-  end;
-{$endif}
-
 end;
 {$else}
 {$ifdef 32Bit}
@@ -12847,7 +12929,7 @@ begin
   if IsMultiThread then
 {$endif}
   begin
-    while not AcquireLockByte(@ExpectedMemoryLeaksListLocked) do
+    while not AcquireLockByte(ExpectedMemoryLeaksListLocked) do
     begin
 {$ifdef NeverSleepOnThreadContention}
   {$ifdef UseSwitchToThread}
@@ -12855,7 +12937,7 @@ begin
   {$endif}
 {$else}
       Sleep(InitialSleepTime);
-      if AcquireLockByte(@ExpectedMemoryLeaksListLocked) then
+      if AcquireLockByte(ExpectedMemoryLeaksListLocked) then
         Break;
       Sleep(AdditionalSleepTime);
 {$endif}
@@ -12889,7 +12971,7 @@ begin
   {Add it to the correct list}
   Result := LockExpectedMemoryLeaksList
     and UpdateExpectedLeakList(@ExpectedMemoryLeaks.FirstEntryByAddress, @LNewEntry);
-  ReleaseLockByte(@ExpectedMemoryLeaksListLocked);
+  ReleaseLockByte(ExpectedMemoryLeaksListLocked);
 end;
 
 function RegisterExpectedMemoryLeak(ALeakedObjectClass: TClass; ACount: Integer = 1): Boolean; overload;
@@ -12907,7 +12989,7 @@ begin
   {Add it to the correct list}
   Result := LockExpectedMemoryLeaksList
     and UpdateExpectedLeakList(@ExpectedMemoryLeaks.FirstEntryByClass, @LNewEntry);
-  ReleaseLockByte(@ExpectedMemoryLeaksListLocked);
+  ReleaseLockByte(ExpectedMemoryLeaksListLocked);
 end;
 
 {$ifdef CheckCppObjectTypeEnabled}
@@ -12958,7 +13040,7 @@ begin
   {Add it to the correct list}
   Result := LockExpectedMemoryLeaksList
     and UpdateExpectedLeakList(@ExpectedMemoryLeaks.FirstEntryBySizeOnly, @LNewEntry);
-  ReleaseLockByte(@ExpectedMemoryLeaksListLocked);
+  ReleaseLockByte(ExpectedMemoryLeaksListLocked);
 end;
 
 function UnregisterExpectedMemoryLeak(ALeakedPointer: Pointer): Boolean; overload;
@@ -12980,7 +13062,7 @@ begin
   {Remove it from the list}
   Result := LockExpectedMemoryLeaksList
     and UpdateExpectedLeakList(@ExpectedMemoryLeaks.FirstEntryByAddress, @LNewEntry);
-  ReleaseLockByte(@ExpectedMemoryLeaksListLocked);
+  ReleaseLockByte(ExpectedMemoryLeaksListLocked);
 end;
 
 function UnregisterExpectedMemoryLeak(ALeakedObjectClass: TClass; ACount: Integer = 1): Boolean; overload;
@@ -13037,7 +13119,7 @@ begin
     AddEntries(ExpectedMemoryLeaks.FirstEntryByClass);
     AddEntries(ExpectedMemoryLeaks.FirstEntryBySizeOnly);
     {Unlock the list}
-    ReleaseLockByte(@ExpectedMemoryLeaksListLocked);
+    ReleaseLockByte(ExpectedMemoryLeaksListLocked);
   end;
 end;
 
@@ -13231,7 +13313,7 @@ begin
     {Unlock all the small block types}
     for LInd := 0 to NumSmallBlockTypes - 1 do
     begin
-      ReleaseLockByte(@SmallBlockTypes[LInd].SmallBlockTypeLocked);
+      ReleaseLockByte(SmallBlockTypes[LInd].SmallBlockTypeLocked);
     end;
   end;
   if IsMultiThread then
@@ -14279,7 +14361,7 @@ begin
   {Unlock all the small block types}
   for LInd := 0 to NumSmallBlockTypes - 1 do
   begin
-    ReleaseLockByte(@SmallBlockTypes[LInd].SmallBlockTypeLocked);
+    ReleaseLockByte(SmallBlockTypes[LInd].SmallBlockTypeLocked);
   end;
   if IsMultiThread then
   begin
@@ -14569,7 +14651,7 @@ begin
   {Unlock all the small block types}
   for LInd := 0 to NumSmallBlockTypes - 1 do
   begin
-    ReleaseLockByte(@SmallBlockTypes[LInd].SmallBlockTypeLocked);
+    ReleaseLockByte(SmallBlockTypes[LInd].SmallBlockTypeLocked);
   end;
   if IsMultiThread then
   begin
@@ -15243,7 +15325,8 @@ Using a feature which is not enabled may result in exceptions or undefined behav
 This is because the operating system would not save the registers and the states between switches.
 }
 
-      FGetEnabledXStateFeatures:= GetProcAddress(GetModuleHandle(Kernel32), 'GetEnabledXStateFeatures');
+      FGetEnabledXStateFeatures:= GetProcAddress(GetModuleHandle(Kernel32),
+        'GetEnabledXStateFeatures');
       if Assigned(FGetEnabledXStateFeatures) then
       begin
         EnabledXStateFeatures := FGetEnabledXStateFeatures;
@@ -15256,6 +15339,17 @@ This is because the operating system would not save the registers and the states
 {$ENDIF}
 
       LReg1 := GetCpuId(1, 0);
+
+      if
+        ((LReg1.RegEDX and (UnsignedBit shl 26)) <> 0) {SSE2 bit}
+      then
+      begin
+        {If we have SSE2 bit set in the CPUID, than we have the PAUSE
+        instruction supported, we don't have to check for XState/CR0 for PAUSE,
+        because PAUSE and other instructions like PREFETCHh, MOVNTI, etc.
+        work regardless of the CR0 values}
+        FastMMCpuFeatures := FastMMCpuFeatures or FastMMCpuFeaturePause;
+      end;
 
 {$ifdef EnableMMX}
       if
@@ -15321,9 +15415,12 @@ ENDQUOTE}
   {-------------Set up the small block types-------------}
 
   {$ifdef SmallBlocksLockedCriticalSection}
-  for LInd := Low(SmallBlockCriticalSections) to High(SmallBlockCriticalSections) do
+  if FastMMCpuFeatures and FastMMCpuFeaturePause <> 0 then
   begin
-    InitializeCriticalSection(SmallBlockCriticalSections[LInd]);
+    for LInd := Low(SmallBlockCriticalSections) to High(SmallBlockCriticalSections) do
+    begin
+      InitializeCriticalSection(SmallBlockCriticalSections[LInd]);
+    end;
   end;
   {$endif}
 
@@ -15490,9 +15587,8 @@ ENDQUOTE}
   FSwitchToThread := GetProcAddress(GetModuleHandle(Kernel32), 'SwitchToThread');
 
   {$ifdef MediumBlocksLockedCriticalSection}
-  InitializeCriticalSection(MediumBlocksLockedCS);
-  {$else}
   MediumBlocksLocked := cLockByteAvailable;
+  InitializeCriticalSection(MediumBlocksLockedCS);
   {$endif}
 
 {$ifdef CheckHeapForCorruption}
@@ -15520,9 +15616,8 @@ ENDQUOTE}
   end;
   {------------------Set up the large blocks---------------------}
   {$ifdef LargeBlocksLockedCriticalSection}
-  InitializeCriticalSection(LargeBlocksLockedCS);
-  {$else}
   LargeBlocksLocked := cLockByteAvailable;
+  InitializeCriticalSection(LargeBlocksLockedCS);
   {$endif}
   LargeBlocksCircularList.PreviousLargeBlockHeader := @LargeBlocksCircularList;
   LargeBlocksCircularList.NextLargeBlockHeader := @LargeBlocksCircularList;
@@ -15854,7 +15949,7 @@ begin
         end;
       end;
       if (not LargeReleaseStack[LSlot].IsEmpty)
-        and (AcquireLockByte(@LargeBlocksLocked)) then
+        and (AcquireLockByte(LargeBlocksLocked)) then
       begin
         if LargeReleaseStack[LSlot].Pop(LMemBlock) then
           FreeLargeBlock(LMemBlock, True)
@@ -15976,20 +16071,22 @@ begin
     end;
 
   {$ifdef MediumBlocksLockedCriticalSection}
-  DeleteCriticalSection(MediumBlocksLockedCS);
-  {$else MediumBlocksLockedCriticalSection}
   LargeBlocksLocked := cLockByteFinished;
+  DeleteCriticalSection(MediumBlocksLockedCS);
   {$endif MediumBlocksLockedCriticalSection}
 
   {$ifdef LargeBlocksLockedCriticalSection}
-  {$else LargeBlocksLockedCriticalSection}
   LargeBlocksLocked := cLockByteFinished;
+  DeleteCriticalSection(LargeBlocksLockedCS);
   {$endif LargeBlocksLockedCriticalSection}
 
   {$ifdef SmallBlocksLockedCriticalSection}
-  for LInd := Low(SmallBlockCriticalSections) to High(SmallBlockCriticalSections) do
+  if FastMMCpuFeatures and FastMMCpuFeaturePause <> 0 then
   begin
-    DeleteCriticalSection(SmallBlockCriticalSections[LInd]);
+    for LInd := Low(SmallBlockCriticalSections) to High(SmallBlockCriticalSections) do
+    begin
+      DeleteCriticalSection(SmallBlockCriticalSections[LInd]);
+    end;
   end;
 
   for LInd := Low(SmallBlockTypes) to High(SmallBlockTypes) do
