@@ -2986,9 +2986,8 @@ asm
    mov  rcx, rdi
   {$endif}
 @Init:
-   mov  edx, cLockByteLocked
    mov  r9d, 5000
-   mov  eax, edx
+   mov  eax, cLockByteLocked
    jmp  @FirstCompare
 @DidntLock:
 @NormalLoadLoop:
@@ -2999,7 +2998,7 @@ asm
    cmp  [rcx], al       // we are using faster, normal load to not consume the resources and only after it is ready, do once again interlocked exchange
    je   @NormalLoadLoop // for static branch prediction, jump backwards means "likely"
    lock xchg [rcx], al
-   cmp  eax, edx        // 32-bit comparison is faster
+   cmp  al, cLockByteLocked // 32-bit comparison is faster
    je   @DidntLock
    jmp	@Finish
 @SwitchToThread:
@@ -7403,9 +7402,6 @@ asm
   jnz @LockBlockTypeLoop
 {$else}
   jmp @LockBlockTypeLoop
-  {Align branch target}
-  nop
-  nop
 {$endif}
 @GotLockOnSmallBlockType:
   {Find the next free block: Get the first pool with free blocks in edx}
@@ -7428,17 +7424,11 @@ asm
   {Is the chunk now full?}
   jz @RemoveSmallPool
   {Unlock the block type}
-  mov TSmallBlockType[ebx].SmallBlockTypeLocked, False
+  mov TSmallBlockType[ebx].SmallBlockTypeLocked, cLockByteAvailable
   {Restore ebx}
   pop ebx
   {All done}
   ret
-  {Align branch target}
-{$ifndef AssumeMultiThreaded}
-  nop
-  nop
-{$endif}
-  nop
 @TrySmallSequentialFeed:
   {Try to feed a small block sequentially: Get the sequential feed block pool}
   mov edx, TSmallBlockType[ebx].CurrentSequentialFeedPool
@@ -7461,10 +7451,6 @@ asm
   pop ebx
   {All done}
   ret
-  {Align branch target}
-  nop
-  nop
-  nop
 @RemoveSmallPool:
   {Pool is full - remove it from the partially free list}
   mov ecx, TSmallBlockPoolHeader[edx].NextPartiallyFreePool
@@ -7476,9 +7462,6 @@ asm
   pop ebx
   {All done}
   ret
-  {Align branch target}
-  nop
-  nop
 @LockBlockTypeLoop:
   mov eax, $100
   {Attempt to grab the block type}
@@ -7504,11 +7487,6 @@ asm
   {$endif}
   {Try again}
   jmp @LockBlockTypeLoop
-  {Align branch target}
-  nop
-  {$ifndef UseSwitchToThread}
-  nop
-  {$endif}
 {$else NeverSleepOnThreadContention}
   {Couldn't grab the block type - sleep and try again}
   push InitialSleepTime
@@ -7523,10 +7501,6 @@ asm
   call Sleep
   {Try again}
   jmp @LockBlockTypeLoop
-  {Align branch target}
-  nop
-  nop
-  nop
 {$endif NeverSleepOnThreadContention}
 @AllocateSmallBlockPool:
   {save additional registers}
@@ -7590,10 +7564,6 @@ asm
   {Put the remainder in a bin (it will be big enough)}
   call InsertMediumBlockIntoBin
   jmp @GotMediumBlock
-  {Align branch target}
-{$ifdef AssumeMultiThreaded}
-  nop
-{$endif}
 @NoSuitableMediumBlocks:
   {Check the sequential feed medium block pool for space}
   movzx ecx, TSmallBlockType[ebx].MinimumBlockPoolSize
@@ -7671,8 +7641,6 @@ asm
   {Done}
   ret
 {-------------------Medium block allocation-------------------}
-  {Align branch target}
-  nop
 @NotASmallBlock:
   cmp eax, (MaximumMediumBlockSize - BlockHeaderSize)
   ja @IsALargeBlockRequest
@@ -7703,8 +7671,6 @@ asm
   bsf eax, eax
   or ecx, eax
   jmp @GotBinAndGroup
-  {Align branch target}
-  nop
 @GroupIsEmpty:
   {Try all groups greater than this group}
   mov eax, -2
@@ -7721,8 +7687,6 @@ asm
   shl eax, 5
   or ecx, eax
   jmp @GotBinAndGroup
-  {Align branch target}
-  nop
 @TrySequentialFeedMedium:
   mov ecx, MediumSequentialFeedBytesLeft
   {Block can be fed sequentially?}
@@ -7792,10 +7756,6 @@ asm
   jb @GotMediumBlockForMedium
   call InsertMediumBlockIntoBin
   jmp @GotMediumBlockForMedium
-  {Align branch target}
-  nop
-  nop
-  nop
 @UseWholeBlockForMedium:
   {Mark this block as used in the block following it}
   and byte ptr [esi + edi - 4], not PreviousMediumBlockIsFreeFlag
@@ -8823,8 +8783,6 @@ asm
   jnz @LockBlockTypeLoop
 {$else}
   jmp @LockBlockTypeLoop
-  {Align branch target}
-  nop
 {$endif}
 @GotLockOnSmallBlockType:
   {Current state: edx = @SmallBlockPoolHeader, ecx = APointer, ebx = @SmallBlockType}
@@ -8851,10 +8809,6 @@ asm
   pop ebx
   {Done}
   ret
-  {Align branch target}
-{$ifndef AssumeMultiThreaded}
-  nop
-{$endif}
 @SmallPoolWasFull:
   {Insert this as the first partially free pool for the block size}
   mov ecx, TSmallBlockType[ebx].NextPartiallyFreePool
@@ -8870,9 +8824,6 @@ asm
   pop ebx
   {Done}
   ret
-  {Align branch target}
-  nop
-  nop
 @PoolIsNowEmpty:
   {Was this pool actually in the linked list of pools with space? If not, it
    can only be the sequential feed pool (it is the only pool that may contain
@@ -8907,11 +8858,6 @@ asm
 {$endif}
   jmp @FreeMediumBlock
   {Align branch target}
-{$ifndef AssumeMultiThreaded}
-  nop
-  nop
-{$endif}
-  nop
 @LockBlockTypeLoop:
   mov eax, $100
   {Attempt to grab the block type}
@@ -8930,9 +8876,6 @@ asm
   {Try again}
   jmp @LockBlockTypeLoop
   {Align branch target}
-  {$ifndef UseSwitchToThread}
-  nop
-  {$endif}
 {$else}
   {Couldn't grab the block type - sleep and try again}
   push ecx
@@ -8955,9 +8898,6 @@ asm
   pop ecx
   {Try again}
   jmp @LockBlockTypeLoop
-  {Align branch target}
-  nop
-  nop
 {$endif}
   {---------------------Medium blocks------------------------------}
   {Align branch target}
@@ -9048,8 +8988,6 @@ asm
   jb @NextBlockChecked
   call RemoveMediumFreeBlock
   jmp @NextBlockChecked
-  {Align branch target}
-  nop
 @PreviousBlockIsFree:
   {Get the size of the free block just before this one}
   mov ecx, [esi - 8]
@@ -9098,10 +9036,6 @@ asm
   pop esi
   pop ebx
   ret
-  {Align branch target}
-  nop
-  nop
-  nop
 @MakeEmptyMediumPoolSequentialFeed:
   {Get a pointer to the end-marker block}
   lea ebx, [esi + MediumBlockPoolSize - MediumBlockPoolHeaderSize]
@@ -9122,9 +9056,6 @@ asm
   pop esi
   pop ebx
   ret
-  {Align branch target}
-  nop
-  nop
 @NotASmallOrMediumBlock:
   {Restore ebx}
   pop ebx
