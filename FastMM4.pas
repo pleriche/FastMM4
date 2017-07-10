@@ -2635,6 +2635,19 @@ var
   {$define USE_CPUID}
 {$endif}
 
+{$ifdef SmallBlocksLockedCriticalSection}
+  {$define USE_CPUID}
+{$endif}
+
+{$ifdef MediumBlocksLockedCriticalSection}
+  {$define USE_CPUID}
+{$endif}
+
+{$ifdef LargeBlocksLockedCriticalSection}
+  {$define USE_CPUID}
+{$endif}
+
+
 {$IFDEF USE_CPUID}
   {See FastMMCpuFeature... constants.
   We have packe the most interesting CPUID bits in one byte for faster comparison
@@ -2728,7 +2741,6 @@ end;
 
 {Gets the CPUID}
 function GetCPUID(AEax, AEcx: Cardinal): TCpuIdRegisters; assembler;
-{$ifndef unix}
 {$ifdef 32bit}
 asm
   push ebx
@@ -2758,12 +2770,24 @@ asm
   .noframe
 {$endif}
   mov r9, rbx
+{$ifdef unix}
+  mov r10, rdi
+{$else}
   mov r10, rcx
+{$endif}
   {Clear the register justs for sure, 32-bit operands in 64-bit mode also clear
   bits 63-32; moreover, CPUID only operates with 32-bit parts of the registers
   even in the 64-bit mode}
+{$ifdef unix}
+  mov eax, esi
+{$else}
   mov eax, edx
+{$endif}
+{$ifdef unix}
+  mov ecx, edx
+{$else}
   mov ecx, r8d
+{$endif}
   xor ebx, ebx
   xor edx, edx
   cpuid
@@ -2775,16 +2799,55 @@ asm
   mov rbx, r9
 end;
 {$endif}
-{$else}
-Not implemented for Unix yet
-{$endif unix}
 {$endif USE_CPUID}
 
-{Compare [AAddress], CompareVal:
- If Equal: [AAddress] := NewVal and result = CompareVal
- If Unequal: Result := [AAddress]}
+const
+  cLockByteAvailable = 107;
+  cLockByteLocked    = 109;
+  cLockByteFinished  = 113;
+
+{$define UseNormalLoadBeforeAcquireLock}
+
 
 {$ifdef SimplifiedInterlockedExchangeByte}
+
+{$ifdef UseNormalLoadBeforeAcquireLock}
+function AcquireLockTryNormalLoadFirst(var Target: Byte): Byte; assembler;
+asm
+{$ifdef 32bit}
+  {On entry:
+    eax = Target address}
+  mov ecx, eax
+  movzx eax, byte ptr [ecx]
+  cmp eax, cLockByteAvailable
+  jne @Exit
+  mov eax, cLockByteLocked
+  lock xchg [ecx], al
+{$else}
+  {$ifndef unix}
+  {On entry:
+    rcx = Target address}
+  {$ifdef AllowAsmNoframe}
+  .noframe
+  {$endif}
+  movzx eax, byte ptr [rcx]
+  cmp eax, cLockByteAvailable
+  jne @Exit
+  mov eax, cLockByteLocked
+  lock xchg [rcx], al
+  {$else}
+  {On entry:
+    rdi = Target address}
+  movzx eax, byte ptr [rdi]
+  cmp eax, cLockByteAvailable
+  jne @Exit
+  mov eax, cLockByteLocked
+  lock xchg [rdi], al
+  {$endif}
+{$endif}
+@Exit:
+end;
+{$else}
 function InterlockedExchangeByte(var Target: Byte; const Value: Byte): Byte; assembler;
 asm
 {$ifdef 32bit}
@@ -2813,9 +2876,13 @@ asm
   {$endif}
 {$endif}
 end;
+{$endif}
 
 {$else SimplifiedInterlockedExchangeByte}
 
+{Compare [AAddress], CompareVal:
+ If Equal: [AAddress] := NewVal and result = CompareVal
+ If Unequal: Result := [AAddress]}
 function InterlockedCompareExchangeByte(const CompareVal, NewVal: Byte; var Target: Byte): Byte; {$ifdef fpc64bit}assembler; nostackframe;{$endif}
 asm
 {$ifdef 32Bit}
@@ -2824,7 +2891,6 @@ asm
     dl = NewVal,
     ecx = AAddress}
   {$ifndef unix}
-
 
 {Remove false dependency on remainig bits of the eax (31-8), as eax may come
 with these bits trashed, and, as a result, the function will also return these 
@@ -2880,11 +2946,6 @@ end;
 
 {$endif SimplifiedInterlockedExchangeByte}
 
-const
-  cLockByteAvailable = 107;
-  cLockByteLocked    = 109;
-  cLockByteFinished  = 113;
-
 {$ifdef FullDebugMode}
 {$define DebugAcquireLockByte}
 {$define DebugReleaseLockByte}
@@ -2926,18 +2987,19 @@ asm
   {$endif}
 @Init:
    mov  edx, cLockByteLocked
-   mov  r10, 1
-   mov  r9, -5000
+   mov  r9d, 5000
    mov  eax, edx
+   jmp  @FirstCompare
 @DidntLock:
 @NormalLoadLoop:
-   add  r9, r10 // add is faster than inc
+   dec  r9
    jz   @SwitchToThread // for static branch prediction, jump forward means "unlikely"
    pause
-   cmp  [rcx], al // we are using faster, normal load to not consume the resources and only after it is ready, do once again interlocked exchange
+@FirstCompare:
+   cmp  [rcx], al       // we are using faster, normal load to not consume the resources and only after it is ready, do once again interlocked exchange
    je   @NormalLoadLoop // for static branch prediction, jump backwards means "likely"
    lock xchg [rcx], al
-   cmp  al, dl
+   cmp  eax, edx        // 32-bit comparison is faster
    je   @DidntLock
    jmp	@Finish
 @SwitchToThread:
@@ -2949,13 +3011,15 @@ asm
 {$else}
    mov  ecx, eax
 @Init:
-   mov  edx, -5000
+   mov  edx, 5000
    mov  eax, cLockByteLocked
+   jmp  @FirstCompare
 @DidntLock:
 @NormalLoadLoop:
-   inc  edx
+   dec  edx
    jz   @SwitchToThread
    pause
+@FirstCompare:
    cmp  [ecx], al
    je   @NormalLoadLoop
    lock xchg [ecx], al
@@ -2976,7 +3040,12 @@ var
   R: Byte;
 begin
   {$ifdef SimplifiedInterlockedExchangeByte}
-    R := InterlockedExchangeByte(Target, cLockByteLocked);
+    R :=
+    {$ifdef UseNormalLoadBeforeAcquireLock}
+    AcquireLockTryNormalLoadFirst(Target);
+    {$else}
+    InterlockedExchangeByte(Target, cLockByteLocked);
+    {$endif}
   {$else}
     R := InterlockedCompareExchangeByte(cLockByteAvailable, cLockByteLocked, Target);
   {$endif}
@@ -15505,9 +15574,11 @@ ENDQUOTE}
     end;
     {$else}
 {$ifdef USE_CPUID}
-      if (FastMMCpuFeatures and FastMMCpuFeatureErms) <> 0 then
+      {$ifdef EnalbleERMS}
+      if (FastMMCpuFeatures and FastMMCpuFeatureERMS) <> 0 then
         SmallBlockTypes[LInd].UpsizeMoveProcedure := MoveWithErms
       else
+      {$endif}
 {$endif}      
         SmallBlockTypes[LInd].UpsizeMoveProcedure := MoveX16LP
       ;
