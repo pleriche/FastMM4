@@ -2793,7 +2793,6 @@ asm
   mov ecx, eax
   movzx eax, dl
   lock xchg [ecx], al
-  movzx eax, dl
 {$else}
   {$ifndef unix}
   {On entry:
@@ -2941,12 +2940,13 @@ asm
    pop   rcx
    jmp  @Init
 {$else}
+   mov  ecx, eax
 @Init:
    mov  edx, -5000
    mov  eax, cLockByteLocked
 @DidntLock:
 @NormalLoadLoop:
-   add  edx, 1 // add is faster than inc
+   inc  edx
    jz   @SwitchToThread
    pause
    cmp  [ecx], al
