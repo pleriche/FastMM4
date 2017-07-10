@@ -2680,12 +2680,13 @@ asm
   test ch, ch
   jnz @ScanLoop
   lea eax, [eax + edx - 1]
-  ret
+  jmp @Finish
 @ReturnLess2:
   lea eax, [eax + edx - 2]
-  ret
+  jmp @Finish
 @ZeroLength:
   xor eax, eax
+@Finish:
 end;
 {$endif}
 
@@ -2917,7 +2918,12 @@ end;
 function AcquireSpinLockByte(var Target: Byte): Boolean; assembler;
 asm
 {$IFDEF 64bit}
-   .noframe
+  {$ifdef AllowAsmNoframe}
+  .noframe
+  {$endif}
+  {$ifdef unix}
+   mov  rcx, rdi
+  {$endif}
 @Init:
    mov  edx, cLockByteLocked
    mov  r10, 1
@@ -2926,19 +2932,20 @@ asm
 @DidntLock:
 @NormalLoadLoop:
    add  r9, r10 // add is faster than inc
-   jz   @SwitchToThread
+   jz   @SwitchToThread // for static branch prediction, jump forward means "unlikely"
    pause
-   cmp  [rcx], al
-   je   @NormalLoadLoop
+   cmp  [rcx], al // we are using faster, normal load to not consume the resources and only after it is ready, do once again interlocked exchange
+   je   @NormalLoadLoop // for static branch prediction, jump backwards means "likely"
    lock xchg [rcx], al
    cmp  al, dl
    je   @DidntLock
-   ret
+   jmp	@Finish
 @SwitchToThread:
    push  rcx
    call  SwitchToThreadIfSupported
    pop   rcx
    jmp  @Init
+@Finish:
 {$else}
    mov  ecx, eax
 @Init:
@@ -2954,12 +2961,13 @@ asm
    lock xchg [ecx], al
    cmp  al, cLockByteLocked
    je   @DidntLock
-   ret
+   jmp	@Finish
 @SwitchToThread:
    push  ecx
    call  SwitchToThreadIfSupported
    pop   ecx
    jmp  @Init
+@Finish:
 {$endif}
 end;
 
