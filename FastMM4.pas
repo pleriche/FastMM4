@@ -1260,6 +1260,11 @@ interface
 {$endif}
 
 
+{$ifdef XE2AndUp}
+{$define PasCodeAlign}
+{$define AsmCodeAlign}
+{$endif}
+
 
 {------------------------Compiler options for FastMM4------------------------}
 
@@ -1281,13 +1286,17 @@ of just one option: "Boolean short-circuit evaluation".}
 {$ifdef FullDebugMode}
 
 
-        {The stack framce force copmiler option should be ON for 
-        the FullDebugMode, otherwise the stack unmangling may not work 
-        properly for the call stack debug reports geneated 
+        {The stack framce force copmiler option should be ON for
+        the FullDebugMode, otherwise the stack unmangling may not work
+        properly for the call stack debug reports geneated
         by FastMM4.}
 
   {$STACKFRAMES ON}
 
+{$endif}
+
+{$ifdef PasCodeAlign}
+  {$CODEALIGN 16}
 {$endif}
 
 
@@ -1711,8 +1720,6 @@ var
 {$endif}
 
 implementation
-
-{$CODEALIGN 16}
 
 {$undef AsmVersion} {WORK IN PROGRESS ON THE ASM VERSION}
 
@@ -2685,7 +2692,7 @@ asm
   {Word align}
   add eax, 1
   and eax, -2
-  .align 16
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 @ScanLoop:
   mov cx, [eax]
   add eax, 2
@@ -2697,11 +2704,11 @@ asm
   jnz @ScanLoop
   lea eax, [eax + edx - 1]
   jmp @Finish
-  .align 16
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 @ReturnLess2:
   lea eax, [eax + edx - 2]
   jmp @Finish
-  .align 16
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 @ZeroLength:
   xor eax, eax
 @Finish:
@@ -2994,7 +3001,7 @@ asm
    mov  r9d, 5000
    mov  eax, cLockByteLocked
    jmp  @FirstCompare
-  .align 16
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 @DidntLock:
 @NormalLoadLoop:
    dec  r9
@@ -3019,7 +3026,7 @@ asm
    mov  edx, 5000
    mov  eax, cLockByteLocked
    jmp  @FirstCompare
-  .align 16
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 @DidntLock:
 @NormalLoadLoop:
    dec  edx
@@ -4309,7 +4316,7 @@ asm
   {Make the counter negative based: The last 12 bytes are moved separately}
   neg ecx
   jns @MMXMoveLast12
-  .align 16
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 @MMXMoveLoop:
   {Move a 16 byte block}
   {$ifdef Delphi4or5}
@@ -4359,7 +4366,7 @@ asm
 @FPUMove:
   neg ecx
   jns @FPUMoveLast12
-  .align 16
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 @FPUMoveLoop:
   {Move a 16 byte block}
   fild qword ptr [eax + ecx]
@@ -4387,7 +4394,7 @@ asm
   add rdx, r8
   neg r8
   jns @MoveLast8
-  .align 16
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 @MoveLoop:
   {Move a 16 byte block}
   movdqa xmm0, [rcx + r8]
@@ -4447,7 +4454,7 @@ asm
   cmp r8, -128
   jg  @SmallAvxMove
 
-  .align 16
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 
 @AvxBigMoveAlignedAll:
   db $C4, $C1, $7D, $6F, $04, $08          // vmovdqa ymm0, ymmword ptr [rcx+r8]
@@ -4462,7 +4469,7 @@ asm
   cmp r8, -128
   jl  @AvxBigMoveAlignedAll
 
-  .align 16
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 
 @SmallAvxMove:
 
@@ -4508,7 +4515,7 @@ asm
   cmp r8, -128
   jg  @SmallAvxMove
 
-  .align 16
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 
 @AvxBigMoveAlignedAll:
   db $C4, $C1, $7D, $6F, $04, $08          // vmovdqa ymm0, ymmword ptr [rcx+r8]
@@ -4523,7 +4530,7 @@ asm
   cmp r8, -128
   jl  @AvxBigMoveAlignedAll
 
-  .align 16
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 
 @SmallAvxMove:
 
@@ -4584,7 +4591,7 @@ asm
   mov rsi, rax
   jmp @exit
 
-  .align 16
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 
 @DontDoRepMovsb:
 
@@ -4593,7 +4600,7 @@ asm
   cmp r8, -128
   jg  @SmallAvxMove
 
-  .align 16
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 
 @AvxBigMoveAlignedAll:
   db $C4, $C1, $7D, $6F, $04, $08          // vmovdqa ymm0, ymmword ptr [rcx+r8]
@@ -4608,7 +4615,7 @@ asm
   cmp r8, -128
   jl  @AvxBigMoveAlignedAll
 
-  .align 16
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 
 @SmallAvxMove:
 
@@ -4668,13 +4675,13 @@ asm
   mov rsi, rax
   jmp @exit
 
-  .align 16
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 
 @DontDoRepMovsb:
   cmp r8, -128
   jg  @SmallAvxMove
 
-  .align 16
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 
 @AvxBigMoveAlignedAll:
   db $C4, $C1, $7D, $6F, $04, $08          // vmovdqa ymm0, ymmword ptr [rcx+r8]
@@ -4689,7 +4696,7 @@ asm
   cmp r8, -128
   jl  @AvxBigMoveAlignedAll
 
-  .align 16
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 
 @SmallAvxMove:
 
@@ -4835,7 +4842,7 @@ asm
   jz @FPUMoveLoop
   {$endif}
 
-  .align 16
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 
 @MMXMoveLoop:
   {Move an 8 byte block}
@@ -4865,7 +4872,7 @@ asm
 {FPU code is only used if MMX is not forced}
 {$ifndef ForceMMX}
 
-  .align 16
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 
 @FPUMoveLoop:
   {Move an 8 byte block}
@@ -7428,7 +7435,7 @@ asm
 {$else}
   jmp @LockBlockTypeLoop
 {$endif}
-  .align 16
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 @GotLockOnSmallBlockType:
   {Find the next free block: Get the first pool with free blocks in edx}
   mov edx, TSmallBlockType[ebx].NextPartiallyFreePool
@@ -7455,7 +7462,7 @@ asm
   pop ebx
   {All done}
   ret
-  .align 16
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 @TrySmallSequentialFeed:
   {Try to feed a small block sequentially: Get the sequential feed block pool}
   mov edx, TSmallBlockType[ebx].CurrentSequentialFeedPool
@@ -7478,7 +7485,7 @@ asm
   pop ebx
   {All done}
   ret
-  .align 16
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 @RemoveSmallPool:
   {Pool is full - remove it from the partially free list}
   mov ecx, TSmallBlockPoolHeader[edx].NextPartiallyFreePool
@@ -7490,7 +7497,7 @@ asm
   pop ebx
   {All done}
   ret
-  .align 16
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 @LockBlockTypeLoop:
   mov eax, $100
   {Attempt to grab the block type}
@@ -7531,7 +7538,7 @@ asm
   {Try again}
   jmp @LockBlockTypeLoop
 {$endif NeverSleepOnThreadContention}
-  .align 16
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 @AllocateSmallBlockPool:
   {save additional registers}
   push esi
@@ -7862,7 +7869,7 @@ asm
 {$else}
   jmp @LockBlockTypeLoop
 {$endif}
-  .align 16
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 @GotLockOnSmallBlockType:
   {Find the next free block: Get the first pool with free blocks in rdx}
   mov rdx, TSmallBlockType[rbx].NextPartiallyFreePool
@@ -7889,7 +7896,7 @@ asm
   mov TSmallBlockType[rbx].SmallBlockTypeLocked, False
   mov rax, rsi // restore rax
   jmp @Done
-  .align 16
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 @TrySmallSequentialFeed:
   {Try to feed a small block sequentially: Get the sequential feed block pool}
   mov rdx, TSmallBlockType[rbx].CurrentSequentialFeedPool
@@ -7910,7 +7917,7 @@ asm
   {Set the block header}
   mov [rax - BlockHeaderSize], rdx
   jmp @Done
-  .align 16
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 @RemoveSmallPool:
   {Pool is full - remove it from the partially free list}
   mov rcx, TSmallBlockPoolHeader[rdx].NextPartiallyFreePool
@@ -7919,7 +7926,7 @@ asm
   {Unlock the block type}
   mov TSmallBlockType[rbx].SmallBlockTypeLocked, False
   jmp @Done
-  .align 16
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 @LockBlockTypeLoop:
   mov eax, $100
   {Attempt to grab the block type}
@@ -7960,7 +7967,7 @@ asm
   {Try again}
   jmp @LockBlockTypeLoop
 {$endif NeverSleepOnThreadContention}
-  .align 16
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 @AllocateSmallBlockPool:
   {Do we need to lock the medium blocks?}
 {$ifndef AssumeMultiThreaded}
@@ -8026,7 +8033,7 @@ asm
   {Put the remainder in a bin (it will be big enough)}
   call InsertMediumBlockIntoBin
   jmp @GotMediumBlock
-  .align 16
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 @NoSuitableMediumBlocks:
   {Check the sequential feed medium block pool for space}
   movzx ecx, TSmallBlockType[rbx].MinimumBlockPoolSize
@@ -8048,7 +8055,7 @@ asm
   mov LastSequentiallyFedMediumBlock, rsi
   {Get the block pointer}
   jmp @GotMediumBlock
-  .align 16
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 @AllocateNewSequentialFeed:
   {Need to allocate a new sequential feed medium block pool: use the
    optimal size for this small block pool}
@@ -8066,7 +8073,7 @@ asm
 @NotLockedAfterAllocNewSequentialFeedMediumPool:
   mov byte ptr TSmallBlockType[rbx].SmallBlockTypeLocked, 0
   jmp @Done
-  .align 16
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 @UseWholeBlock:
   {rsi = free block, rbx = block type, edi = block size}
   {Mark this block as used in the block following it}
@@ -8102,7 +8109,7 @@ asm
   mov [rax - BlockHeaderSize], rsi
   jmp @Done
 {-------------------Medium block allocation-------------------}
-  .align 16
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 @NotASmallBlock:
   cmp rcx, (MaximumMediumBlockSize - BlockHeaderSize)
   ja @IsALargeBlockRequest
@@ -8138,7 +8145,7 @@ asm
   bsf eax, eax
   or ecx, eax
   jmp @GotBinAndGroup
-  .align 16
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 @GroupIsEmpty:
   {Try all groups greater than this group}
   mov eax, -2
@@ -8155,7 +8162,7 @@ asm
   shl eax, MediumBlockBinsPerGroupPowerOf2
   or ecx, eax
   jmp @GotBinAndGroup
-  .align 16
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 @TrySequentialFeedMedium:
   mov ecx, MediumSequentialFeedBytesLeft
   {Block can be fed sequentially?}
@@ -8171,7 +8178,7 @@ asm
   or rbx, IsMediumBlockFlag
   mov [rax - BlockHeaderSize], rbx
   jmp @MediumBlockGetDone
-  .align 16
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 @AllocateNewSequentialFeedForMedium:
   mov ecx, ebx
   call AllocNewSequentialFeedMediumPool
@@ -8183,7 +8190,7 @@ asm
   mov rax, rsi
 @DontUnlockMediumBlocksAfterMediumBlockGetDone:
   jmp @Done
-  .align 16
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 @GotBinAndGroup:
   {ebx = block size, ecx = bin number, edx = group number}
   {Get a pointer to the bin in edi}
@@ -8228,7 +8235,7 @@ asm
   jb @GotMediumBlockForMedium
   call InsertMediumBlockIntoBin
   jmp @GotMediumBlockForMedium
-  .align 16
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 @UseWholeBlockForMedium:
   {Mark this block as used in the block following it}
   and byte ptr [rsi + rdi - BlockHeaderSize], not PreviousMediumBlockIsFreeFlag
@@ -8244,7 +8251,7 @@ asm
   mov rax, rsi
   jmp @Done
 {-------------------Large block allocation-------------------}
-  .align 16
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 @IsALargeBlockRequest:
   xor rax, rax
   test rcx, rcx
@@ -8828,6 +8835,7 @@ asm
 {$else}
   jmp @LockBlockTypeLoop
 {$endif}
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 @GotLockOnSmallBlockType:
   {Current state: edx = @SmallBlockPoolHeader, ecx = APointer, ebx = @SmallBlockType}
   {Decrement the number of blocks in use}
@@ -8853,6 +8861,7 @@ asm
   pop ebx
   {Done}
   ret
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 @SmallPoolWasFull:
   {Insert this as the first partially free pool for the block size}
   mov ecx, TSmallBlockType[ebx].NextPartiallyFreePool
@@ -8868,6 +8877,7 @@ asm
   pop ebx
   {Done}
   ret
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 @PoolIsNowEmpty:
   {Was this pool actually in the linked list of pools with space? If not, it
    can only be the sequential feed pool (it is the only pool that may contain
@@ -8901,7 +8911,7 @@ asm
   {$endif}
 {$endif}
   jmp @FreeMediumBlock
-  {Align branch target}
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 @LockBlockTypeLoop:
   mov eax, $100
   {Attempt to grab the block type}
@@ -8944,7 +8954,7 @@ asm
   jmp @LockBlockTypeLoop
 {$endif}
   {---------------------Medium blocks------------------------------}
-  {Align branch target}
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 @NotSmallBlockInUse:
   {Not a small block in use: is it a medium or large block?}
   test dl, IsFreeBlockFlag + IsLargeBlockFlag
@@ -9020,7 +9030,7 @@ asm
   pop ebx
   {Return}
   ret
-  {Align branch target}
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 @NextBlockIsFree:
   {Get the next block address in eax}
   lea eax, [esi + ebx]
@@ -9032,6 +9042,7 @@ asm
   jb @NextBlockChecked
   call RemoveMediumFreeBlock
   jmp @NextBlockChecked
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 @PreviousBlockIsFree:
   {Get the size of the free block just before this one}
   mov ecx, [esi - 8]
@@ -9045,7 +9056,7 @@ asm
   mov eax, esi
   call RemoveMediumFreeBlock
   jmp @PreviousBlockChecked
-  {Align branch target}
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 @EntireMediumPoolFree:
   {Should we make this the new sequential feed medium block pool? If the
    current sequential feed pool is not entirely free, we make this the new
@@ -9080,6 +9091,7 @@ asm
   pop esi
   pop ebx
   ret
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 @MakeEmptyMediumPoolSequentialFeed:
   {Get a pointer to the end-marker block}
   lea ebx, [esi + MediumBlockPoolSize - MediumBlockPoolHeaderSize]
@@ -9100,6 +9112,7 @@ asm
   pop esi
   pop ebx
   ret
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 @NotASmallOrMediumBlock:
   {Restore ebx}
   pop ebx
@@ -9160,6 +9173,7 @@ asm
 {$else}
   jmp @LockBlockTypeLoop
 {$endif}
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 @GotLockOnSmallBlockType:
   {Current state: rdx = @SmallBlockPoolHeader, rcx = APointer, rbx = @SmallBlockType}
   {Decrement the number of blocks in use}
@@ -9182,6 +9196,7 @@ asm
   {Unlock the block type}
   mov TSmallBlockType[rbx].SmallBlockTypeLocked, al
   jmp @Done
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 @SmallPoolWasFull:
   {Insert this as the first partially free pool for the block size}
   mov rcx, TSmallBlockType[rbx].NextPartiallyFreePool
@@ -9220,6 +9235,7 @@ asm
   mov rcx, rdx
   mov rdx, [rdx - BlockHeaderSize]
   jmp @FreeMediumBlock
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 @LockBlockTypeLoop:
   mov eax, $100
   {Attempt to grab the block type}
@@ -9258,6 +9274,7 @@ asm
   jmp @LockBlockTypeLoop
 {$endif}
   {---------------------Medium blocks------------------------------}
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 @NotSmallBlockInUse:
   {Not a small block in use: is it a medium or large block?}
   test dl, IsFreeBlockFlag + IsLargeBlockFlag
@@ -9328,6 +9345,7 @@ asm
 @DontUnlockMediumBlocksAfterBinFreeMediumBlock:
   xor eax, eax
   jmp @Done
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 @NextBlockIsFree:
   {Get the next block address in rax}
   lea rax, [rsi + rbx]
@@ -9353,6 +9371,7 @@ asm
   mov rcx, rsi
   call RemoveMediumFreeBlock
   jmp @PreviousBlockChecked
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 @EntireMediumPoolFree:
   {Should we make this the new sequential feed medium block pool? If the
    current sequential feed pool is not entirely free, we make this the new
@@ -9388,6 +9407,7 @@ asm
   {Return 0 on all ok}
   sbb eax, eax
   jmp @Done
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 @MakeEmptyMediumPoolSequentialFeed:
   {Get a pointer to the end-marker block}
   lea rbx, [rsi + MediumBlockPoolSize - MediumBlockPoolHeaderSize]
@@ -9409,6 +9429,7 @@ asm
 @DontUnlockMediumBlocksAfterMakeEmptyMediumPoolSequentialFeed:
   xor eax, eax
   jmp @Done
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 @NotASmallOrMediumBlock:
   {Attempt to free an already free block?}
   mov eax, -1
@@ -9902,13 +9923,10 @@ asm
   mov eax, edx
   call FastGetMem
   mov [esi], eax
-  nop
-  nop
 @SizeIsZero:
   pop esi
   ret
-  nop
-  nop
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 @PointerNotNil:
   test edx, edx
   jne @GoRealloc
@@ -9916,9 +9934,7 @@ asm
   mov [esi], 0
   pop esi
   ret
-  nop
-  nop
-  nop
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 @GoRealloc:
 {$endif}
   {On entry: eax = APointer; edx = ANewSize}
@@ -9955,11 +9971,9 @@ asm
 {$ifdef fpc}
   mov [esi], eax
   pop esi
-  nop
 {$endif}
   ret
-  {Align branch target}
-  nop
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 @NotSmallInPlaceDownsize:
   {Save the requested size}
   mov ebx, edx
@@ -10002,12 +10016,9 @@ asm
 {$ifdef fpc}
   mov [esi], eax
   pop esi
-  nop
 {$endif}
   ret
-  {Align branch target}
-  nop
-  nop
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 @SmallUpsize:
   {State: esi = APointer, edx = ANewSize, ecx = Current Block Size, ebx = Current Block Type}
   {This pointer is being reallocated to a larger block and therefore it is
@@ -10066,11 +10077,9 @@ asm
 {$ifdef fpc}
   mov [esi], eax
   pop esi
-  nop
 {$endif}
   ret
-  {Align branch target}
-  nop
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 @NotASmallBlock:
   {Is this a medium block or a large block?}
   test cl, IsFreeBlockFlag + IsLargeBlockFlag
@@ -10111,13 +10120,9 @@ asm
 {$ifdef fpc}
   mov [esi], eax
   pop esi
-  nop
 {$endif}
   ret
-  {Align branch target}
-  nop
-  nop
-  nop
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 @MediumMustDownsize:
   {In-place downsize? Balance the cost of moving the data vs. the cost of
    fragmenting the memory pool. Medium blocks in use may never be smaller
@@ -10173,12 +10178,7 @@ asm
   or edx, PreviousMediumBlockIsFreeFlag
   mov [edi - 4], edx
   jmp @MediumDownsizeDoSplit
-  {Align branch target}
-  nop
-  nop
-{$ifdef AssumeMultiThreaded}
-  nop
-{$endif}
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 @MediumDownsizeNextBlockFree:
   {The next block is free: combine it}
   mov eax, edi
@@ -10214,10 +10214,9 @@ asm
 {$ifdef fpc}
   mov [esi], eax
   pop esi
-  nop
 {$endif}
   ret
-  {Align branch target}
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 @MediumDownsizeRealloc:
   {Save the requested size}
   mov edi, edx
@@ -10257,10 +10256,9 @@ asm
 {$ifdef fpc}
   mov [esi], eax
   pop esi
-  nop
 {$endif}
   ret
-  {Align branch target}
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 @MediumBlockUpsize:
   {Status: ecx = Current Block Size - 4, bl = Current Block Flags,
    edi = @Next Block, eax/esi = APointer, edx = Requested Size}
@@ -10336,12 +10334,7 @@ asm
   add ebp, 4
   {Upsize done}
   jmp @MediumUpsizeInPlaceDone
-  {Align branch target}
-{$ifndef AssumeMultiThreaded}
-  nop
-  nop
-  nop
-{$endif}
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 @MediumInPlaceUpsizeSplit:
   {Store the size of the second split as the second last dword}
   mov [esi + ebp - 4], edx
@@ -10373,9 +10366,7 @@ asm
   pop esi
 {$endif}
   ret
-  {Align branch target for "@CannotUpsizeMediumBlockInPlace"}
-  nop
-  nop
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 @NextMediumBlockChanged:
   {The next medium block changed while the medium blocks were being locked}
   push ecx
@@ -10383,6 +10374,7 @@ asm
   call UnlockMediumBlocks
   pop edx
   pop ecx
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 @CannotUpsizeMediumBlockInPlace:
   {Couldn't upsize in place. Grab a new block and move the data across:
    If we have to reallocate and move medium blocks, we grow by at
@@ -10441,12 +10433,9 @@ asm
 {$ifdef fpc}
   mov [esi], eax
   pop esi
-  nop
-  nop
 {$endif}
   ret
-  {Align branch target}
-  nop
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 @PossibleLargeBlock:
   {-----------------------Large block------------------------------}
   {Restore registers}
@@ -10526,6 +10515,7 @@ asm
   {In-place downsize - return the original pointer}
   mov rax, rsi
   jmp @Done
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 @NotSmallInPlaceDownsize:
   {Save the requested size}
   mov rbx, rdx
@@ -10563,6 +10553,7 @@ asm
   {Return the pointer}
   mov rax, rbx
   jmp @Done
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 @SmallUpsize:
   {State: rsi = APointer, rdx = ANewSize, rcx = Current Block Size, rbx = Current Block Type}
   {This pointer is being reallocated to a larger block and therefore it is
@@ -10613,6 +10604,7 @@ asm
   {Done}
   mov rax, rdi
   jmp @Done
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 @NotASmallBlock:
   {Is this a medium block or a large block?}
   test cl, IsFreeBlockFlag + IsLargeBlockFlag
@@ -10641,6 +10633,7 @@ asm
 @MediumNoResize:
   mov rax, rsi
   jmp @Done
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 @MediumMustDownsize:
   {In-place downsize? Balance the cost of moving the data vs. the cost of
    fragmenting the memory pool. Medium blocks in use may never be smaller
@@ -10698,6 +10691,7 @@ asm
   or rdx, PreviousMediumBlockIsFreeFlag
   mov [rdi - BlockHeaderSize], rdx
   jmp @MediumDownsizeDoSplit
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 @MediumDownsizeNextBlockFree:
   {The next block is free: combine it}
   mov rcx, rdi
@@ -10728,6 +10722,7 @@ asm
   {Result = old pointer}
   mov rax, rsi
   jmp @Done
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 @MediumDownsizeRealloc:
   {Save the requested size}
   mov rdi, rdx
@@ -10841,6 +10836,7 @@ asm
   add r15, BlockHeaderSize
   {Upsize done}
   jmp @MediumUpsizeInPlaceDone
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 @MediumInPlaceUpsizeSplit:
   {Store the size of the second split as the second last dword}
   mov [rsi + r15 - BlockHeaderSize], rdx
@@ -10864,6 +10860,7 @@ asm
   {Result = old pointer}
   mov rax, rsi
   jmp @Done
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 @NextMediumBlockChanged:
   {The next medium block changed while the medium blocks were being locked}
   test r12, (UnsignedBit shl StateBitMediumLocked)
@@ -10927,6 +10924,7 @@ asm
   {Restore the result}
   mov rax, r15
   jmp @Done
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 @PossibleLargeBlock:
   {-----------------------Large block------------------------------}
   {Is this a valid large block?}
@@ -10990,6 +10988,7 @@ asm
   fldz
   {Clear groups of 8 bytes. Block sizes are always four less than a multiple
    of 8.}
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 @FillLoop:
   fst qword ptr [edx + ebx]
   add ebx, 8
@@ -11039,6 +11038,7 @@ asm
   pxor xmm0, xmm0
   {Clear groups of 16 bytes. Block sizes are always 8 less than a multiple of
    16.}
+  {$ifdef AsmCodeAlign}.align 16{$endif}
 @FillLoop:
   movdqa [rdx + rbx], xmm0
   add rbx, 16
