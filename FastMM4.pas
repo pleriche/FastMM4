@@ -9373,7 +9373,7 @@ asm
   mov rcx, rsi
   call RemoveMediumFreeBlock
   jmp @PreviousBlockChecked
-  {$ifdef AsmCodeAlign}.align 8$endif}
+  {$ifdef AsmCodeAlign}.align 8{$endif}
 @EntireMediumPoolFree:
   {Should we make this the new sequential feed medium block pool? If the
    current sequential feed pool is not entirely free, we make this the new
