@@ -80,7 +80,16 @@ Set the default options for FastMM here.
  thread will usually enter a "busy waiting" loop instead of relinquishing its
  timeslice when a thread contention occurs, unless UseSwitchToThread is
  also defined (see below) in which case it will call SwitchToThread instead of
- Sleep.}
+ Sleep.
+
+*** Note: This option was added in FastMM 4 version Version 4.68
+    on 3 July 2006, is provided only if you wish to restore old
+    functionality (e.g. for testing, etc.), and is not recommended
+    for FastMM4-AVX, since this it provides suboptimal performance compare
+    to the new locking mechanism implemented in the FastMM4-AVX.
+This option has no effect when SmallBlocksLockedCriticalSection/
+MediumBlocksLockedCriticalSection/LargeBlocksLockedCriticalSection is enabled}
+
 {.$define NeverSleepOnThreadContention}
 
 {Set this option to call SwitchToThread instead of sitting in a "busy waiting"
@@ -90,7 +99,16 @@ Set the default options for FastMM here.
  performance with many CPU cores and/or threads of different priorities. Note
  that the SwitchToThread API call is only available on Windows 2000 and later,
  but FastMM4 loads it dynamically, so it would not fail even under very old
- versions of Windows   }
+ versions of Windows.
+
+*** Note: This option was added in FastMM 4 version Version 4.97
+    on 30 September 2010, is provided only if you wish to restore old
+    functionality (e.g. for testing, etc.), and is not recommended
+    for FastMM4-AVX, since this it provides suboptimal performance compare
+    to the new locking mechanism implemented in the FastMM4-AVX.
+This option has no effect when SmallBlocksLockedCriticalSection/
+MediumBlocksLockedCriticalSection/LargeBlocksLockedCriticalSection is enabled}
+
 {.$define UseSwitchToThread}
 
 {This option uses a simpler instruction to acquire a lock: "lock xchg",
@@ -99,17 +117,35 @@ actually no reason to use "cmpxchg", because  the simple instruction - "xchg" -
 perfectly suits our need. Although "xchg" has exactly the same latency and
 costs in terms of CPU cycles as "cmpxghg", it is just simper way to do the
 lock that we need, and, according to the Occam's razor principle, simple things
-are better.}
+are better. If you wish to restore old functionality of FastMM4 version 4.992,
+disable this option }
 {$define SimplifiedInterlockedExchangeByte}
 
-
-{These 3 options make FastMM4 to use a new approach to waiting for a lock:
+{These 3 options make FastMM4-AVX to use a new approach to waiting for a lock:
 CriticalSections instead of Sleep(). With these options, the Sleep() will
 never be used but EnterCriticalSection/LeaveCriticalSection will be
 used instead. Testing has shown that the approach of using CriticalSections
 instead of Sleep (which was used by default before in FastMM4) provides
 significant gain in situations when the number of threads working with the
-memory manager is the same or higher than the number of physical cores.}
+memory manager is the same or higher than the number of physical cores.
+This options take away the original FastMM4 approach of using
+Sleep(InitialSleepTime) and then Sleep(AdditionalSleepTime)
+(or Sleep(0) and Sleep(1)) and replace them with
+EnterCriticalSection/LeaveCriticalSection to save valuable CPU cycles wasted by
+Sleep(0) and to improve speed (reduce latency) that was affected each time by
+at least 1 millisecond by Sleep(1), because the Critical Sections are much more
+CPU-friendly and have definitely lower latency than Sleep(1).
+
+When these options are enabled, FastMM4-AVX it checks:
+ - whether the CPU supports SSE2 and thus the "pause" instruction, and
+ - whether the operating system has the SwitchToThread() API call, and,
+ and in this case uses "pause" spin-loop for 5000 iterations and then
+SwitchToThread() instead of critical sections; If a CPU doesn't have the
+"pause" instrcution or Windows doesn't have the SwitchToThread() API
+function, it will use EnterCriticalSection/LeaveCriticalSection.
+When FastMM4-AVX uses "pause" and SwitchToThread(), tests that allocate,
+reallocate and release memory finish up to two times faster when the
+number of threads is the same or greater than the number of physical cores}
 
 {$define SmallBlocksLockedCriticalSection}
 {$define MediumBlocksLockedCriticalSection}
