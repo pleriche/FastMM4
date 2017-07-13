@@ -1258,6 +1258,11 @@ interface
   {$endif}
 {$endif}
 
+{$ifdef AllowAsmNoframe}
+  {$define AllowAsmParams}
+{$endif}
+
+
 {$ifndef POSIX}
   {$ifndef FPC}
      {$define VmtSupported}
@@ -6205,8 +6210,9 @@ asm
   Thus, ".noframe" can only be used for leaf functions. A leaf function is one
   that does not call another function. That is one that is always at the bottom
   of the call tree.}
-
+  {$ifdef AllowAsmParams}
   .params 2
+  {$endif}
   xor eax, eax
   cmp MediumSequentialFeedBytesLeft, eax
   je @Done
@@ -8038,11 +8044,18 @@ asm
   at the "BinMediumSequentialFeedRemainder" function at the start of the
   64-bit BASM code}
 
+  {$ifdef AllowAsmParams}
   .params 2
   .pushnv rbx
   .pushnv rsi
   .pushnv rdi
   .pushnv r12
+  {$else}
+  push rbx
+  push rsi
+  push rdi
+  push r12
+  {$endif}
 
   xor r12, r12
 
@@ -8573,6 +8586,12 @@ but we don't need them at this point}
   call AllocateLargeBlock
   {$ifdef AsmCodeAlign}.align 8{$endif}
 @Done: {it automatically restores 4 registers from stack}
+{$ifndef AllowAsmParams}
+  pop r12
+  pop rdi
+  pop rsi
+  pop rbx
+{$endif}
 end;
 {$endif}
 {$endif}
@@ -9550,10 +9569,16 @@ asm
   {Do not put ".noframe" here, for the reasons given explained at the comment
   at the "BinMediumSequentialFeedRemainder" function at the start of the
   64-bit BASM code}
+  {$ifdef AllowAsmParams}
   .params 3
   .pushnv rbx
   .pushnv rsi
   .pushnv r12
+  {$else}
+  push rbx
+  push rsi
+  push r12
+  {$endif}
 
   xor r12, r12
 
@@ -9971,6 +9996,11 @@ but we don't need them at this point}
   call FreeLargeBlock
   {$ifdef AsmCodeAlign}.align 8{$endif}
 @Done: {automatically restores registers from stack by implicitly inserting pop instructions (rbx, rsi and r12)}
+{$ifndef AllowAsmParams}
+   pop r12
+   pop rsi
+   pop rbx
+{$endif}
 end;
 {$endif}
 {$endif}
@@ -10991,6 +11021,7 @@ asm
   {Do not put ".noframe" here, for the reasons given explained at the comment
   at the "BinMediumSequentialFeedRemainder" function at the start of the
   64-bit BASM code}
+  {$ifdef AllowAsmParams}
   .params 3
   .pushnv rbx
   .pushnv rsi
@@ -10998,6 +11029,14 @@ asm
   .pushnv r12
   .pushnv r14
   .pushnv r15
+  {$else}
+  push rbx
+  push rsi
+  push rdi
+  push r12
+  push r14
+  push r15
+  {$endif}
 
   xor     r12, r12
 
@@ -11406,12 +11445,9 @@ but we don't need them at this point, since we are about to exit}
   {The next medium block changed while the medium blocks were being locked}
   test r12b, (UnsignedBit shl StateBitMediumLocked)
   jz @DontUnlockMediumBlocksAfterNextMediumBlockChanged
-
-{The call destroys most of the volatile (caller-saved) registers,
-(RAX, RCX, RDX, R8, R9, R10, R11),
+{The call to "UnlockMediumBlocks" destroys most of the volatile (caller-saved)
+registers (RAX, RCX, RDX, R8, R9, R10, R11),
 so ew save RCX and RDX}
-
-
   mov rbx, rcx // save rcx
   mov r15, rdx // save rdx
   call UnlockMediumBlocks
@@ -11490,6 +11526,14 @@ so ew save RCX and RDX}
   xor eax, eax
   {$ifdef AsmCodeAlign}.align 16{$endif}
 @Done: {restores registers from stack}
+{$ifndef AllowAsmParams}
+  pop r15
+  pop r14
+  pop r12
+  pop rdi
+  pop rsi
+  pop rbx
+{$endif}
 end;
 {$endif}
 {$endif}
@@ -11565,8 +11609,12 @@ end;
 assembler;
 asm
   {Do not put ".noframe" here since it calls other functions.}
+  {$ifdef AllowAsmParams}
   .params 1
   .pushnv rbx
+  {$else}
+  push rbx
+  {$endif}
   {Get the size rounded down to the previous multiple of SizeOf(Pointer) into
    ebx}
   lea rbx, [rcx - 1]
@@ -11605,6 +11653,9 @@ asm
   mov [rdx], rcx
   {$ifdef AsmCodeAlign}.align 4{$endif}
 @Done:
+{$ifndef AllowAsmParams}
+  pop rbx
+{$endif}
 end;
 {$endif}
 {$endif}
