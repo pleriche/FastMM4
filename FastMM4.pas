@@ -1735,6 +1735,13 @@ var
 {$endif}
 {$endif}
 
+{$ifdef FPC}
+{$ifdef 64bit}
+{$undef ASMVersion} {Assembler is not yet supportd under 64-bit FreePascal,
+because it incorrectly encodes relative values wither with +RIP or without}
+{$endif}
+{$endif}
+
 implementation
 
 uses
@@ -1857,7 +1864,6 @@ const
   The value of MaximumCpuScaleFactor is determined by the processor architecture}
   MaximumCpuScaleFactorPowerOf2 = 3;
   MaximumCpuScaleFactor = UnsignedBit shl MaximumCpuScaleFactorPowerOf2;
-
   {The granularity of small blocks}
 {$ifdef Align32Bytes}
   SmallBlockGranularityPowerOf2 = 5;
@@ -7497,7 +7503,11 @@ like IsMultithreaded or MediumBlocksLocked}
   ja @NotASmallBlock
   {Get the small block type in ebx}
   movzx eax, byte ptr [AllocSize2SmallBlockTypesOfsDivScaleFactor + edx]
+  {$IFDEF FPC}
+  lea ebx, [SmallBlockTypes + eax * 8] {FreePascal doesn't support constants here, so just put 8}
+  {$ELSE}
   lea ebx, [SmallBlockTypes + eax * MaximumCpuScaleFactor]
+  {$ENDIF}
   {Do we need to lock the block type?}
 {$ifndef AssumeMultiThreaded}
   test ebp, (UnsignedBit shl StateBitMultithreaded)
