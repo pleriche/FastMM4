@@ -5910,7 +5910,9 @@ end;
 {$else}
 assembler;
 asm
-.noframe
+{$ifdef AllowAsmNoframe}
+  .noframe
+{$endif}
   {On entry: rcx = APMediumFreeBlock}
   mov rax, rcx
   {Get the current previous and next blocks}
@@ -6029,7 +6031,9 @@ end;
 {$else}
 assembler;
 asm
+{$ifdef AllowAsmNoframe}
   .noframe
+{$endif}
   {On entry: rax = APMediumFreeBlock, edx = AMediumBlockSize}
   mov rax, rcx
   {Get the bin number for this block size. Get the bin that holds blocks of at
