@@ -1315,9 +1315,17 @@ interface
 
 {$ifdef XE2AndUp}
 {$define PasCodeAlign}
-{$define AsmCodeAlign}
 {$endif}
 
+
+{$ifndef Delphi6AndUp}
+  {$ifndef FPC}
+    { FreePascal doesn't support .align }
+    { Delphi incorrectly encodes conditional jumps (used 6-byte instructions instead of just 2 bytes}
+    { So don't use it for Borland (Embarcadero) Delphi neither for FreePascal}
+    {$define AsmCodeAlign}
+  {$endif}
+{$endif}
 
 {------------------------Compiler options for FastMM4------------------------}
 
@@ -8103,10 +8111,9 @@ asm
   push rdi
   push r12
   {$endif}
-
   xor r12, r12
 
-{$ifndef AssumeMultiThreaded}
+  {$ifndef AssumeMultiThreaded}
   {Get the IsMultiThread variable so long}
   lea rsi, [IsMultiThread]
   movzx esi, byte ptr [rsi] {this also clears highest bits of the rsi register}
