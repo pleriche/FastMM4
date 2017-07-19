@@ -1484,8 +1484,8 @@ var
    operation. Note that this incurs a massive performance hit on top of
    the already significant FullDebugMode overhead, so enable this option
    only when absolutely necessary.}
-  FullDebugModeScanMemoryPoolBeforeEveryOperation: Boolean = False;
-  FullDebugModeRegisterAllAllocsAsExpectedMemoryLeak: Boolean = False;
+  FullDebugModeScanMemoryPoolBeforeEveryOperation: Boolean;
+  FullDebugModeRegisterAllAllocsAsExpectedMemoryLeak: Boolean;
 {$ifdef ManualLeakReportingControl}
   {Variable is declared in system.pas in newer Delphi versions.}
   {$ifndef BDS2006AndUp}
@@ -2732,7 +2732,7 @@ var
   {Is a MessageBox currently showing? If so, do not show another one.}
   ShowingMessageBox: Boolean;
   {True if RunInitializationCode has been called already.}
-  InitializationCodeHasRun: Boolean = False;
+  InitializationCodeHasRun: Boolean;
 
 {----------------Utility Functions------------------}
 
