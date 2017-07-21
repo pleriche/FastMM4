@@ -13392,13 +13392,15 @@ var
   LClass: TClass;
   LActualBlock: PFullDebugBlockHeader;
   LInitialSize: Cardinal;
+  LSelfPtr: Pointer;
 begin
   {Get the offset of the virtual method}
   LVMOffset := (MaxFakeVMTEntries - VMIndex) * SizeOf(Pointer) + vmtParent + SizeOf(Pointer);
   {Reset the index for the next error}
   VMIndex := 0;
   {Get the address of the actual block}
-  LActualBlock := PFullDebugBlockHeader(PByte(Self) - SizeOf(TFullDebugBlockHeader));
+  LSelfPtr := @Self;
+  LActualBlock := PFullDebugBlockHeader(PByte(LSelfPtr) - SizeOf(TFullDebugBlockHeader));
 
   LMsgPtr := @LErrorMessage[0];
   LInitialPtr := LMsgPtr;
@@ -14416,7 +14418,10 @@ begin
             {$else}
             LUTF8Str := AAdditionalDetails;
             {$endif}
-            WriteFile(LFileHandle, LUTF8Str[1], Length(LUTF8Str), LBytesWritten, nil);
+            if Length(LUTF8Str) > 0 then
+            begin
+              WriteFile(LFileHandle, PAnsiChar(LUTF8Str)^, Length(LUTF8Str), LBytesWritten, nil);
+            end;
           end;
           {Success}
           Result := True;
