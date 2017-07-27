@@ -12267,7 +12267,7 @@ function LogCurrentThreadAndStackTrace(ASkipFrames: Cardinal; ABuffer: PAnsiChar
 var
   LCurrentStackTrace: TStackTrace;
   LInitialBufPtr: PAnsiChar;
-  LDiff, LInitialLengthChars, LC: Cardinal;
+  LDiff, LInitialLengthChars, LC: NativeUInt;
   L: Integer;
 begin
   {Get the current call stack}
@@ -12286,14 +12286,20 @@ begin
       LInitialLengthChars := ABufferLengthChars;
       Result := NativeUIntToHexBuf(GetThreadID, Result, LInitialLengthChars-NativeUInt(LInitialBufPtr-Result));
       {List the stack trace}
-      LDiff := LInitialBufPtr-Result;
-      if LDiff <= LInitialLengthChars then
+      if LInitialBufPtr >= Result then
       begin
-        Result := AppendStringToBuffer(CurrentStackTraceMsg, Result, Length(CurrentStackTraceMsg), LInitialLengthChars-LDiff);
         LDiff := LInitialBufPtr-Result;
         if LDiff <= LInitialLengthChars then
         begin
-          Result := LogStackTrace(@LCurrentStackTrace[0], StackTraceDepth, Result);
+          Result := AppendStringToBuffer(CurrentStackTraceMsg, Result, Length(CurrentStackTraceMsg), LInitialLengthChars-LDiff);
+          if LInitialBufPtr >= Result then
+          begin
+            LDiff := LInitialBufPtr-Result;
+            if LDiff <= LInitialLengthChars then
+            begin
+              Result := LogStackTrace(@LCurrentStackTrace[0], StackTraceDepth, Result);
+            end;
+          end;
         end;
       end;
     end;
