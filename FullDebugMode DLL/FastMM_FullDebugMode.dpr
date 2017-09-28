@@ -578,36 +578,49 @@ var
   LTempStr: string;
 begin
   Result := ABuffer;
-  for LInd := 0 to AMaxDepth - 1 do
-  begin
-    LAddress := AReturnAddresses^;
-    if LAddress = 0 then
-      Exit;
-    Result^ := #13;
-    Inc(Result);
-    Result^ := #10;
-    Inc(Result);
-    Result := NativeUIntToHexBuf(LAddress, Result);
-    {Get location info for the caller (at least one byte before the return
-     address).}
-    GetLocationInfo(Pointer(Cardinal(LAddress) - 1), LInfo);
-    {Build the result string}
-    LTempStr := ' ';
-    AppendInfoToString(LTempStr, LInfo.SourceName);
-    AppendInfoToString(LTempStr, LInfo.UnitName);
-    AppendInfoToString(LTempStr, LInfo.ProcedureName);
-    if LInfo.LineNumber <> 0 then
-      AppendInfoToString(LTempStr, IntToStr(LInfo.LineNumber));
-    {Return the result}
-    if Length(LTempStr) < 256 then
-      LNumChars := Length(LTempStr)
-    else
-      LNumChars := 255;
-    StrLCopy(Result, PAnsiChar(AnsiString(LTempStr)), LNumChars);
-    Inc(Result, LNumChars);
-    {Next address}
-    Inc(AReturnAddresses);
+  {$IFDEF CONDITIONALEXPRESSIONS} // Delphi 5+
+    {$IF declared(BeginGetLocationInfoCache)} // available depending on the JCL's version
+  BeginGetLocationInfoCache;
+  try
+    {$IFEND}
+  {$ENDIF}
+    for LInd := 0 to AMaxDepth - 1 do
+    begin
+      LAddress := AReturnAddresses^;
+      if LAddress = 0 then
+        Exit;
+      Result^ := #13;
+      Inc(Result);
+      Result^ := #10;
+      Inc(Result);
+      Result := NativeUIntToHexBuf(LAddress, Result);
+      {Get location info for the caller (at least one byte before the return
+       address).}
+      GetLocationInfo(Pointer(Cardinal(LAddress) - 1), LInfo);
+      {Build the result string}
+      LTempStr := ' ';
+      AppendInfoToString(LTempStr, LInfo.SourceName);
+      AppendInfoToString(LTempStr, LInfo.UnitName);
+      AppendInfoToString(LTempStr, LInfo.ProcedureName);
+      if LInfo.LineNumber <> 0 then
+        AppendInfoToString(LTempStr, IntToStr(LInfo.LineNumber));
+      {Return the result}
+      if Length(LTempStr) < 256 then
+        LNumChars := Length(LTempStr)
+      else
+        LNumChars := 255;
+      StrLCopy(Result, PAnsiChar(AnsiString(LTempStr)), LNumChars);
+      Inc(Result, LNumChars);
+      {Next address}
+      Inc(AReturnAddresses);
+    end;
+  {$IFDEF CONDITIONALEXPRESSIONS} // Delphi 5+
+    {$IF declared(BeginGetLocationInfoCache)} // available depending on the JCL's version
+  finally
+    EndGetLocationInfoCache;
   end;
+    {$IFEND}
+  {$ENDIF}
 end;
 {$endif}
 
