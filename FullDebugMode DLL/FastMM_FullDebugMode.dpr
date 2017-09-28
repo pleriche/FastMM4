@@ -576,6 +576,7 @@ var
   LNumChars: Integer;
   LInfo: TJCLLocationInfo;
   LTempStr: string;
+  P: PChar;
 begin
   Result := ABuffer;
   {$IFDEF CONDITIONALEXPRESSIONS} // Delphi 5+
@@ -601,7 +602,14 @@ begin
       LTempStr := ' ';
       AppendInfoToString(LTempStr, LInfo.SourceName);
       AppendInfoToString(LTempStr, LInfo.UnitName);
-      AppendInfoToString(LTempStr, LInfo.ProcedureName);
+
+      {Remove UnitName from ProcedureName, no need to output it twice}
+      P := PChar(LInfo.ProcedureName);
+      if (StrLComp(P, PChar(LInfo.UnitName), Length(LInfo.UnitName)) = 0) and (P[Length(LInfo.UnitName)] = '.') then
+        AppendInfoToString(LTempStr, Copy(LInfo.ProcedureName, Length(LInfo.UnitName) + 2))
+      else
+        AppendInfoToString(LTempStr, LInfo.ProcedureName);
+
       if LInfo.LineNumber <> 0 then
         AppendInfoToString(LTempStr, IntToStr(LInfo.LineNumber));
       {Return the result}
