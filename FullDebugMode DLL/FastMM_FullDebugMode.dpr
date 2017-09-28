@@ -550,6 +550,12 @@ begin
     Inc(LCount);
     LDigitBuffer[MaxDigits - LCount] := HexTable[LDigit];
   until ANum = 0;
+  {Add leading zeros}
+  while LCount < SizeOf(NativeUInt) * 2 do
+  begin
+    Inc(LCount);
+    LDigitBuffer[MaxDigits - LCount] := '0';
+  end;
   {Copy the digits to the output buffer and advance it}
   System.Move(LDigitBuffer[MaxDigits - LCount], APBuffer^, LCount);
   Result := APBuffer + LCount;
