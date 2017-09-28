@@ -84,9 +84,10 @@ uses
 {$LIBSUFFIX '64'}
 {$ifend}
 
-{$if CompilerVersion < 20}
+{$if CompilerVersion <= 20}
 type
-  PNativeUInt = ^Cardinal;
+  NativeUInt = Cardinal; // not available or cause for internal compiler errors (e.g. Delphi 2009)
+  PNativeUInt = ^NativeUInt;
 {$ifend}
 
 {--------------------------Stack Tracing Subroutines--------------------------}
