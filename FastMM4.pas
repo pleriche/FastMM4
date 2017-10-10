@@ -9,8 +9,8 @@ This is a fork of the Fast Memory Manager 4.992 by Pierre le Riche
 
 What was added to the fork:
  - if the CPU supports AVX or AVX2, use the 32-byte YMM registers
-   for faster memory copy, and if the CPU supports AVX-512,
-   use the 64-byte ZMM registers for even faster memory copy;
+   for faster memory copy, and if the CPU supports AVX-512 (not yet implemented),
+   use the 64-byte ZMM registers for even faster memory copy (not yet implemented);
    use DisableAVX to turn AVX off completely or
    use DisableAVX1/DisableAVX2/DisableAVX512 to disable separately certain
    AVX-related instruction set from being compiled into FastMM4);
@@ -1318,14 +1318,14 @@ interface
 {$endif}
 
 
-{$ifndef Delphi6AndUp}
+{$ifdef EnableAsmCodeAlign}
   {$ifndef FPC}
     { FreePascal doesn't support .align }
     { Delphi incorrectly encodes conditional jumps (used 6-byte instructions instead of just 2 bytes}
     { So don't use it for Borland (Embarcadero) Delphi neither for FreePascal}
     {$define AsmCodeAlign}
   {$endif}
-{$endif}
+{$endif EnableAsmCodeAlign}
 
 {------------------------Compiler options for FastMM4------------------------}
 

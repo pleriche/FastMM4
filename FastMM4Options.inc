@@ -173,6 +173,12 @@ number of threads is the same or greater than the number of physical cores}
  CheckHeapForCorruption option automatically disables this option.}
 {$define ASMVersion}
 
+{Allow using ".align" assembler directive. FreePascal doesn't support ".align"
+ Delphi incorrectly encodes conditional jumps (used 6-byte instructions instead 
+ of just 2 bytes. So don't use it for Borland (Embarcadero) Delphi neither 
+ for FreePascal}
+{.$define EnableAsmCodeAlign}
+
 {FastMM always catches attempts to free the same memory block twice, however it
  can also check for corruption of the memory heap (typically due to the user
  program overwriting the bounds of allocated memory). These checks are
