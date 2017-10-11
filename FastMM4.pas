@@ -1314,9 +1314,16 @@ interface
 
 
 {$ifdef XE2AndUp}
-{$define PasCodeAlign}
+{$define FASTMM4_ALLOW_INLINES}
 {$endif}
 
+{$ifdef FPC}
+{$define FASTMM4_ALLOW_INLINES}
+{$endif}
+
+
+{$ifdef XE2AndUp}
+{$endif}
 
 {$ifdef EnableAsmCodeAlign}
   {$ifndef FPC}
@@ -1802,7 +1809,7 @@ uses
 {$else}
   {$ifdef MACOS}
   Posix.Stdlib, Posix.Unistd, Posix.Fcntl, Posix.PThread, FastMM_OSXUtil,
-  {$ELSE}
+  {$else}
     {$ifdef fpc}
   BaseUnix,
     {$else}
@@ -2548,7 +2555,7 @@ var
 
 {$ifdef AllocSize2SmallBlockTypesPrecomputedOffsets}
 
-  AllocSize2SmallBlockTypesOfsDivScaleFactor: array[0..(MaximumSmallBlockSize - 1) div SmallBlockGranularity] of Byte;
+  AllocSz2SmlBlkTypOfsDivSclFctr: array[0..(MaximumSmallBlockSize - 1) div SmallBlockGranularity] of Byte;
 
 {$else}
 
@@ -2722,12 +2729,12 @@ var
 {$endif}
 
 
-{$IFDEF USE_CPUID}
+{$ifdef USE_CPUID}
   {See FastMMCpuFeature... constants.
   We have packe the most interesting CPUID bits in one byte for faster comparison
   These features are mostly used for faster memory move operations}
   FastMMCpuFeatures: Byte;
-{$ENDIF}
+{$endif}
 
   {Is a MessageBox currently showing? If so, do not show another one.}
   ShowingMessageBox: Boolean;
@@ -2783,7 +2790,7 @@ end;
 {$ifdef USE_CPUID}
 {Returns true if the CPUID instruction is supported}
 function CPUID_Supported: Boolean;
-{$IFDEF 32bit} assembler;
+{$ifdef 32bit} assembler;
 
 {QUOTE from the Intel 64 and IA-32 Architectures Software Developer’s Manual
 
@@ -2809,11 +2816,14 @@ asm
   xor eax, edx
   setnz al
 end;
-{$ELSE} inline;
+{$else}
+
+{$ifdef FASTMM4_ALLOW_INLINES}inline;{$endif}
 begin
   Result := True;
 end;
-{$ENDIF}
+
+{$endif}
 
 
 {Gets the CPUID}
@@ -3059,7 +3069,7 @@ end;
 
 function AcquireSpinLockByte(var Target: Byte): Boolean; assembler;
 asm
-{$IFDEF 64bit}
+{$ifdef 64bit}
   {$ifdef AllowAsmNoframe}
   .noframe
   {$endif}
@@ -3076,7 +3086,7 @@ asm
 @NormalLoadLoop:
    dec  r9
    jz   @SwitchToThread // for static branch prediction, jump forward means "unlikely"
-   pause
+   db   $F3, $90 // pause
 @FirstCompare:
    cmp  [rcx], al       // we are using faster, normal load to not consume the resources and only after it is ready, do once again interlocked exchange
    je   @NormalLoadLoop // for static branch prediction, jump backwards means "likely"
@@ -3102,7 +3112,7 @@ asm
 @NormalLoadLoop:
    dec  edx
    jz   @SwitchToThread
-   pause
+   db   $F3, $90 // pause
 @FirstCompare:
    cmp  [ecx], al
    je   @NormalLoadLoop
@@ -3119,7 +3129,8 @@ asm
 {$endif}
 end;
 
-function AcquireLockByte(var Target: Byte): Boolean; {$IFNDEF DEBUG}inline;{$ENDIF}
+function AcquireLockByte(var Target: Byte): Boolean;
+  {$ifndef DEBUG}{$ifdef FASTMM4_ALLOW_INLINES}inline;{$endif}{$endif}
 var
   R: Byte;
 begin
@@ -3156,7 +3167,10 @@ end;
 to also use locked store (lock xchg), not just the normal store (mov)}
 {.$define InterlockedRelease}
 
-procedure ReleaseLockByte(var Target: Byte); {$IFNDEF DEBUG}inline;{$ENDIF}
+procedure ReleaseLockByte(var Target: Byte);
+
+  {$ifndef DEBUG}{$ifdef FASTMM4_ALLOW_INLINES}inline;{$endif}{$endif}
+
 {$ifdef DebugReleaseLockByte}
 var
   R: Byte;
@@ -4861,7 +4875,7 @@ end;
 {$ifdef Align32Bytes}
 procedure MoveX32LpUniversal(const ASource; var ADest; ACount: NativeInt);
 begin
-{$IFDEF USE_CPUID}
+{$ifdef USE_CPUID}
   {$ifdef EnableAVX}
   if (FastMMCpuFeatures and FastMMCpuFeatureAVX2) <> 0 then
   begin
@@ -4899,9 +4913,9 @@ begin
       MoveX16LP(ASource, ADest, ACount)
     end;
   end;
-{$ELSE}
+{$else}
   MoveX16LP(ASource, ADest, ACount)
-{$ENDIF}
+{$endif}
 end;
 {$endif}
 
@@ -5036,7 +5050,7 @@ begin
     {$endif}
 end;
 
-{$IFNDEF MACOS}
+{$ifndef MACOS}
 function VirtualAlloc(lpvAddress: Pointer; dwSize, flAllocationType, flProtect: Cardinal): Pointer; stdcall;
 begin
   Result := valloc(dwSize);
@@ -5047,7 +5061,7 @@ begin
   free(lpAddress);
   Result := True;
 end;
-{$ENDIF}
+{$endif}
 
 function WriteFile(hFile: THandle; const Buffer; nNumberOfBytesToWrite: Cardinal;
   var lpNumberOfBytesWritten: Cardinal; lpOverlapped: Pointer): Boolean; stdcall;
@@ -5747,8 +5761,9 @@ end;
 {$ifndef Use32BitAsmForLockMediumBlocks}
 
 function LockMediumBlocks({$ifdef UseReleaseStack}APointer: Pointer = nil; APDelayRelease: PBoolean = nil{$endif}): Boolean; // returns true if was contention
+
   {$ifdef MediumBlocksLockedCriticalSection}
-    {$ifndef DEBUG}inline;{$ENDIF}
+    {$ifndef DEBUG}{$ifdef FASTMM4_ALLOW_INLINES}inline;{$endif}{$endif}
   {$endif}
 
 {$ifdef UseReleaseStack}
@@ -5758,65 +5773,55 @@ var
 begin
   Result := False;
   {Lock the medium blocks}
-
 {$ifndef AssumeMultiThreaded}
-  if not IsMultiThread then
-  begin
-
-    {The checks for IsMultiThread should be from outsize}
-
-    {$ifndef SystemRunError}
-       System.Error(reInvalidOp);
-    {$else}
-       System.RunError(reInvalidOp);
-    {$endif}
-  end;
+  if IsMultiThread then
 {$endif}
-
-{$ifdef MediumBlocksLockedCriticalSection}
-  if FastMMCpuFeatures and FastMMCpuFeaturePauseAndSwitchToThread <> 0 then
   begin
-    if not AcquireLockByte(MediumBlocksLocked) then
+  {$ifdef MediumBlocksLockedCriticalSection}
+    if FastMMCpuFeatures and FastMMCpuFeaturePauseAndSwitchToThread <> 0 then
     begin
-      Result := True;
-      AcquireSpinLockByte(MediumBlocksLocked);
-    end;
-  end else
-  begin
-    EnterCriticalSection(MediumBlocksLockedCS);
-  end
-{$else MediumBlocksLockedCriticalSection}
-  while not AcquireLockByte(MediumBlocksLocked) do
-  begin
-    Result := True; // had contention
-{$ifdef UseReleaseStack}
-    if Assigned(APointer) then
+      if not AcquireLockByte(MediumBlocksLocked) then
+      begin
+        Result := True;
+        AcquireSpinLockByte(MediumBlocksLocked);
+      end;
+    end else
     begin
-       LPReleaseStack := @MediumReleaseStack[GetStackSlot];
-       if (not LPReleaseStack^.IsFull) and LPReleaseStack.Push(APointer) then
-       begin
-         APointer := nil;
-         APDelayRelease^ := True;
-         Exit;
-       end;
-    end;
-{$endif}
-{$ifdef NeverSleepOnThreadContention}
-{$ifdef UseSwitchToThread}
-    SwitchToThreadIfSupported;
-{$endif}
-{$else}
-    Sleep(InitialSleepTime);
-    if AcquireLockByte(MediumBlocksLocked) then
-      Break;
-    Sleep(AdditionalSleepTime);
-{$endif}
-  end;
+      EnterCriticalSection(MediumBlocksLockedCS);
+    end
+  {$else MediumBlocksLockedCriticalSection}
+    while not AcquireLockByte(MediumBlocksLocked) do
+    begin
+      Result := True; // had contention
   {$ifdef UseReleaseStack}
-  if Assigned(APDelayRelease) then
-    APDelayRelease^ := False;
-{$endif}
-{$endif MediumBlocksLockedCriticalSection}
+      if Assigned(APointer) then
+      begin
+         LPReleaseStack := @MediumReleaseStack[GetStackSlot];
+         if (not LPReleaseStack^.IsFull) and LPReleaseStack.Push(APointer) then
+         begin
+           APointer := nil;
+           APDelayRelease^ := True;
+           Exit;
+         end;
+      end;
+  {$endif}
+  {$ifdef NeverSleepOnThreadContention}
+  {$ifdef UseSwitchToThread}
+      SwitchToThreadIfSupported;
+  {$endif}
+  {$else}
+      Sleep(InitialSleepTime);
+      if AcquireLockByte(MediumBlocksLocked) then
+        Break;
+      Sleep(AdditionalSleepTime);
+  {$endif}
+    end;
+    {$ifdef UseReleaseStack}
+    if Assigned(APDelayRelease) then
+      APDelayRelease^ := False;
+  {$endif}
+  {$endif MediumBlocksLockedCriticalSection}
+  end;
 end;
 {$else Use32BitAsmForLockMediumBlocks}
 procedure LockMediumBlocks;
@@ -5873,7 +5878,8 @@ asm
 end;
 {$endif Use32BitAsmForLockMediumBlocks}
 
-procedure UnlockMediumBlocks; {$ifndef DEBUG}inline;{$ENDIF}
+procedure UnlockMediumBlocks;
+  {$ifndef DEBUG}{$ifdef FASTMM4_ALLOW_INLINES}inline;{$endif}{$endif}
 begin
   {$ifdef MediumBlocksLockedCriticalSection}
   if FastMMCpuFeatures and FastMMCpuFeaturePauseAndSwitchToThread <> 0 then
@@ -6368,7 +6374,7 @@ end;
 function LockLargeBlocks({$ifdef UseReleaseStack}APointer: Pointer = nil; APDelayRelease: PBoolean = nil{$endif}): Boolean; // returns true if there was contention
 
 {$ifdef LargeBlocksLockedCriticalSection}
-{$ifndef DEBUG}inline;{$ENDIF}
+{$ifndef DEBUG}{$ifdef FASTMM4_ALLOW_INLINES}inline;{$endif}{$endif}
 {$endif}
 
 
@@ -6440,7 +6446,8 @@ begin
 {$endif LargeBlocksLockedCriticalSection}
 end;
 
-procedure UnlockLargeBlocks; {$ifndef DEBUG}inline;{$ENDIF}
+procedure UnlockLargeBlocks;
+  {$ifndef DEBUG}{$ifdef FASTMM4_ALLOW_INLINES}inline;{$endif}{$endif}
 begin
   {$ifdef LargeBlocksLockedCriticalSection}
   if FastMMCpuFeatures and FastMMCpuFeaturePauseAndSwitchToThread <> 0 then
@@ -6786,7 +6793,7 @@ entire FastMM4 module.}
 
 function NegCardinalMaskBit(A: Cardinal): Cardinal; assembler;
 asm
-{$IFDEF 32bit}
+{$ifdef 32bit}
         neg     eax
 {$else}
    {$ifdef unix}
@@ -6803,7 +6810,7 @@ end;
 
 function NegByteMaskBit(A: Byte): Byte; assembler;
 asm
-{$IFDEF 32bit}
+{$ifdef 32bit}
         neg     al
 {$else}
    {$ifdef unix}
@@ -6821,7 +6828,7 @@ end;
 
 function NegNativeUIntMaskBit(A: NativeUInt): NativeUint; assembler;
 asm
-{$IFDEF 32bit}
+{$ifdef 32bit}
         neg     eax
 {$else}
    {$ifdef unix}
@@ -6935,7 +6942,7 @@ begin
     LSmallBlockSizeInGranularUnits := (NativeUInt(ASize) + (BlockHeaderSize - 1)) div SmallBlockGranularity;
     LPSmallBlockType := PSmallBlockType(
    {$ifdef AllocSize2SmallBlockTypesPrecomputedOffsets}
-      AllocSize2SmallBlockTypesOfsDivScaleFactor[LSmallBlockSizeInGranularUnits]
+      AllocSz2SmlBlkTypOfsDivSclFctr[LSmallBlockSizeInGranularUnits]
           shl MaximumCpuScaleFactorPowerOf2
    {$else}
       AllocSize2SmallBlockTypesIdx[LSmallBlockSizeInGranularUnits]
@@ -7547,12 +7554,12 @@ like IsMultithreaded or MediumBlocksLocked}
   {Is it a small block?}
   ja @NotASmallBlock
   {Get the small block type in ebx}
-  movzx eax, byte ptr [AllocSize2SmallBlockTypesOfsDivScaleFactor + edx]
-  {$IFDEF FPC}
+  movzx eax, byte ptr [AllocSz2SmlBlkTypOfsDivSclFctr + edx]
+  {$ifdef FPC}
   lea ebx, [SmallBlockTypes + eax * 8] {FreePascal doesn't support constants here, so just put 8}
-  {$ELSE}
+  {$else}
   lea ebx, [SmallBlockTypes + eax * MaximumCpuScaleFactor]
-  {$ENDIF}
+  {$endif}
   {Do we need to lock the block type?}
 {$ifndef AssumeMultiThreaded}
   test ebp, (UnsignedBit shl StateBitMultithreaded)
@@ -7697,7 +7704,7 @@ like IsMultithreaded or MediumBlocksLocked}
 @NormalLoadLoop:
    dec  edx
    jz   @SwitchToThread // for static branch prediction, jump forward means "unlikely"
-   pause
+   db   $F3, $90 // pause
    {$ifndef DebugAcquireLockByte}
    cmp  TSmallBlockType([ebx]).SmallBlockTypeLocked, al       // we are using faster, normal load to not consume the resources and only after it is ready, do once again interlocked exchange
    je   @NormalLoadLoop // for static branch prediction, jump backwards means "likely"
@@ -7904,7 +7911,7 @@ like IsMultithreaded or MediumBlocksLocked}
   {Unlock medium blocks}
   call UnlockMediumBlocks {it destroys eax, ecx and edx, but we don't need them}
   {$ifdef AsmCodeAlign}.align 8{$endif}
-@DontUnlockMediumBlocksAfterGotMediumBlock:
+@DontUnlMedBlkAftrGotMedBlk:
   {Set up the block pool}
   xor eax, eax
   mov TSmallBlockPoolHeader[esi].BlockType, ebx
@@ -8062,11 +8069,11 @@ like IsMultithreaded or MediumBlocksLocked}
   lea ecx, [ebx + IsMediumBlockFlag]
   mov [esi - 4], ecx
   test ebp, (UnsignedBit shl StateBitMediumLocked)
-  jz @DontUnlockMediumBlocksAfterGotMediumBlockForMedium
+  jz @DontUnlMedBlkAftrGotMedBlkForMedium
   {Unlock medium blocks}
   call UnlockMediumBlocks {it also destroys ecx and edx, but we no longer need them}
   {$ifdef AsmCodeAlign}.align 4{$endif}
-@DontUnlockMediumBlocksAfterGotMediumBlockForMedium:
+@DontUnlMedBlkAftrGotMedBlkForMedium:
   mov eax, esi
   pop edi
   pop esi
@@ -8260,7 +8267,7 @@ asm
 @NormalLoadLoop:
   dec  edx
   jz   @SwitchToThread // for static branch prediction, jump forward means "unlikely"
-  pause
+  db   $F3, $90 // pause
  {$ifndef DebugAcquireLockByte}
   cmp  TSmallBlockType([rbx]).SmallBlockTypeLocked, al       // we are using faster, normal load to not consume the resources and only after it is ready, do once again interlocked exchange
   je   @NormalLoadLoop // for static branch prediction, jump backwards means "likely"
@@ -9345,7 +9352,7 @@ for flags like IsMultiThreaded or MediumBlocksLocked}
 @NormalLoadLoop:
   dec  edx
   jz   @SwitchToThread // for static branch prediction, jump forward means "unlikely"
-  pause
+  db $F3, $90 // pause
  {$ifndef DebugAcquireLockByte}
   cmp  TSmallBlockType([ebx]).SmallBlockTypeLocked, al       // we are using faster, normal load to not consume the resources and only after it is ready, do once again interlocked exchange
   je   @NormalLoadLoop // for static branch prediction, jump backwards means "likely"
@@ -9797,7 +9804,7 @@ asm
 @NormalLoadLoop:
    dec  edx
    jz   @SwitchToThread // for static branch prediction, jump forward means "unlikely"
-   pause
+   db   $F3, $90 // pause
    {$ifndef DebugAcquireLockByte}
    cmp  TSmallBlockType([rbx]).SmallBlockTypeLocked, al       // we are using faster, normal load to not consume the resources and only after it is ready, do once again interlocked exchange
    je   @NormalLoadLoop // for static branch prediction, jump backwards means "likely"
@@ -11876,16 +11883,16 @@ begin
   {Did log file creation fail? If so, the destination folder is perhaps read-only:
    Try to redirect logging to a file in the user's "My Documents" folder.}
   if (LFileHandle = INVALID_HANDLE_VALUE)
-   {$IFNDEF MACOS}
+   {$ifndef MACOS}
 {$ifdef Delphi4or5}
     and SHGetSpecialFolderPathA(0, @(LAlternateLogFileName[0]), CSIDL_PERSONAL, True) then
 {$else}
     and (SHGetFolderPathA(0, CSIDL_PERSONAL or CSIDL_FLAG_CREATE, 0,
       SHGFP_TYPE_CURRENT, @(LAlternateLogFileName[0])) = S_OK) then
 {$endif}
-  {$ELSE}
+  {$else}
   then
-  {$ENDIF}
+  {$endif}
   begin
     {Extract the filename part from MMLogFileName and append it to the path of
      the "My Documents" folder.}
@@ -14176,7 +14183,8 @@ end;
 {This function is only needed to copy with an error given when using 
 the "typed @ operator" compiler option. We are having just one typecast
 in this function to avoid using typecasts throught the entire program.}
-function GetNodeListFromNode(ANode: PMemoryLogNode): PMemoryLogNodes; inline;
+function GetNodeListFromNode(ANode: PMemoryLogNode): PMemoryLogNodes;
+  {$ifdef FASTMM4_ALLOW_INLINES}inline;{$endif}
 begin
   {We have only one typecast here, in other places we have strict type checking}
   Result := PMemoryLogNodes(ANode);
@@ -15273,7 +15281,8 @@ end;
 to have lowest possible number of typecats - just in this function. It is defined ad
 "inline", so, when optimization compiler directive is turned on, this function will
 be implemented in such a way that no actual code will be needed and no call/return.}
-function SmallBlockTypePtrToPoolHeaderPtr(ASmallBlockTypePtr: PSmallBlockType): PSmallBlockPoolHeader; inline;
+function SmallBlockTypePtrToPoolHeaderPtr(ASmallBlockTypePtr: PSmallBlockType): PSmallBlockPoolHeader;
+  {$ifdef FASTMM4_ALLOW_INLINES}inline;{$endif}
 begin
   {This function just does one typecast to avoid typecasts elsewhere}
   Result := PSmallBlockPoolHeader(ASmallBlockTypePtr);
@@ -15780,7 +15789,7 @@ end;
 
 {----------------------------Memory Manager Setup-----------------------------}
 
-{$IFDEF Use_GetEnabledXStateFeatures_WindowsAPICall}
+{$ifdef Use_GetEnabledXStateFeatures_WindowsAPICall}
 const
   // constants from the Windows SDK v10.0.15063
   XSTATE_LEGACY_FLOATING_POINT        = (0);
@@ -15813,7 +15822,7 @@ it in bits 63-32 under 64-bit, although the xgetbv instruction only accepts
 
 function GetCpuXCR(Arg: NativeUint): Int64; assembler;
 asm
- {$IFDEF 64bit}
+ {$ifdef 64bit}
 
 {$ifdef unix}
 
@@ -15845,7 +15854,7 @@ eax/edx, even in 64-bit mode, so we should pack eax/edx intto rax}
    or    rax, rdx
    xor   rdx, rdx
 
- {$ELSE}
+ {$else}
    mov   ecx, eax
    xor   eax, eax
    xor   edx, edx
@@ -15854,7 +15863,7 @@ eax/edx, even in 64-bit mode, so we should pack eax/edx intto rax}
    {$else}
      db $0F, $01, $D0
    {$endif}
- {$ENDIF}
+ {$endif}
 end;
 
 {Checks that no other memory manager has been installed after the RTL MM and
@@ -15911,11 +15920,11 @@ begin
   end;
 {$ifndef POSIX}
   HeapTotalAllocated := GetHeapStatus.TotalAllocated;
-  {$IFDEF FPC}
+  {$ifdef FPC}
   if HeapTotalAllocated > 300 then // allow up to 300 bytes to FreePascal until we figure out how to install our heap manager properly BEFORE any call
-  {$ELSE}
+  {$else}
   if HeapTotalAllocated <> 0 then
-  {$ENDIF}
+  {$endif}
   begin
     {Memory has been already been allocated with the RTL MM}
 {$ifdef UseOutputDebugString}
@@ -15938,18 +15947,18 @@ const
   {The size of the Inc(VMTIndex) code in TFreedObject.GetVirtualMethodIndex}
   VMTIndexIncCodeSize = 6;
 
-{$IFDEF Use_GetEnabledXStateFeatures_WindowsAPICall}
+{$ifdef Use_GetEnabledXStateFeatures_WindowsAPICall}
 type
   TGetEnabledXStateFeatures = function: Int64; stdcall;
-{$ENDIF}
+{$endif}
 
 var
   LPSmallBlockPoolHeader: PSmallBlockPoolHeader;
   LPSmallBlockType: PSmallBlockType;
-{$IFDEF Use_GetEnabledXStateFeatures_WindowsAPICall}
+{$ifdef Use_GetEnabledXStateFeatures_WindowsAPICall}
   FGetEnabledXStateFeatures: TGetEnabledXStateFeatures;
   EnabledXStateFeatures: Int64;
-{$ENDIF}
+{$endif}
 
 {$ifdef USE_CPUID}
   CpuXCR0: Int64;
@@ -16050,7 +16059,7 @@ ENDQOTE}
         LReg7_0.RegEDX := 0;
       end;
 
-{$IFDEF Use_GetEnabledXStateFeatures_WindowsAPICall}
+{$ifdef Use_GetEnabledXStateFeatures_WindowsAPICall}
 
 {For best results, we should call the GetEnabledXStateFeatures Windows API function
 that gets a mask of enabled XState features on x86 or x64 processors.
@@ -16071,7 +16080,7 @@ This is because the operating system would not save the registers and the states
           (UnsignedBit shl XSTATE_LEGACY_FLOATING_POINT) or
           (UnsignedBit shl XSTATE_LEGACY_SSE);
       end;
-{$ENDIF}
+{$endif}
 
       LReg1 := GetCpuId(1, 0);
 
@@ -16261,7 +16270,7 @@ ENDQUOTE}
     {Set the block size to block type index translation table}
     for LSizeInd := (LPreviousBlockSize div SmallBlockGranularity) to (NativeUInt(SmallBlockTypes[LInd].BlockSize - 1) div SmallBlockGranularity) do
    {$ifdef AllocSize2SmallBlockTypesPrecomputedOffsets}
-      AllocSize2SmallBlockTypesOfsDivScaleFactor[LSizeInd] := LInd shl (SmallBlockTypeRecSizePowerOf2 - MaximumCpuScaleFactorPowerOf2);
+      AllocSz2SmlBlkTypOfsDivSclFctr[LSizeInd] := LInd shl (SmallBlockTypeRecSizePowerOf2 - MaximumCpuScaleFactorPowerOf2);
    {$else}
       AllocSize2SmallBlockTypesIdx[LSizeInd] := LInd;
    {$endif}
