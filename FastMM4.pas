@@ -7887,10 +7887,10 @@ like IsMultithreaded or MediumBlocksLocked}
   test eax, eax
   jnz @GotMediumBlock
   test ebp, (UnsignedBit shl StateBitMediumLocked)
-  jz @DontUnlockMediumBlocksAfterAllocateNewSequentialFeed
+  jz @DontUnlMedBlksAftrAllocNewSeqFd
   call UnlockMediumBlocks
   {$ifdef AsmCodeAlign}.align 8{$endif}
-@DontUnlockMediumBlocksAfterAllocateNewSequentialFeed:
+@DontUnlMedBlksAftrAllocNewSeqFd:
   mov eax, esi
   pop edi
   pop esi
@@ -7907,11 +7907,11 @@ like IsMultithreaded or MediumBlocksLocked}
   lea ecx, [edi + IsMediumBlockFlag + IsSmallBlockPoolInUseFlag]
   mov [esi - 4], ecx
   test ebp, (UnsignedBit shl StateBitMediumLocked)
-  jz @DontUnlockMediumBlocksAfterGotMediumBlock
+  jz @DontUnlMedBlksAftrGotMedBlk
   {Unlock medium blocks}
   call UnlockMediumBlocks {it destroys eax, ecx and edx, but we don't need them}
   {$ifdef AsmCodeAlign}.align 8{$endif}
-@DontUnlMedBlkAftrGotMedBlk:
+@DontUnlMedBlksAftrGotMedBlk:
   {Set up the block pool}
   xor eax, eax
   mov TSmallBlockPoolHeader[esi].BlockType, ebx
@@ -8460,13 +8460,13 @@ but we don't need them at this point}
   mov [rsi - BlockHeaderSize], rcx
   {Unlock medium blocks}
   test r12b, (UnsignedBit shl StateBitMediumLocked)
-  jz @NotLockedAfterGotMediumBlock
+  jz @NotLockedAftrGotMedBlk
 {This call it destroys most of the volatile (caller-saved) registers
 (RAX, RCX, RDX, R8, R9, R10, R11),
 but we rely on nonvolatile (callee-saved) registers ( RBX, RBP, RDI, RSI, R12)}
   call UnlockMediumBlocks
   {$ifdef AsmCodeAlign}.align 8{$endif}
-@NotLockedAfterGotMediumBlock:
+@NotLockedAftrGotMedBlk:
   {Set up the block pool}
   xor eax, eax
   mov TSmallBlockPoolHeader[rsi].BlockType, rbx
@@ -9316,14 +9316,14 @@ for flags like IsMultiThreaded or MediumBlocksLocked}
 @NotSequentialFeedPool:
   {Unlock the block type}
   test ebp, (UnsignedBit shl StateBitSmallLocked)
-  jz @DontUnlockSmallBlockAfterNotSequentialFeedPool
+  jz @DontUnlckSmlBlkAftrNotSeqFdPl
   {$ifdef DebugReleaseLockByte}
   cmp TSmallBlockType[ebx].SmallBlockTypeLocked, cLockByteLocked
   jne SmallBlockUnlockError
   {$endif}
   mov TSmallBlockType[ebx].SmallBlockTypeLocked, cLockByteAvailable{todo: XXXXXXXXXXXXXXXXXX}
   {$ifdef AsmCodeAlign}.align 8{$endif}
-@DontUnlockSmallBlockAfterNotSequentialFeedPool:
+@DontUnlckSmlBlkAftrNotSeqFdPl:
   {Release this pool}
   mov eax, edx
   mov edx, [edx - 4]
@@ -9506,11 +9506,11 @@ for flags like IsMultiThreaded or MediumBlocksLocked}
   {Insert into bin}
   call InsertMediumBlockIntoBin
   test ebp, (UnsignedBit shl StateBitMediumLocked)
-  jz  @DontUnlockMediumBlocksAfterBinFreeMediumBlock
+  jz  @DontUnlckMedBlksAftrBinFrMedBlk
   {Unlock medium blocks}
   call UnlockMediumBlocks {it destroys ecx and edx, but we no longer need them}
   {$ifdef AsmCodeAlign}.align 4{$endif}
-@DontUnlockMediumBlocksAfterBinFreeMediumBlock:
+@DontUnlckMedBlksAftrBinFrMedBlk:
   {All OK}
   xor eax, eax
   {Restore registers}
@@ -9557,11 +9557,11 @@ for flags like IsMultiThreaded or MediumBlocksLocked}
   mov TMediumBlockPoolHeader[eax].NextMediumBlockPoolHeader, edx
   mov TMediumBlockPoolHeader[edx].PreviousMediumBlockPoolHeader, eax
   test ebp, (UnsignedBit shl StateBitMediumLocked)
-  jz  @DontUnlockMediumBlocksAfterEntireMediumPoolFree
+  jz  @DontUnlckMedBlcksAftrEntireMedPlFre
   {Unlock medium blocks}
   call UnlockMediumBlocks {it destroys eax, ecx and edx, but we don't need them}
   {$ifdef AsmCodeAlign}.align 8{$endif}
-@DontUnlockMediumBlocksAfterEntireMediumPoolFree:
+@DontUnlckMedBlcksAftrEntireMedPlFre:
 {$ifdef ClearMediumBlockPoolsBeforeReturningToOS}
   mov eax, esi
   mov edx, MediumBlockPoolSize
@@ -9594,11 +9594,11 @@ for flags like IsMultiThreaded or MediumBlocksLocked}
   {Set the last sequentially fed block}
   mov LastSequentiallyFedMediumBlock, ebx
   test ebp, (UnsignedBit shl StateBitMediumLocked)
-  jz @DontUnlockMediumBlocksAfterMakeEmptyMediumPoolSequentialFeed
+  jz @DontUnlckMedBlksAftrMkEmptMedPlSeqFd
   {Unlock medium blocks}
   call UnlockMediumBlocks {it destroys eax, ecx and edx, but we don't need them}
   {$ifdef AsmCodeAlign}.align 4{$endif}
-@DontUnlockMediumBlocksAfterMakeEmptyMediumPoolSequentialFeed:
+@DontUnlckMedBlksAftrMkEmptMedPlSeqFd:
   {Success}
   xor eax, eax
   {Restore registers}
@@ -9753,14 +9753,14 @@ asm
 @NotSequentialFeedPool:
   {Unlock the block type}
   test r12b, (UnsignedBit shl StateBitSmallLocked)
-  jz @DontReleaseSmallBlockAfterNotSequentialFeedPool
+  jz @DontRelSmlBlkAftrNotSeqFdPl
   {$ifdef DebugReleaseLockByte}
   cmp TSmallBlockType[rbx].SmallBlockTypeLocked, cLockByteLocked
   jne SmallBlockUnlockError
   {$endif}
   mov TSmallBlockType[rbx].SmallBlockTypeLocked, cLockByteAvailable
   {$ifdef AsmCodeAlign}.align 8{$endif}
-@DontReleaseSmallBlockAfterNotSequentialFeedPool:
+@DontRelSmlBlkAftrNotSeqFdPl:
   {Release this pool}
   mov rcx, rdx
   mov rdx, [rdx - BlockHeaderSize]
@@ -9999,13 +9999,13 @@ but we don't need them at this point}
   mov TMediumBlockPoolHeader[rdx].PreviousMediumBlockPoolHeader, rax
   {Unlock medium blocks}
   test r12b, (UnsignedBit shl StateBitMediumLocked)
-  jz @DontUnlockMediumBlocksAfterEntireMediumPoolFree
+  jz @DontUnlckMedBlcksAftrEntireMedPlFre
 {The call destroys most of the volatile (caller-saved) registers,
 (RAX, RCX, RDX, R8, R9, R10, R11),
 but we don't need them at this point}
   call UnlockMediumBlocks
   {$ifdef AsmCodeAlign}.align 8{$endif}
-@DontUnlockMediumBlocksAfterEntireMediumPoolFree:
+@DontUnlckMedBlcksAftrEntireMedPlFre:
 {$ifdef ClearMediumBlockPoolsBeforeReturningToOS}
   mov rcx, rsi
   mov edx, MediumBlockPoolSize
@@ -10965,7 +10965,7 @@ asm
   {$ifdef AsmCodeAlign}.align 8{$endif}
 @NextMediumBlockChanged:
   test byte ptr ss:[esp+cLocalVarStackOfsMediumBlock], (UnsignedBit shl StateBitMediumLocked)
-  jz @DontUnlockMediumBlocksAfterNextMediumBlockChanged
+  jz @DontUnlMedBlksAftrNxtMedBlkChg
   {The next medium block changed while the medium blocks were being locked}
   push ecx
   push edx
@@ -10975,7 +10975,7 @@ asm
 
   {$ifdef AsmCodeAlign}.align 4{$endif}
 
-@DontUnlockMediumBlocksAfterNextMediumBlockChanged:
+@DontUnlMedBlksAftrNxtMedBlkChg:
 
 @CannotUpsizeMediumBlockInPlace:
   {Couldn't upsize in place. Grab a new block and move the data across:
@@ -11505,7 +11505,7 @@ but we don't need them at this point, since we are about to exit}
 @NextMediumBlockChanged:
   {The next medium block changed while the medium blocks were being locked}
   test r12b, (UnsignedBit shl StateBitMediumLocked)
-  jz @DontUnlockMediumBlocksAfterNextMediumBlockChanged
+  jz @DontUnlMedBlksAftrNxtMedBlkChg
 {The call to "UnlockMediumBlocks" destroys most of the volatile (caller-saved)
 registers (RAX, RCX, RDX, R8, R9, R10, R11),
 so ew save RCX and RDX}
@@ -11517,7 +11517,7 @@ so ew save RCX and RDX}
 
   {$ifdef AsmCodeAlign}.align 4{$endif}
 
-@DontUnlockMediumBlocksAfterNextMediumBlockChanged:
+@DontUnlMedBlksAftrNxtMedBlkChg:
 
 @CannotUpsizeMediumBlockInPlace:
   {Couldn't upsize in place. Grab a new block and move the data across:
