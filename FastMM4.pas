@@ -2,7 +2,7 @@
 
 FastMM4AVX (AVX1/AVX2/ERMS support for FastMM4)
 
-Version 1.0
+Version 1.01
 
 This is a fork of the Fast Memory Manager 4.992 by Pierre le Riche
 (see below for the original FastMM4 description)
@@ -131,11 +131,15 @@ NexusDB 64 threads  187094  57672  30.25%   63089  41955  66.50%
 
 (the tests have been done on 14-Jul-2017)
 
-
-
-AVX1/AVX2/ERMS support Copyright (C) 2017 RITLABS S.R.L. All rights reserved.
+AVX1/AVX2/ERMS support Copyright (C) 2017 Ritlabs S.R.L. All rights reserved.
 https://www.ritlabs.com/
 AVX1/AVX2/ERMS support is written by Maxim Masiutin <max@ritlabs.com>
+
+FastMM4AVX is released under a dual license, and you may choose to use it 
+under either the Mozilla Public License 2.0 (MPL 2.1, available from
+https://www.mozilla.org/en-US/MPL/2.0/) or the GNU Lesser General Public
+License Version 3, dated 29 June 2007 (LGPL 3, available from
+https://www.gnu.org/licenses/lgpl.html).
 
 FastMM4AVX is free software: you can redistribute it and/or modify
 it under the terms of the GNU Lesser General Public License as published by
@@ -150,6 +154,12 @@ GNU Lesser General Public License for more details.
 You should have received a copy of the GNU Lesser General Public License
 along with FastMM4AVX (see license_lgpl.txt and license_gpl.txt)
 If not, see <http://www.gnu.org/licenses/>.
+
+
+FastMM4AVX Version History:
+1.01 (10 October 2017) - made the source code compile under Delphi5, 
+     thanks to Valts Silaputnins.
+1.00 (27 July 2017) - initial revision.
 
 
 
