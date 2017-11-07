@@ -9,8 +9,8 @@ This is a fork of the Fast Memory Manager 4.992 by Pierre le Riche
 
 What was added to the fork:
  - if the CPU supports AVX or AVX2, use the 32-byte YMM registers
-   for faster memory copy, and if the CPU supports AVX-512 (not yet implemented),
-   use the 64-byte ZMM registers for even faster memory copy (not yet implemented);
+   for faster memory copy, and if the CPU supports AVX-512,
+   use the 64-byte ZMM registers for even faster memory copy;
    use DisableAVX to turn AVX off completely or
    use DisableAVX1/DisableAVX2/DisableAVX512 to disable separately certain
    AVX-related instruction set from being compiled into FastMM4);
@@ -16222,11 +16222,9 @@ ENDQUOTE}
           FastMMCpuFeatures := FastMMCpuFeatures or FastMMCpuFeatureAVX2;
 
           // check for AVX-512
-
+        {$ifdef EnableAVX512}
           if
-
           ((CpuXCR0 and cXcrZmmMask) = cXcrZmmMask) and
-
           { Processor support of AVX-512 Foundation instructions is indicated by CPUID.(EAX=07H, ECX=0):EBX.AVX512F[bit16] = 1}
           ((CPUIDTable[7].EBX and (1 shl 16)) <> 0)
         {$ifdef Use_GetEnabledXStateFeatures_WindowsAPICall}
@@ -16236,6 +16234,7 @@ ENDQUOTE}
           begin
             FastMMCpuFeatures := FastMMCpuFeatures or FastMMCpuFeatureAVX512;
           end;
+        {$endif}
 
         end;
       end;
@@ -16280,6 +16279,8 @@ ENDQUOTE}
 
 {$ifdef 64Bit}
 {$ifdef EnableAVX}
+
+  {$ifdef EnableAVX512}
     if (FastMMCpuFeatures and FastMMCpuFeatureAVX512) <> 0 then
     begin
       case SmallBlockTypes[LInd].BlockSize of
@@ -16294,6 +16295,8 @@ ENDQUOTE}
          32*9: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move280AVX512;
       end;
     end else
+  {$endif}
+    {$ifndef DisableAVX2}
     if (FastMMCpuFeatures and FastMMCpuFeatureAVX2) <> 0 then
     begin
       case SmallBlockTypes[LInd].BlockSize of
@@ -16306,6 +16309,8 @@ ENDQUOTE}
          32*7: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move216AVX2;
       end;
     end else
+    {$endif DisableAVX2}
+    {$ifndef DisableAVX1}
     if (FastMMCpuFeatures and FastMMCpuFeatureAVX1) <> 0 then
     begin
       case SmallBlockTypes[LInd].BlockSize of
@@ -16317,7 +16322,11 @@ ENDQUOTE}
          32*6: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move184AVX1;
          32*7: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move216AVX1;
      end;
-    end;
+    end else
+   {$endif}
+   begin
+     // dummy block in case of no AVX code above is defined
+   end;
 {$endif}
 {$endif}
 
