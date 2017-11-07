@@ -2375,7 +2375,7 @@ const
   FastMMCpuFeatureAVX1                          = UnsignedBit shl 1;
   FastMMCpuFeatureAVX2                          = UnsignedBit shl 2;
   {$ifdef EnableAVX512}
-  FastMMCpuFeatureAVX512                        = UnsignedBit shl 2;
+  FastMMCpuFeatureAVX512                        = UnsignedBit shl 3;
   {$endif}
 {$endif}
 
