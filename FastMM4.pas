@@ -15053,7 +15053,10 @@ end;
 
 {Returns statistics about the current state of the memory manager}
 procedure GetMemoryManagerState(var AMemoryManagerState: TMemoryManagerState);
+const
+  BlockHeaderSizeWithAnyOverhead = BlockHeaderSize{$ifdef FullDebugMode} + FullDebugBlockOverhead{$endif};
 var
+  LIndBlockSize, LUsableBlockSize: Cardinal;
   LPMediumBlockPoolHeader: PMediumBlockPoolHeader;
   LPMediumBlock: Pointer;
   LInd: Integer;
@@ -15073,12 +15076,16 @@ begin
   {Set the small block size stats}
   for LInd := 0 to NumSmallBlockTypes - 1 do
   begin
-    AMemoryManagerState.SmallBlockTypeStates[LInd].InternalBlockSize :=
-      SmallBlockTypes[LInd].BlockSize;
-    AMemoryManagerState.SmallBlockTypeStates[LInd].UseableBlockSize :=
-      SmallBlockTypes[LInd].BlockSize - BlockHeaderSize{$ifdef FullDebugMode} - FullDebugBlockOverhead{$endif};
-    if NativeInt(AMemoryManagerState.SmallBlockTypeStates[LInd].UseableBlockSize) < 0 then
-      AMemoryManagerState.SmallBlockTypeStates[LInd].UseableBlockSize := 0;
+    LIndBlockSize := SmallBlockTypes[LInd].BlockSize;
+    AMemoryManagerState.SmallBlockTypeStates[LInd].InternalBlockSize := LIndBlockSize;
+    if LIndBlockSize > BlockHeaderSizeWithAnyOverhead then
+    begin
+      LUsableBlockSize := LIndBlockSize - BlockHeaderSizeWithAnyOverhead
+    end else
+    begin
+      LUsableBlockSize := 0;
+    end;
+    AMemoryManagerState.SmallBlockTypeStates[LInd].UseableBlockSize := LUsableBlockSize;
   end;
   if IsMultithread then
   begin
