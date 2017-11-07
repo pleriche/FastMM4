@@ -1344,6 +1344,11 @@ interface
   {$endif}
 {$endif EnableAsmCodeAlign}
 
+
+{$ifdef DisableAVX512}
+{$undef EnableAVX512}
+{$endif}
+
 {------------------------Compiler options for FastMM4------------------------}
 
 
@@ -1376,6 +1381,7 @@ of just one option: "Boolean short-circuit evaluation".}
 {$ifdef PasCodeAlign}
   {$CODEALIGN 16}
 {$endif}
+
 
 
 {-------------------------Public constants-----------------------------}
@@ -2362,16 +2368,24 @@ const
   Intel 64 and IA-32 Architectures Optimization Reference Manual}
 
 {$ifdef EnableMMX}
-  FastMMCpuFeatureMMX   = UnsignedBit shl 0;
+  FastMMCpuFeatureMMX                           = UnsignedBit shl 0;
 {$endif}
+
 {$ifdef EnableAVX}
-  FastMMCpuFeatureAVX1  = UnsignedBit shl 1;
-  FastMMCpuFeatureAVX2  = UnsignedBit shl 2;
+  FastMMCpuFeatureAVX1                          = UnsignedBit shl 1;
+  FastMMCpuFeatureAVX2                          = UnsignedBit shl 2;
+  {$ifdef EnableAVX512}
+  FastMMCpuFeatureAVX512                        = UnsignedBit shl 2;
+  {$endif}
 {$endif}
+
 {$ifdef EnableERMS}
-  FastMMCpuFeatureERMS  = UnsignedBit shl 3;
+  FastMMCpuFeatureERMS                          = UnsignedBit shl 4;
 {$endif}
-  FastMMCpuFeaturePauseAndSwitchToThread = UnsignedBit shl 4;
+
+  FastMMCpuFeaturePauseAndSwitchToThread        = UnsignedBit shl 5;
+
+
 
 
 {-------------------------Private variables----------------------------}
@@ -3968,6 +3982,18 @@ the Win64 code, see the comment at Move216AVX1 on this}
 end;
 {$endif DisableAVX2}
 
+{$ifdef EnableAVX512}
+procedure Move88AVX512(const ASource; var ADest; ACount: NativeInt); external;
+procedure Move120AVX512(const ASource; var ADest; ACount: NativeInt); external;
+procedure Move152AVX512(const ASource; var ADest; ACount: NativeInt); external;
+procedure Move184AVX512(const ASource; var ADest; ACount: NativeInt); external;
+procedure Move216AVX512(const ASource; var ADest; ACount: NativeInt); external;
+procedure Move248AVX512(const ASource; var ADest; ACount: NativeInt); external;
+procedure Move280AVX512(const ASource; var ADest; ACount: NativeInt); external;
+procedure MoveX32LpAvx512WithErms(const ASource; var ADest; ACount: NativeInt); external;
+{$L FastMM4_AVX512.obj}
+{$endif}
+
 
 {$endif EnableAVX}
 {$endif 64bit}
@@ -4845,7 +4871,7 @@ p. 3.7.7 (Enhanced REP MOVSB and STOSB operation (ERMSB)).
 We first check the corresponding bit in the CPUID, and, if it is supported,
 call this routine.}
 
-procedure MoveWithErms(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
+procedure MoveWithErmsNoAVX(const ASource; var ADest; ACount: NativeInt); {$ifdef fpc64bit} assembler; nostackframe; {$endif}
 asm
 {$ifdef 32Bit}
 // Under 32-bit Windows or Unix, the call passes first parametr in EAX, second in EDX, third in ECX
@@ -4892,7 +4918,16 @@ begin
     {$ifdef EnableERMS}
     if (FastMMCpuFeatures and FastMMCpuFeatureERMS) <> 0 then
     begin
-      MoveX32LpAvx2WithErms(ASource, ADest, ACount)
+      {$ifdef EnableAVX512}
+      if (FastMMCpuFeatures and FastMMCpuFeatureAVX512) <> 0 then
+      begin
+        MoveX32LpAvx512WithErms(ASource, ADest, ACount)
+      end
+      else
+      {$endif}
+      begin
+        MoveX32LpAvx2WithErms(ASource, ADest, ACount)
+      end;
     end else
     {$endif}
     begin
@@ -4916,7 +4951,7 @@ begin
     {$ifdef EnableERMS}
     if (FastMMCpuFeatures and FastMMCpuFeatureERMS) <> 0 then
     begin
-      MoveWithErms(ASource, ADest, ACount)
+      MoveWithErmsNoAVX(ASource, ADest, ACount)
     end else
     {$endif}
     begin
@@ -15814,7 +15849,14 @@ const
   XSTATE_IPT                          = (8);
   XSTATE_LWP                          = (62);
   MAXIMUM_XSTATE_FEATURES             = (64);
-{$endif}
+
+const
+  cXstateAvx1Mask                     = (1 shl XSTATE_AVX);
+  {$ifdef EnableAVX512}
+  cXstateAvx512Mask                   = (1 shl XSTATE_AVX512_KMASK) or (1 shl XSTATE_AVX512_ZMM_H) or (1 shl XSTATE_AVX512_ZMM);
+  {$endif}
+
+{$endif Use_GetEnabledXStateFeatures_WindowsAPICall}
 
 {Use the NativeUint argument type to make Delphi clear the trash and not pass 
 it in bits 63-32 under 64-bit, although the xgetbv instruction only accepts
@@ -15956,6 +15998,17 @@ procedure InitializeMemoryManager;
 const
   {The size of the Inc(VMTIndex) code in TFreedObject.GetVirtualMethodIndex}
   VMTIndexIncCodeSize = 6;
+
+const
+  {XCR0[2:1] = ‘11b’ (XMM state and YMM state are enabled by OS).}
+  cXcrXmmAndYmmMask = (4-1) shl 1;
+
+{$ifdef EnableAVX512}
+const
+  {XCR0[7:5] = ‘111b’ (OPMASK state, upper 256-bit of ZMM0-ZMM15 and ZMM16-ZMM31 state are enabled by OS).}
+  cXcrZmmMask       = (8-1) shl 5;
+{$endif}
+
 
 {$ifdef Use_GetEnabledXStateFeatures_WindowsAPICall}
 type
@@ -16136,12 +16189,21 @@ ENDQUOTE}
       end;
 
       {$ifdef EnableAVX}
-      if (CpuXCR0 and 6 = 6) and
-        ((LReg1.RegECX and (UnsignedBit shl 28)) <> 0) {AVX bit}
-          {$ifdef Use_GetEnabledXStateFeatures_WindowsAPICall}
-             and ((EnabledXStateFeatures and (UnsignedBit shl XSTATE_AVX)) <> 0)
-          {$endif}
-      then FastMMCpuFeatures := FastMMCpuFeatures or FastMMCpuFeatureAVX1;
+      if
+         {verify that XCR0[2:1] = ‘11b’ (XMM state and YMM state are enabled by OS).}
+         (CpuXCR0 and cXcrXmmAndYmmMask = cXcrXmmAndYmmMask) and
+
+         {verify that CPUID.1:ECX.AVX[bit 28] = 1 (AVX instructions supported)}
+         ((LReg1.RegECX and (UnsignedBit shl 28)) <> 0) {AVX bit}
+
+      {$ifdef Use_GetEnabledXStateFeatures_WindowsAPICall}
+         and ((EnabledXStateFeatures and (cXstateAvx1Mask) = cXstateAvx1Mask))
+      {$endif}
+
+      then
+      begin
+        FastMMCpuFeatures := FastMMCpuFeatures or FastMMCpuFeatureAVX1;
+      end;
 
       if (FastMMCpuFeatures and FastMMCpuFeatureAVX1 <> 0) then
       begin
@@ -16151,6 +16213,23 @@ ENDQUOTE}
             ((LReg7_0.RegEBX and (UnsignedBit shl 5))<> 0) then
         begin
           FastMMCpuFeatures := FastMMCpuFeatures or FastMMCpuFeatureAVX2;
+
+          // check for AVX-512
+
+          if
+
+          ((CpuXCR0 and cXcrZmmMask) = cXcrZmmMask) and
+
+          { Processor support of AVX-512 Foundation instructions is indicated by CPUID.(EAX=07H, ECX=0):EBX.AVX512F[bit16] = 1}
+          ((CPUIDTable[7].EBX and (1 shl 16)) <> 0)
+        {$ifdef Use_GetEnabledXStateFeatures_WindowsAPICall}
+            and ((EnabledXStateFeatures and cXstateAvx512Mask) = cXstateAvx512Mask)
+        {$endif}
+          then
+          begin
+            FastMMCpuFeatures := FastMMCpuFeatures or FastMMCpuFeatureAVX512;
+          end;
+
         end;
       end;
       {$endif EnableAVX}
@@ -16194,6 +16273,20 @@ ENDQUOTE}
 
 {$ifdef 64Bit}
 {$ifdef EnableAVX}
+    if (FastMMCpuFeatures and FastMMCpuFeatureAVX512) <> 0 then
+    begin
+      case SmallBlockTypes[LInd].BlockSize of
+         32*1: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move24AVX2;
+         32*2: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move56AVX2;
+         32*3: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move88AVX512;
+         32*4: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move120AVX512;
+         32*5: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move152AVX512;
+         32*6: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move184AVX512;
+         32*7: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move216AVX512;
+         32*8: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move248AVX512;
+         32*9: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move280AVX512;
+      end;
+    end else
     if (FastMMCpuFeatures and FastMMCpuFeatureAVX2) <> 0 then
     begin
       case SmallBlockTypes[LInd].BlockSize of
@@ -16230,7 +16323,15 @@ ENDQUOTE}
     begin
       if (FastMMCpuFeatures and FastMMCpuFeatureERMS) <> 0 then
       begin
-        SmallBlockTypes[LInd].UpsizeMoveProcedure := MoveX32LpAvx2WithErms;
+      {$ifdef EnableAVX512}
+        if (FastMMCpuFeatures and FastMMCpuFeatureAVX512) <> 0 then
+        begin
+          SmallBlockTypes[LInd].UpsizeMoveProcedure := MoveX32LpAvx512WithErms;
+        end else
+      {$endif}
+        begin
+          SmallBlockTypes[LInd].UpsizeMoveProcedure := MoveX32LpAvx2WithErms;
+        end;
       end else
       begin
         SmallBlockTypes[LInd].UpsizeMoveProcedure := MoveX32LpAvx2NoErms;
@@ -16245,7 +16346,7 @@ ENDQUOTE}
       {$ifdef EnalbleERMS}
       if (FastMMCpuFeatures and FastMMCpuFeatureERMS) <> 0 then
       begin
-        SmallBlockTypes[LInd].UpsizeMoveProcedure := MoveWithErms;
+        SmallBlockTypes[LInd].UpsizeMoveProcedure := MoveWithErmsNoAVX;
       end else
       {$endif}
       begin
@@ -16256,7 +16357,7 @@ ENDQUOTE}
 {$ifdef USE_CPUID}
       {$ifdef EnalbleERMS}
       if (FastMMCpuFeatures and FastMMCpuFeatureERMS) <> 0 then
-        SmallBlockTypes[LInd].UpsizeMoveProcedure := MoveWithErms
+        SmallBlockTypes[LInd].UpsizeMoveProcedure := MoveWithErmsNoAVX
       else
       {$endif}
 {$endif}      
