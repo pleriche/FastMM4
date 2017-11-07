@@ -1352,6 +1352,8 @@ interface
 
 {$ifdef DisableAVX512}
 {$undef EnableAVX512}
+{$else}
+{$define EnableAVX512}
 {$endif}
 
 {------------------------Compiler options for FastMM4------------------------}
@@ -4001,7 +4003,9 @@ procedure Move280AVX512(const ASource; var ADest; ACount: NativeInt); external;
 procedure MoveX32LpAvx512WithErms(const ASource; var ADest; ACount: NativeInt); external;
 
 { FastMM4_AVX512.obj file is needed to enable AVX-512 code for FastMM4AVX.
-  Use "nasm.exe -Ox -f win64 FastMM4_AVX512.asm" to compile this .obj file }
+  Use "nasm.exe -Ox -f win64 FastMM4_AVX512.asm" to compile this .obj file.
+
+  Define DisableAVX512 if you don't want to compile this .obj file.}
 
 {$L FastMM4_AVX512.obj}
 
