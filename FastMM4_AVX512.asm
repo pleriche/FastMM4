@@ -1,15 +1,34 @@
+
+; This file is needed to enable AVX-512 code for FastMM4AVX.
+; Use "nasm.exe -Ox -f win64 FastMM4_AVX512.asm" to compile this file
+; You can get The Netwide Assembler, NASM, from http://www.nasm.us/
+
+; This file is a part of FastMM4AVX.
+; FastMM4AVX is a fork of the Fast Memory Manager 4.992 by Pierre le Riche
+
+; FastMM4AVX Copyright (C) 2017 Ritlabs S.R.L. All rights reserved.
+; https://www.ritlabs.com/
+; AVX1/AVX2/ERMS support is written by Maxim Masiutin <max@ritlabs.com>
+
+; FastMM4AVX is released under a dual license, and you may choose to use it 
+; under either the Mozilla Public License 2.0 (MPL 2.1, available from
+; https://www.mozilla.org/en-US/MPL/2.0/) or the GNU Lesser General Public
+; License Version 3, dated 29 June 2007 (LGPL 3, available from
+; https://www.gnu.org/licenses/lgpl.html).
+
+
 section	.text
 
-	global Move88AVX512
-	global Move120AVX512
-	global Move152AVX512
-	global Move184AVX512
-	global Move216AVX512
-	global Move280AVX512
-	global MoveX32LpAvx512WithErms
+	global		Move88AVX512
+	global		Move120AVX512
+	global		Move152AVX512
+	global		Move184AVX512
+	global		Move216AVX512
+	global		Move280AVX512
+	global		MoveX32LpAvx512WithErms
 
-	%use smartalign
-	ALIGNMODE p6, 32     ;  p6 NOP strategy, and jump over the NOPs only if they're 32B or larger.
+	%use		smartalign
+	ALIGNMODE	p6, 32     ;  p6 NOP strategy, and jump over the NOPs only if they're 32B or larger.
 
 
 	align		16

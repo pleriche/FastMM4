@@ -2,7 +2,7 @@
 
 FastMM4AVX (AVX1/AVX2/ERMS support for FastMM4)
 
-Version 1.01
+Version 1.02
 
 This is a fork of the Fast Memory Manager 4.992 by Pierre le Riche
 (see below for the original FastMM4 description)
@@ -18,9 +18,9 @@ What was added to the fork:
    you can also use Align32Bytes define without AVX; please note that the memory
    overhead is higher when the blocks are aligned by 32 bytes, because some
    memory is lost by padding;
- - with AVX, memory copy is secure - all XMM/YMM registers used to copy memory
-   are cleared by vxorps/vpxor, so the leftovers of the copied memory are not
-   exposed in the XMM/YMM registers;
+ - with AVX, memory copy is secure - all XMM/YMM/ZMM registers used to copy 
+   memory are cleared by vxorps/vpxor, so the leftovers of the copied memory 
+   are not exposed in the XMM/YMM/ZMM registers;
  - properly handle AVX-SSE transitions to not incur the transition penalties,
    only call vzeroupper under AVX1, but not under AVX2 since it slows down
    subsequent SSE code under Skylake / Kaby Lake;
@@ -157,8 +157,13 @@ If not, see <http://www.gnu.org/licenses/>.
 
 
 FastMM4AVX Version History:
+
+1.02 (07 November 2017) - added and tested support of the AVX-512 
+     instruction set.
+
 1.01 (10 October 2017) - made the source code compile under Delphi5, 
      thanks to Valts Silaputnins.
+
 1.00 (27 July 2017) - initial revision.
 
 
@@ -3985,7 +3990,7 @@ end;
 {$ifdef EnableAVX512}
 {$ifdef unix}
 AVX-512 is not yet implemented for UNIX
-{$else}
+{$else unix}
 procedure Move88AVX512(const ASource; var ADest; ACount: NativeInt); external;
 procedure Move120AVX512(const ASource; var ADest; ACount: NativeInt); external;
 procedure Move152AVX512(const ASource; var ADest; ACount: NativeInt); external;
@@ -3994,9 +3999,15 @@ procedure Move216AVX512(const ASource; var ADest; ACount: NativeInt); external;
 procedure Move248AVX512(const ASource; var ADest; ACount: NativeInt); external;
 procedure Move280AVX512(const ASource; var ADest; ACount: NativeInt); external;
 procedure MoveX32LpAvx512WithErms(const ASource; var ADest; ACount: NativeInt); external;
+
+{ FastMM4_AVX512.obj file is needed to enable AVX-512 code for FastMM4AVX.
+  Use "nasm.exe -Ox -f win64 FastMM4_AVX512.asm" to compile this .obj file }
+
 {$L FastMM4_AVX512.obj}
-{$endif}
-{$endif}
+
+
+{$endif unix}
+{$endif EnableAVX512}
 
 
 {$endif EnableAVX}
