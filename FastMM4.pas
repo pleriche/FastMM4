@@ -3983,6 +3983,9 @@ end;
 {$endif DisableAVX2}
 
 {$ifdef EnableAVX512}
+{$ifdef unix}
+AVX-512 is not yet implemented for UNIX
+{$else}
 procedure Move88AVX512(const ASource; var ADest; ACount: NativeInt); external;
 procedure Move120AVX512(const ASource; var ADest; ACount: NativeInt); external;
 procedure Move152AVX512(const ASource; var ADest; ACount: NativeInt); external;
@@ -3992,6 +3995,7 @@ procedure Move248AVX512(const ASource; var ADest; ACount: NativeInt); external;
 procedure Move280AVX512(const ASource; var ADest; ACount: NativeInt); external;
 procedure MoveX32LpAvx512WithErms(const ASource; var ADest; ACount: NativeInt); external;
 {$L FastMM4_AVX512.obj}
+{$endif}
 {$endif}
 
 
