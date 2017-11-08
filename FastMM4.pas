@@ -4000,7 +4000,9 @@ procedure Move184AVX512(const ASource; var ADest; ACount: NativeInt); external;
 procedure Move216AVX512(const ASource; var ADest; ACount: NativeInt); external;
 procedure Move248AVX512(const ASource; var ADest; ACount: NativeInt); external;
 procedure Move280AVX512(const ASource; var ADest; ACount: NativeInt); external;
+{$IFNDEF DisableMoveX32LpAvx512}
 procedure MoveX32LpAvx512WithErms(const ASource; var ADest; ACount: NativeInt); external;
+{$ENDIF}
 
 { FastMM4_AVX512.obj file is needed to enable AVX-512 code for FastMM4AVX.
   Use "nasm.exe -Ox -f win64 FastMM4_AVX512.asm" to compile this .obj file.
@@ -4938,11 +4940,13 @@ begin
     if (FastMMCpuFeatures and FastMMCpuFeatureERMS) <> 0 then
     begin
       {$ifdef EnableAVX512}
+      {$ifndef DisableMoveX32LpAvx512}
       if (FastMMCpuFeatures and FastMMCpuFeatureAVX512) <> 0 then
       begin
         MoveX32LpAvx512WithErms(ASource, ADest, ACount)
       end
       else
+      {$endif}
       {$endif}
       begin
         MoveX32LpAvx2WithErms(ASource, ADest, ACount)
@@ -16359,10 +16363,12 @@ ENDQUOTE}
       if (FastMMCpuFeatures and FastMMCpuFeatureERMS) <> 0 then
       begin
       {$ifdef EnableAVX512}
+      {$ifndef DisableMoveX32LpAvx512}
         if (FastMMCpuFeatures and FastMMCpuFeatureAVX512) <> 0 then
         begin
           SmallBlockTypes[LInd].UpsizeMoveProcedure := MoveX32LpAvx512WithErms;
         end else
+      {$endif}
       {$endif}
         begin
           SmallBlockTypes[LInd].UpsizeMoveProcedure := MoveX32LpAvx2WithErms;

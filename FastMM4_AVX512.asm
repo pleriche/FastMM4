@@ -52,6 +52,7 @@ Move120AVX512:
 	vmovdqu64 	[rdx], zmm0
 	vmovdqa 	[rdx+40h], ymm1
 	vmovdqa 	[rdx+60h], xmm2
+	mov		[rdx+70h], rcx
 	vpxord		zmm0,zmm0,zmm0
 	vpxor		ymm1,ymm1,ymm1
 	vpxor		xmm2,xmm2,xmm2
@@ -126,7 +127,7 @@ Move248AVX512:
 	vpxord 		zmm1,zmm1,zmm1
 	vpxord 		zmm2,zmm2,zmm2
 	vpxor 		ymm3,ymm3,ymm3
-	vpxor 		xmm4,xmm4,xmm3
+	vpxor 		xmm4,xmm4,xmm4
 	ret
 
 	align		16
@@ -141,13 +142,13 @@ Move280AVX512:
 	vmovdqu64 	[rdx+40h], zmm1
 	vmovdqu64 	[rdx+80h], zmm2
 	vmovdqu64 	[rdx+0C0h], zmm3
-	vmovdqa 	xmm4, [rcx+0100h]
+	vmovdqa 	[rdx+0100h], xmm4
 	mov 		[rdx+110h], rcx
 	vpxord 		zmm0,zmm0,zmm0
 	vpxord 		zmm1,zmm1,zmm1
 	vpxord 		zmm2,zmm2,zmm2
 	vpxord 		zmm3,zmm3,zmm3
-	vpxor 		xmm4,xmm4,xmm3
+	vpxor 		xmm4,xmm4,xmm4
 	ret
 
 
@@ -185,7 +186,7 @@ MoveX32LpAvx512WithErms:
 	align		16
 
 @DontDoRepMovsb:
-	cmp 		r8, -128
+	cmp 		r8, -(128+64)
 	jg  		@SmallAvxMove
 
 	mov		eax, 128
@@ -237,7 +238,7 @@ MoveX32LpAvx512WithErms:
 	align		8
 @MoveLast8:
 ; Do the last 8 bytes
-	mov 		rcx, [rcx + r8]
-	mov		[rdx + r8], rcx
+	mov 		rcx, [rcx+r8]
+	mov		[rdx+r8], rcx
 @exit:
 	ret
