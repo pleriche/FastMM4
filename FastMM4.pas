@@ -1,6 +1,6 @@
 (*
 
-FastMM4AVX (AVX1/AVX2/ERMS support for FastMM4)
+FastMM4-AVX (AVX1/AVX2/ERMS support for FastMM4)
 
 Version 1.02
 
@@ -135,28 +135,28 @@ AVX1/AVX2/ERMS support Copyright (C) 2017 Ritlabs S.R.L. All rights reserved.
 https://www.ritlabs.com/
 AVX1/AVX2/ERMS support is written by Maxim Masiutin <max@ritlabs.com>
 
-FastMM4AVX is released under a dual license, and you may choose to use it 
+FastMM4-AVX is released under a dual license, and you may choose to use it 
 under either the Mozilla Public License 2.0 (MPL 2.1, available from
 https://www.mozilla.org/en-US/MPL/2.0/) or the GNU Lesser General Public
 License Version 3, dated 29 June 2007 (LGPL 3, available from
 https://www.gnu.org/licenses/lgpl.html).
 
-FastMM4AVX is free software: you can redistribute it and/or modify
+FastMM4-AVX is free software: you can redistribute it and/or modify
 it under the terms of the GNU Lesser General Public License as published by
 the Free Software Foundation, either version 3 of the License, or
 (at your option) any later version.
 
-FastMM4AVX is distributed in the hope that it will be useful,
+FastMM4-AVX is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
 MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
 GNU Lesser General Public License for more details.
 
 You should have received a copy of the GNU Lesser General Public License
-along with FastMM4AVX (see license_lgpl.txt and license_gpl.txt)
+along with FastMM4-AVX (see license_lgpl.txt and license_gpl.txt)
 If not, see <http://www.gnu.org/licenses/>.
 
 
-FastMM4AVX Version History:
+FastMM4-AVX Version History:
 
 1.02 (07 November 2017) - added and tested support of the AVX-512 
      instruction set.
@@ -4004,7 +4004,7 @@ procedure Move280AVX512(const ASource; var ADest; ACount: NativeInt); external;
 procedure MoveX32LpAvx512WithErms(const ASource; var ADest; ACount: NativeInt); external;
 {$ENDIF}
 
-{ FastMM4_AVX512.obj file is needed to enable AVX-512 code for FastMM4AVX.
+{ FastMM4_AVX512.obj file is needed to enable AVX-512 code for FastMM4-AVX.
   Use "nasm.exe -Ox -f win64 FastMM4_AVX512.asm" to compile this .obj file.
 
   Define DisableAVX512 if you don't want to compile this .obj file.}
