@@ -16249,7 +16249,7 @@ ENDQUOTE}
           if
           ((CpuXCR0 and cXcrZmmMask) = cXcrZmmMask) and
           { Processor support of AVX-512 Foundation instructions is indicated by CPUID.(EAX=07H, ECX=0):EBX.AVX512F[bit16] = 1}
-          ((CPUIDTable[7].EBX and (1 shl 16)) <> 0)
+          ((LReg7_0.RegEBX and (1 shl 16)) <> 0)
         {$ifdef Use_GetEnabledXStateFeatures_WindowsAPICall}
             and ((EnabledXStateFeatures and cXstateAvx512Mask) = cXstateAvx512Mask)
         {$endif}
