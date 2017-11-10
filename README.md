@@ -107,27 +107,27 @@ Used the "Multi-threaded allocate, use and free" and "NexusDB"
 test cases from the FastCode Challenge Memory Manager test suite,
 modified to run under 64-bit.
 
-                     Xeon E6-2543v2 2*CPU     i7-7700K CPU
-                    (allocated 20 logical  (allocated 8 logical
-                     threads, 10 physical   threads, 4 physical
-                     cores, NUMA)           cores)
+                         Xeon E6-2543v2 2*CPU     i7-7700K CPU
+                        (allocated 20 logical  (allocated 8 logical
+                         threads, 10 physical   threads, 4 physical
+                         cores, NUMA)           cores)
 
-                    Orig.  AVX-br.  Ratio   Orig.  AVX-br. Ratio
-                    ------  -----  ------   -----  -----  ------
-02-threads realloc   96552  59951  62.09%   65213  49471  75.86%
-04-threads realloc   97998  39494  40.30%   64402  47714  74.09%
-08-threads realloc   98325  33743  34.32%   64796  58754  90.68%
-16-threads realloc  116708  45855  39.29%   71457  60173  84.21%
-16-threads realloc  116273  45161  38.84%   70722  60293  85.25%
-31-threads realloc  122528  53616  43.76%   70939  62962  88.76%
-64-threads realloc  137661  54330  39.47%   73696  64824  87.96%
-NexusDB 02 threads  122846  90380  73.72%   79479  66153  83.23%
-NexusDB 04 threads  122131  53103  43.77%   69183  43001  62.16%
-NexusDB 08 threads  124419  40914  32.88%   64977  33609  51.72%
-NexusDB 12 threads  181239  55818  30.80%   83983  44658  53.18%
-NexusDB 16 threads  135211  62044  43.61%   59917  32463  54.18%
-NexusDB 31 threads  134815  48132  33.46%   54686  31184  57.02%
-NexusDB 64 threads  187094  57672  30.25%   63089  41955  66.50%
+                        Orig.  AVX-br.  Ratio   Orig.  AVX-br. Ratio
+                        ------  -----  ------   -----  -----  ------
+    02-threads realloc   96552  59951  62.09%   65213  49471  75.86%
+    04-threads realloc   97998  39494  40.30%   64402  47714  74.09%
+    08-threads realloc   98325  33743  34.32%   64796  58754  90.68%
+    16-threads realloc  116708  45855  39.29%   71457  60173  84.21%
+    16-threads realloc  116273  45161  38.84%   70722  60293  85.25%
+    31-threads realloc  122528  53616  43.76%   70939  62962  88.76%
+    64-threads realloc  137661  54330  39.47%   73696  64824  87.96%
+    NexusDB 02 threads  122846  90380  73.72%   79479  66153  83.23%
+    NexusDB 04 threads  122131  53103  43.77%   69183  43001  62.16%
+    NexusDB 08 threads  124419  40914  32.88%   64977  33609  51.72%
+    NexusDB 12 threads  181239  55818  30.80%   83983  44658  53.18%
+    NexusDB 16 threads  135211  62044  43.61%   59917  32463  54.18%
+    NexusDB 31 threads  134815  48132  33.46%   54686  31184  57.02%
+    NexusDB 64 threads  187094  57672  30.25%   63089  41955  66.50%
 
 (the tests have been done on 14-Jul-2017)
 
