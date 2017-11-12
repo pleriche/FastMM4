@@ -1,6 +1,6 @@
 (*
 
-FastMM4-AVX (AVX1/AVX2/ERMS support for FastMM4)
+FastMM4-AVX (AVX1/AVX2/AVX512/ERMS support for FastMM4)
 
 Version 1.02
 
