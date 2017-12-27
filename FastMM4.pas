@@ -4000,6 +4000,8 @@ procedure Move184AVX512(const ASource; var ADest; ACount: NativeInt); external;
 procedure Move216AVX512(const ASource; var ADest; ACount: NativeInt); external;
 procedure Move248AVX512(const ASource; var ADest; ACount: NativeInt); external;
 procedure Move280AVX512(const ASource; var ADest; ACount: NativeInt); external;
+procedure Move312AVX512(const ASource; var ADest; ACount: NativeInt); external;
+procedure Move344AVX512(const ASource; var ADest; ACount: NativeInt); external;
 {$IFNDEF DisableMoveX32LpAvx512}
 procedure MoveX32LpAvx512WithErms(const ASource; var ADest; ACount: NativeInt); external;
 {$ENDIF}
@@ -16307,15 +16309,17 @@ ENDQUOTE}
     if (FastMMCpuFeatures and FastMMCpuFeatureAVX512) <> 0 then
     begin
       case SmallBlockTypes[LInd].BlockSize of
-         32*1: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move24AVX2;
-         32*2: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move56AVX2;
-         32*3: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move88AVX512;
-         32*4: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move120AVX512;
-         32*5: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move152AVX512;
-         32*6: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move184AVX512;
-         32*7: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move216AVX512;
-         32*8: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move248AVX512;
-         32*9: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move280AVX512;
+         32*01: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move24AVX2;
+         32*02: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move56AVX2;
+         32*03: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move88AVX512;
+         32*04: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move120AVX512;
+         32*05: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move152AVX512;
+         32*06: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move184AVX512;
+         32*07: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move216AVX512;
+         32*08: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move248AVX512;
+         32*09: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move280AVX512;
+         32*10: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move312AVX512;
+         32*11: SmallBlockTypes[LInd].UpsizeMoveProcedure := Move344AVX512;
       end;
     end else
   {$endif}

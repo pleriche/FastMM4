@@ -142,13 +142,61 @@ Move280AVX512:
 	vmovdqu64 	[rdx+40h], zmm1
 	vmovdqu64 	[rdx+80h], zmm2
 	vmovdqu64 	[rdx+0C0h], zmm3
-	vmovdqa 	[rdx+0100h], xmm4
+	vmovdqa 	[rdx+100h], xmm4
 	mov 		[rdx+110h], rcx
 	vpxord 		zmm0,zmm0,zmm0
 	vpxord 		zmm1,zmm1,zmm1
 	vpxord 		zmm2,zmm2,zmm2
 	vpxord 		zmm3,zmm3,zmm3
 	vpxor 		xmm4,xmm4,xmm4
+	ret
+
+	align		16
+Move312AVX512:
+	vmovdqu64 	zmm0, [rcx+00h]
+	vmovdqu64 	zmm1, [rcx+40h]
+	vmovdqu64 	zmm2, [rcx+80h]
+	vmovdqu64 	zmm3, [rcx+0C0h]
+	vmovdqa 	ymm4, [rcx+100h]
+	vmovdqa 	xmm5, [rcx+120h]
+	mov 		rcx, [rcx+130h]
+	vmovdqu64 	[rdx+00h], zmm0
+	vmovdqu64 	[rdx+40h], zmm1
+	vmovdqu64 	[rdx+80h], zmm2
+	vmovdqu64 	[rdx+0C0h], zmm3
+	vmovdqa 	[rdx+100h], ymm4
+	vmovdqa 	[rdx+120h], xmm5
+	mov 		[rdx+130h], rcx
+	vpxord 		zmm0,zmm0,zmm0
+	vpxord 		zmm1,zmm1,zmm1
+	vpxord 		zmm2,zmm2,zmm2
+	vpxord 		zmm3,zmm3,zmm3
+	vpxor 		ymm4,ymm4,ymm4
+	vpxor 		xmm5,xmm5,xmm5
+	ret
+
+	align		16
+Move344AVX512:
+	vmovdqu64 	zmm0, [rcx+00h]
+	vmovdqu64 	zmm1, [rcx+40h]
+	vmovdqu64 	zmm2, [rcx+80h]
+	vmovdqu64 	zmm3, [rcx+0C0h]
+	vmovdqu64 	zmm4, [rcx+100h]
+	vmovdqa 	xmm5, [rcx+140h]
+	mov 		rcx, [rcx+150h]
+	vmovdqu64 	[rdx+00h], zmm0
+	vmovdqu64 	[rdx+40h], zmm1
+	vmovdqu64 	[rdx+80h], zmm2
+	vmovdqu64 	[rdx+0C0h], zmm3
+	vmovdqu64 	[rdx+100h], zmm4
+	vmovdqa 	[rdx+140h], xmm5
+	mov 		[rdx+150h], rcx
+	vpxord 		zmm0,zmm0,zmm0
+	vpxord 		zmm1,zmm1,zmm1
+	vpxord 		zmm2,zmm2,zmm2
+	vpxord 		zmm3,zmm3,zmm3
+	vpxord 		zmm4,zmm4,zmm4
+	vpxor 		xmm5,xmm5,xmm5
 	ret
 
 
