@@ -151,6 +151,7 @@ number of threads is the same or greater than the number of physical cores}
 {$define MediumBlocksLockedCriticalSection}
 {$define LargeBlocksLockedCriticalSection}
 
+{$define CheckPauseAndSwitchToThreadForAsmVersion}
 
 
 {-----------------------------Debugging Options-------------------------------}

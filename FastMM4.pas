@@ -1107,6 +1107,9 @@ interface
 {$endif}
 
 {$ifdef 64Bit}
+
+  {$undef CheckPauseAndSwitchToThreadForAsmVersion}
+
   {$ifdef EnableAVX}
     {Under 64 bit with AVX, memory blocks must always be 16-byte aligned,
     since we are using 32-bit load/store, and they have to be aligned,
@@ -1389,6 +1392,9 @@ of just one option: "Boolean short-circuit evaluation".}
   {$CODEALIGN 16}
 {$endif}
 
+{$ifndef AsmVersion
+  {$undef CheckPauseAndSwitchToThreadForAsmVersion}
+{$endif}
 
 
 {-------------------------Public constants-----------------------------}
@@ -6926,6 +6932,15 @@ end;
 
 
 {$ifndef ASMVersion}
+{$define NeedFindFirstSetBit}
+{$endif}
+
+{$ifdef CheckPauseAndSwitchToThreadForAsmVersion}
+{$define NeedFindFirstSetBit}
+{$endif}
+
+
+{$ifdef NeedFindFirstSetBit}
 {Gets the first set bit in the 32-bit number, returning the bit index}
 function FindFirstSetBit(ACardinal: Cardinal): Cardinal; {$ifdef fpc64bit} assembler; nostackframe; {$endif}
 asm
@@ -6941,7 +6956,7 @@ asm
 {$endif}
   bsf eax, eax
 end;
-{$endif}
+{$endif NeedFindFirstSetBit}
 
 
 
@@ -6955,9 +6970,37 @@ const
 
 {Replacement for SysGetMem}
 
-function FastGetMem(ASize: {$ifdef XE2AndUp}NativeInt{$else}{$ifdef fpc}NativeUInt{$else}Integer{$endif fpc}{$endif XE2AndUp}
-  {$ifdef FullDebugMode}{$ifdef LogLockContention}; var ACollector: PStaticCollector{$endif}{$endif}): Pointer;
-{$ifndef ASMVersion}
+{$ifdef CheckPauseAndSwitchToThreadForAsmVersion}
+  function FastGetMemPascal(ASize: {$ifdef XE2AndUp}NativeInt{$else}{$ifdef fpc}NativeUInt{$else}Integer{$endif fpc}{$endif XE2AndUp}{$ifdef FullDebugMode}{$ifdef LogLockContention}; var ACollector: PStaticCollector{$endif}{$endif}): Pointer; forward;
+  function FastGetMemAssembler(ASize: {$ifdef XE2AndUp}NativeInt{$else}{$ifdef fpc}NativeUInt{$else}Integer{$endif fpc}{$endif XE2AndUp}{$ifdef FullDebugMode}{$ifdef LogLockContention}; var ACollector: PStaticCollector{$endif}{$endif}): Pointer; forward;
+  {$define FastGetMemNeedPascalCode}
+  {$define FastGetMemNeedAssemblerCode}
+{$else}
+  {$ifdef ASMVersion}
+    {$define FastGetMemNeedAssemblerCode}
+  {$else}
+    {$define FastGetMemNeedPascalCode}
+  {$endif}
+{$endif}
+
+
+function FastGetMem(ASize: {$ifdef XE2AndUp}NativeInt{$else}{$ifdef fpc}NativeUInt{$else}Integer{$endif fpc}{$endif XE2AndUp}{$ifdef FullDebugMode}{$ifdef LogLockContention}; var ACollector: PStaticCollector{$endif}{$endif}): Pointer;
+
+{$ifdef CheckPauseAndSwitchToThreadForAsmVersion}
+assembler;
+asm
+  test FastMMCpuFeatures, FastMMCpuFeaturePauseAndSwitchToThread
+  jz FastGetMemPascal
+  jmp FastGetMemAssembler
+end;
+{$endif}
+
+
+{$ifdef CheckPauseAndSwitchToThreadForAsmVersion}
+function FastGetMemPascal(ASize: {$ifdef XE2AndUp}NativeInt{$else}{$ifdef fpc}NativeUInt{$else}Integer{$endif fpc}{$endif XE2AndUp}{$ifdef FullDebugMode}{$ifdef LogLockContention}; var ACollector: PStaticCollector{$endif}{$endif}): Pointer;
+{$endif}
+
+{$ifdef FastGetMemNeedPascalCode}
 var
   LMediumBlock{$ifndef FullDebugMode}, LNextFreeBlock, LSecondSplit{$endif}: PMediumFreeBlock;
   LNextMediumBlockHeader: PNativeUInt;
@@ -7591,7 +7634,14 @@ begin
 {$endif}
 {$endif}
 end;
-{$else}
+{$endif FastGetMemNeedPascalCode}
+
+{$ifdef FastGetMemNeedAssemblerCode}
+
+{$ifdef CheckPauseAndSwitchToThreadForAsmVersion}
+  function FastGetMemAssembler(ASize: {$ifdef XE2AndUp}NativeInt{$else}{$ifdef fpc}NativeUInt{$else}Integer{$endif fpc}{$endif XE2AndUp}{$ifdef FullDebugMode}{$ifdef LogLockContention}; var ACollector: PStaticCollector{$endif}{$endif}): Pointer;
+{$endif}
+
 {$ifdef 32Bit}
 assembler;
 asm
@@ -8725,7 +8775,7 @@ but we don't need them at this point}
 {$endif}
 end;
 {$endif}
-{$endif}
+{$endif FastGetMemNeedAssemblerCode}
 
 {$ifndef ASMVersion}
 {Frees a medium block, returning 0 on success, -1 otherwise}
