@@ -1397,15 +1397,19 @@ of just one option: "Boolean short-circuit evaluation".}
 {$endif}
 
 
-{$ifdef CheckPauseAndSwitchToThreadForAsmVersion}
-  {$define FastGetMemNeedPascalCode}
-  {$define FastGetMemNeedAssemblerCode}
-{$else}
-  {$ifdef ASMVersion}
+{$ifdef ASMVersion}
+  {$ifdef CheckPauseAndSwitchToThreadForAsmVersion}
+    {$define FastGetMemNeedPascalCode}
     {$define FastGetMemNeedAssemblerCode}
   {$else}
-    {$define FastGetMemNeedPascalCode}
+    {$define FastGetMemNeedAssemblerCode}
   {$endif}
+{$else}
+  {$define FastGetMemNeedPascalCode}
+{$endif}
+
+{$ifndef FastGetMemNeedAssemblerCode}
+{$undef CheckPauseAndSwitchToThreadForAsmVersion}
 {$endif}
 
 
@@ -2590,22 +2594,24 @@ var
    SmallBlockTypes array.}
 
 {$ifdef 32Bit}
-{$ifdef ASMVersion}
+  {$ifdef ASMVersion}
 
-   {Since the size of TSmallBlockType is 32 bytes in 32-bit mode,
-   but the maximum scale factor of an index is 8 when calculating an offset on Intel CPUs,
-   this table contains precomputed offsets from the start of the SmallBlockTypes ararray,
-   divided by the maximum CPU scale factor, so we don't need to do shl, we just take a value from
-   this table a and then use *8 scale factor to calculate the effective address and get the value}
+     {Since the size of TSmallBlockType is 32 bytes in 32-bit mode,
+     but the maximum scale factor of an index is 8 when calculating an offset on Intel CPUs,
+     this table contains precomputed offsets from the start of the SmallBlockTypes ararray,
+     divided by the maximum CPU scale factor, so we don't need to do shl, we just take a value from
+     this table a and then use *8 scale factor to calculate the effective address and get the value}
 
-   {$DEFINE AllocSize2SmallBlockTypesPrecomputedOffsets}
+     {$DEFINE AllocSize2SmallBlockTypesPrecomputedOffsets}
+
+  {$endif}
+
+  {$ifdef FastGetMemNeedAssemblerCode}
+     {$DEFINE AllocSize2SmallBlockTypesPrecomputedOffsets}
+  {$endif}
 
 {$endif}
-{$endif}
 
-{$ifdef FastGetMemNeedAssemblerCode}
-   {$DEFINE AllocSize2SmallBlockTypesPrecomputedOffsets}
-{$endif}
 
 {$ifdef AllocSize2SmallBlockTypesPrecomputedOffsets}
 
@@ -6988,8 +6994,12 @@ const
 {Replacement for SysGetMem}
 
 {$ifdef CheckPauseAndSwitchToThreadForAsmVersion}
-  function FastGetMemPascal(ASize: {$ifdef XE2AndUp}NativeInt{$else}{$ifdef fpc}NativeUInt{$else}Integer{$endif fpc}{$endif XE2AndUp}{$ifdef FullDebugMode}{$ifdef LogLockContention}; var ACollector: PStaticCollector{$endif}{$endif}): Pointer; forward;
-  function FastGetMemAssembler(ASize: {$ifdef XE2AndUp}NativeInt{$else}{$ifdef fpc}NativeUInt{$else}Integer{$endif fpc}{$endif XE2AndUp}{$ifdef FullDebugMode}{$ifdef LogLockContention}; var ACollector: PStaticCollector{$endif}{$endif}): Pointer; forward;
+  {$ifdef FastGetMemNeedPascalCode}
+    function FastGetMemPascal(ASize: {$ifdef XE2AndUp}NativeInt{$else}{$ifdef fpc}NativeUInt{$else}Integer{$endif fpc}{$endif XE2AndUp}{$ifdef FullDebugMode}{$ifdef LogLockContention}; var ACollector: PStaticCollector{$endif}{$endif}): Pointer; forward;
+  {$endif}
+  {$ifdef FastGetMemNeedAssemblerCode}
+    function FastGetMemAssembler(ASize: {$ifdef XE2AndUp}NativeInt{$else}{$ifdef fpc}NativeUInt{$else}Integer{$endif fpc}{$endif XE2AndUp}{$ifdef FullDebugMode}{$ifdef LogLockContention}; var ACollector: PStaticCollector{$endif}{$endif}): Pointer; forward;
+  {$endif}
 {$endif}
 
 
