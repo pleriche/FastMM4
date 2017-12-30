@@ -1397,6 +1397,19 @@ of just one option: "Boolean short-circuit evaluation".}
 {$endif}
 
 
+{$ifdef CheckPauseAndSwitchToThreadForAsmVersion}
+  {$define FastGetMemNeedPascalCode}
+  {$define FastGetMemNeedAssemblerCode}
+{$else}
+  {$ifdef ASMVersion}
+    {$define FastGetMemNeedAssemblerCode}
+  {$else}
+    {$define FastGetMemNeedPascalCode}
+  {$endif}
+{$endif}
+
+
+
 {-------------------------Public constants-----------------------------}
 const
   {The current version of FastMM}
@@ -2588,6 +2601,10 @@ var
    {$DEFINE AllocSize2SmallBlockTypesPrecomputedOffsets}
 
 {$endif}
+{$endif}
+
+{$ifdef FastGetMemNeedAssemblerCode}
+   {$DEFINE AllocSize2SmallBlockTypesPrecomputedOffsets}
 {$endif}
 
 {$ifdef AllocSize2SmallBlockTypesPrecomputedOffsets}
@@ -6973,14 +6990,6 @@ const
 {$ifdef CheckPauseAndSwitchToThreadForAsmVersion}
   function FastGetMemPascal(ASize: {$ifdef XE2AndUp}NativeInt{$else}{$ifdef fpc}NativeUInt{$else}Integer{$endif fpc}{$endif XE2AndUp}{$ifdef FullDebugMode}{$ifdef LogLockContention}; var ACollector: PStaticCollector{$endif}{$endif}): Pointer; forward;
   function FastGetMemAssembler(ASize: {$ifdef XE2AndUp}NativeInt{$else}{$ifdef fpc}NativeUInt{$else}Integer{$endif fpc}{$endif XE2AndUp}{$ifdef FullDebugMode}{$ifdef LogLockContention}; var ACollector: PStaticCollector{$endif}{$endif}): Pointer; forward;
-  {$define FastGetMemNeedPascalCode}
-  {$define FastGetMemNeedAssemblerCode}
-{$else}
-  {$ifdef ASMVersion}
-    {$define FastGetMemNeedAssemblerCode}
-  {$else}
-    {$define FastGetMemNeedPascalCode}
-  {$endif}
 {$endif}
 
 
