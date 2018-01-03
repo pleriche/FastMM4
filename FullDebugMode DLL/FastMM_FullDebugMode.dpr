@@ -84,9 +84,10 @@ uses
 {$LIBSUFFIX '64'}
 {$ifend}
 
-{$if CompilerVersion < 20}
+{$if CompilerVersion <= 20}
 type
-  PNativeUInt = ^Cardinal;
+  NativeUInt = Cardinal; // not available or cause for internal compiler errors (e.g. Delphi 2009)
+  PNativeUInt = ^NativeUInt;
 {$ifend}
 
 {--------------------------Stack Tracing Subroutines--------------------------}
@@ -549,6 +550,12 @@ begin
     Inc(LCount);
     LDigitBuffer[MaxDigits - LCount] := HexTable[LDigit];
   until ANum = 0;
+  {Add leading zeros}
+  while LCount < SizeOf(NativeUInt) * 2 do
+  begin
+    Inc(LCount);
+    LDigitBuffer[MaxDigits - LCount] := '0';
+  end;
   {Copy the digits to the output buffer and advance it}
   System.Move(LDigitBuffer[MaxDigits - LCount], APBuffer^, LCount);
   Result := APBuffer + LCount;
@@ -569,38 +576,59 @@ var
   LNumChars: Integer;
   LInfo: TJCLLocationInfo;
   LTempStr: string;
+  P: PChar;
 begin
   Result := ABuffer;
-  for LInd := 0 to AMaxDepth - 1 do
-  begin
-    LAddress := AReturnAddresses^;
-    if LAddress = 0 then
-      Exit;
-    Result^ := #13;
-    Inc(Result);
-    Result^ := #10;
-    Inc(Result);
-    Result := NativeUIntToHexBuf(LAddress, Result);
-    {Get location info for the caller (at least one byte before the return
-     address).}
-    GetLocationInfo(Pointer(Cardinal(LAddress) - 1), LInfo);
-    {Build the result string}
-    LTempStr := ' ';
-    AppendInfoToString(LTempStr, LInfo.SourceName);
-    AppendInfoToString(LTempStr, LInfo.UnitName);
-    AppendInfoToString(LTempStr, LInfo.ProcedureName);
-    if LInfo.LineNumber <> 0 then
-      AppendInfoToString(LTempStr, IntToStr(LInfo.LineNumber));
-    {Return the result}
-    if Length(LTempStr) < 256 then
-      LNumChars := Length(LTempStr)
-    else
-      LNumChars := 255;
-    StrLCopy(Result, PAnsiChar(AnsiString(LTempStr)), LNumChars);
-    Inc(Result, LNumChars);
-    {Next address}
-    Inc(AReturnAddresses);
+  {$IFDEF CONDITIONALEXPRESSIONS} // Delphi 5+
+    {$IF declared(BeginGetLocationInfoCache)} // available depending on the JCL's version
+  BeginGetLocationInfoCache;
+  try
+    {$IFEND}
+  {$ENDIF}
+    for LInd := 0 to AMaxDepth - 1 do
+    begin
+      LAddress := AReturnAddresses^;
+      if LAddress = 0 then
+        Exit;
+      Result^ := #13;
+      Inc(Result);
+      Result^ := #10;
+      Inc(Result);
+      Result := NativeUIntToHexBuf(LAddress, Result);
+      {Get location info for the caller (at least one byte before the return
+       address).}
+      GetLocationInfo(Pointer(Cardinal(LAddress) - 1), LInfo);
+      {Build the result string}
+      LTempStr := ' ';
+      AppendInfoToString(LTempStr, LInfo.SourceName);
+      AppendInfoToString(LTempStr, LInfo.UnitName);
+
+      {Remove UnitName from ProcedureName, no need to output it twice}
+      P := PChar(LInfo.ProcedureName);
+      if (StrLComp(P, PChar(LInfo.UnitName), Length(LInfo.UnitName)) = 0) and (P[Length(LInfo.UnitName)] = '.') then
+        AppendInfoToString(LTempStr, Copy(LInfo.ProcedureName, Length(LInfo.UnitName) + 2))
+      else
+        AppendInfoToString(LTempStr, LInfo.ProcedureName);
+
+      if LInfo.LineNumber <> 0 then
+        AppendInfoToString(LTempStr, IntToStr(LInfo.LineNumber));
+      {Return the result}
+      if Length(LTempStr) < 256 then
+        LNumChars := Length(LTempStr)
+      else
+        LNumChars := 255;
+      StrLCopy(Result, PAnsiChar(AnsiString(LTempStr)), LNumChars);
+      Inc(Result, LNumChars);
+      {Next address}
+      Inc(AReturnAddresses);
+    end;
+  {$IFDEF CONDITIONALEXPRESSIONS} // Delphi 5+
+    {$IF declared(BeginGetLocationInfoCache)} // available depending on the JCL's version
+  finally
+    EndGetLocationInfoCache;
   end;
+    {$IFEND}
+  {$ENDIF}
 end;
 {$endif}
 
