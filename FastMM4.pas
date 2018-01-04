@@ -2413,7 +2413,8 @@ const
   FastMMCpuFeatureERMS                          = UnsignedBit shl 4;
 {$endif}
 
-  FastMMCpuFeaturePauseAndSwitchToThread        = UnsignedBit shl 5;
+  {CPU supports "pause" instruction and Windows supports SwitchToThread() API call}
+  FastMMCpuFeaturePauseAndSwitch                = UnsignedBit shl 5;
 
 
 
@@ -5877,7 +5878,7 @@ begin
 {$endif}
   begin
   {$ifdef MediumBlocksLockedCriticalSection}
-    if FastMMCpuFeatures and FastMMCpuFeaturePauseAndSwitchToThread <> 0 then
+    if FastMMCpuFeatures and FastMMCpuFeaturePauseAndSwitch <> 0 then
     begin
       if not AcquireLockByte(MediumBlocksLocked) then
       begin
@@ -5981,7 +5982,7 @@ procedure UnlockMediumBlocks;
   {$ifndef DEBUG}{$ifdef FASTMM4_ALLOW_INLINES}inline;{$endif}{$endif}
 begin
   {$ifdef MediumBlocksLockedCriticalSection}
-  if FastMMCpuFeatures and FastMMCpuFeaturePauseAndSwitchToThread <> 0 then
+  if FastMMCpuFeatures and FastMMCpuFeaturePauseAndSwitch <> 0 then
   begin
     ReleaseLockByte(MediumBlocksLocked);
   end else
@@ -6500,7 +6501,7 @@ begin
 {$endif}
 
 {$ifdef LargeBlocksLockedCriticalSection}
-  if FastMMCpuFeatures and FastMMCpuFeaturePauseAndSwitchToThread <> 0 then
+  if FastMMCpuFeatures and FastMMCpuFeaturePauseAndSwitch <> 0 then
   begin
     if not AcquireLockByte(LargeBlocksLocked) then
     begin
@@ -6549,7 +6550,7 @@ procedure UnlockLargeBlocks;
   {$ifndef DEBUG}{$ifdef FASTMM4_ALLOW_INLINES}inline;{$endif}{$endif}
 begin
   {$ifdef LargeBlocksLockedCriticalSection}
-  if FastMMCpuFeatures and FastMMCpuFeaturePauseAndSwitchToThread <> 0 then
+  if FastMMCpuFeatures and FastMMCpuFeaturePauseAndSwitch <> 0 then
   begin
     ReleaseLockByte(LargeBlocksLocked);
   end else
@@ -7008,7 +7009,7 @@ function FastGetMem(ASize: {$ifdef XE2AndUp}NativeInt{$else}{$ifdef fpc}NativeUI
 {$ifdef CheckPauseAndSwitchToThreadForAsmVersion}
 assembler;
 asm
-  test FastMMCpuFeatures, FastMMCpuFeaturePauseAndSwitchToThread
+  test FastMMCpuFeatures, FastMMCpuFeaturePauseAndSwitch
   jz FastGetMemPascal
   jmp FastGetMemAssembler
 end;
@@ -7147,7 +7148,7 @@ begin
       end;
 
 {$ifdef SmallBlocksLockedCriticalSection}
-      if FastMMCpuFeatures and FastMMCpuFeaturePauseAndSwitchToThread <> 0 then
+      if FastMMCpuFeatures and FastMMCpuFeaturePauseAndSwitch <> 0 then
       begin
         if LFailedToAcquireLock then
         begin
@@ -9117,7 +9118,7 @@ begin
 
 {$ifdef SmallBlocksLockedCriticalSection}
 
-      if FastMMCpuFeatures and FastMMCpuFeaturePauseAndSwitchToThread <> 0 then
+      if FastMMCpuFeatures and FastMMCpuFeaturePauseAndSwitch <> 0 then
       begin
         if not AcquireLockByte(LPSmallBlockType.SmallBlockTypeLocked) then
         begin
@@ -16258,7 +16259,7 @@ This is because the operating system would not save the registers and the states
         work regardless of the CR0 values}
         if Assigned(FSwitchToThread) then
         begin
-          FastMMCpuFeatures := FastMMCpuFeatures or FastMMCpuFeaturePauseAndSwitchToThread;
+          FastMMCpuFeatures := FastMMCpuFeatures or FastMMCpuFeaturePauseAndSwitch;
         end;
       end;
 
@@ -16351,7 +16352,7 @@ ENDQUOTE}
   {-------------Set up the small block types-------------}
 
   {$ifdef SmallBlocksLockedCriticalSection}
-  if FastMMCpuFeatures and FastMMCpuFeaturePauseAndSwitchToThread = 0 then
+  if FastMMCpuFeatures and FastMMCpuFeaturePauseAndSwitch = 0 then
   begin
     for LInd := Low(SmallBlockCriticalSections) to High(SmallBlockCriticalSections) do
     begin
@@ -17053,7 +17054,7 @@ begin
   {$endif LargeBlocksLockedCriticalSection}
 
   {$ifdef SmallBlocksLockedCriticalSection}
-  if FastMMCpuFeatures and FastMMCpuFeaturePauseAndSwitchToThread = 0 then
+  if FastMMCpuFeatures and FastMMCpuFeaturePauseAndSwitch = 0 then
   begin
     for LInd := Low(SmallBlockCriticalSections) to High(SmallBlockCriticalSections) do
     begin
