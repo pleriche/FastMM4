@@ -13846,6 +13846,9 @@ begin
   {Add it to the correct list}
   Result := LockExpectedMemoryLeaksList
     and UpdateExpectedLeakList(@ExpectedMemoryLeaks.FirstEntryByAddress, @LNewEntry);
+{$ifndef AssumeMultiThreaded}
+  if IsMultiThread then
+{$endif}
   ReleaseLockByte(ExpectedMemoryLeaksListLocked);
 end;
 
@@ -13864,6 +13867,9 @@ begin
   {Add it to the correct list}
   Result := LockExpectedMemoryLeaksList
     and UpdateExpectedLeakList(@ExpectedMemoryLeaks.FirstEntryByClass, @LNewEntry);
+{$ifndef AssumeMultiThreaded}
+  if IsMultiThread then
+{$endif}
   ReleaseLockByte(ExpectedMemoryLeaksListLocked);
 end;
 
@@ -13886,6 +13892,9 @@ begin
       {Add it to the correct list}
       Result := LockExpectedMemoryLeaksList
         and UpdateExpectedLeakList(@ExpectedMemoryLeaks.FirstEntryByClass, @LNewEntry);
+      {$ifndef AssumeMultiThreaded}
+        if IsMultiThread then
+      {$endif}
       ReleaseLockByte(@ExpectedMemoryLeaksListLocked);
     end
     else
@@ -13915,6 +13924,9 @@ begin
   {Add it to the correct list}
   Result := LockExpectedMemoryLeaksList
     and UpdateExpectedLeakList(@ExpectedMemoryLeaks.FirstEntryBySizeOnly, @LNewEntry);
+{$ifndef AssumeMultiThreaded}
+  if IsMultiThread then
+{$endif}
   ReleaseLockByte(ExpectedMemoryLeaksListLocked);
 end;
 
@@ -13937,6 +13949,9 @@ begin
   {Remove it from the list}
   Result := LockExpectedMemoryLeaksList
     and UpdateExpectedLeakList(@ExpectedMemoryLeaks.FirstEntryByAddress, @LNewEntry);
+{$ifndef AssumeMultiThreaded}
+  if IsMultiThread then
+{$endif}
   ReleaseLockByte(ExpectedMemoryLeaksListLocked);
 end;
 
