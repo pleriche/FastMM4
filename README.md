@@ -1,13 +1,16 @@
 # FastMM4AVX
 
-FastMM4AVX (AVX1/AVX2/ERMS support for FastMM4)
+FastMM4-AVX (AVX1/AVX2/AVX512/ERMS support for FastMM4)
 
 Version 1.02
 
 This is a fork of the Fast Memory Manager 4.992 by Pierre le Riche
 (see below for the original FastMM4 description)
 
-What was added to the fork:
+FastMM4-AVX is used as a memory manager for "The Bat!" email client
+https://www.ritlabs.com/en/products/thebat/
+
+What was added to FastMM4-AVX in comparison to the original FastMM4:
  - if the CPU supports AVX or AVX2, use the 32-byte YMM registers
    for faster memory copy, and if the CPU supports AVX-512,
    use the 64-byte ZMM registers for even faster memory copy;
@@ -64,7 +67,7 @@ What was added to the fork:
    to figure out where the length is not yet checked. Anyway, since these
    memory functions are only used in Debug mode, i.e. in development
    environment, not in Release (production), the impact of this
-   "vulnerability" is minimal (questionable);
+   "vulnerability" is minimal (albeit this is a questionable statement);
  - removed some typecasts; the code is stricter to let the compiler
    do the job, check everything and mitigate probable error. You can
    even compile the code with "integer overflow checking" and
@@ -74,7 +77,7 @@ What was added to the fork:
  - one-byte data types of memory areas used for locking ("lock cmpxchg" or
    "lock xchg" replaced from Boolean to Byte for stricter type checking;
  - used simpler lock instructions: "lock xchg" rather than "lock cmpxchg";
- - implemented dedicated lock and unlock procedures; before that locking
+ - implemented dedicated lock and unlock procedures; before that, locking
    operations were scattered throughout the code; now the locking function
    have meaningful names: AcquireLockByte and ReleaseLockByte; the values of the
    lock byte is now checked for validity when "FullDebugMode" or "DEBUG" is on,
@@ -110,7 +113,7 @@ modified to run under 64-bit.
                          Xeon E6-2543v2 2*CPU     i7-7700K CPU
                         (allocated 20 logical  (allocated 8 logical
                          threads, 10 physical   threads, 4 physical
-                         cores, NUMA)           cores)
+                         cores, NUMA), AVX-1    cores), AVX-2
 
                         Orig.  AVX-br.  Ratio   Orig.  AVX-br. Ratio
                         ------  -----  ------   -----  -----  ------
@@ -129,34 +132,37 @@ modified to run under 64-bit.
     NexusDB 31 threads  134815  48132  33.46%   54686  31184  57.02%
     NexusDB 64 threads  187094  57672  30.25%   63089  41955  66.50%
 
-(the tests have been done on 14-Jul-2017)
+The tests have been done on 14-Jul-2017. 
+You can find the program, used to generate the benchmark data, 
+at https://github.com/maximmasiutin/FastCodeBenchmark
+
 
 AVX1/AVX2/ERMS support Copyright (C) 2017 Ritlabs S.R.L. All rights reserved.
 https://www.ritlabs.com/
 AVX1/AVX2/ERMS support is written by Maxim Masiutin <max@ritlabs.com>
 
-FastMM4AVX is released under a dual license, and you may choose to use it 
+FastMM4-AVX is released under a dual license, and you may choose to use it 
 under either the Mozilla Public License 2.0 (MPL 2.1, available from
 https://www.mozilla.org/en-US/MPL/2.0/) or the GNU Lesser General Public
 License Version 3, dated 29 June 2007 (LGPL 3, available from
 https://www.gnu.org/licenses/lgpl.html).
 
-FastMM4AVX is free software: you can redistribute it and/or modify
+FastMM4-AVX is free software: you can redistribute it and/or modify
 it under the terms of the GNU Lesser General Public License as published by
 the Free Software Foundation, either version 3 of the License, or
 (at your option) any later version.
 
-FastMM4AVX is distributed in the hope that it will be useful,
+FastMM4-AVX is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
 MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
 GNU Lesser General Public License for more details.
 
 You should have received a copy of the GNU Lesser General Public License
-along with FastMM4AVX (see license_lgpl.txt and license_gpl.txt)
+along with FastMM4-AVX (see license_lgpl.txt and license_gpl.txt)
 If not, see <http://www.gnu.org/licenses/>.
 
 
-FastMM4AVX Version History:
+FastMM4-AVX Version History:
 
 1.02 (07 November 2017) - added and tested support of the AVX-512 
      instruction set.
