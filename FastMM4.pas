@@ -21,8 +21,8 @@ What was added to FastMM4-AVX in comparison to the original FastMM4:
    you can also use Align32Bytes define without AVX; please note that the memory
    overhead is higher when the blocks are aligned by 32 bytes, because some
    memory is lost by padding;
- - with AVX, memory copy is secure - all XMM/YMM/ZMM registers used to copy 
-   memory are cleared by vxorps/vpxor, so the leftovers of the copied memory 
+ - with AVX, memory copy is secure - all XMM/YMM/ZMM registers used to copy
+   memory are cleared by vxorps/vpxor, so the leftovers of the copied memory
    are not exposed in the XMM/YMM/ZMM registers;
  - properly handle AVX-SSE transitions to not incur the transition penalties,
    only call vzeroupper under AVX1, but not under AVX2 since it slows down
@@ -132,8 +132,8 @@ modified to run under 64-bit.
     NexusDB 31 threads  134815  48132  33.46%   54686  31184  57.02%
     NexusDB 64 threads  187094  57672  30.25%   63089  41955  66.50%
 
-The tests have been done on 14-Jul-2017. 
-You can find the program, used to generate the benchmark data, 
+The tests have been done on 14-Jul-2017.
+You can find the program, used to generate the benchmark data,
 at https://github.com/maximmasiutin/FastCodeBenchmark
 
 
@@ -141,7 +141,7 @@ AVX1/AVX2/ERMS support Copyright (C) 2017 Ritlabs S.R.L. All rights reserved.
 https://www.ritlabs.com/
 AVX1/AVX2/ERMS support is written by Maxim Masiutin <max@ritlabs.com>
 
-FastMM4-AVX is released under a dual license, and you may choose to use it 
+FastMM4-AVX is released under a dual license, and you may choose to use it
 under either the Mozilla Public License 2.0 (MPL 2.1, available from
 https://www.mozilla.org/en-US/MPL/2.0/) or the GNU Lesser General Public
 License Version 3, dated 29 June 2007 (LGPL 3, available from
@@ -164,10 +164,10 @@ If not, see <http://www.gnu.org/licenses/>.
 
 FastMM4-AVX Version History:
 
-1.02 (07 November 2017) - added and tested support of the AVX-512 
+1.02 (07 November 2017) - added and tested support of the AVX-512
      instruction set.
 
-1.01 (10 October 2017) - made the source code compile under Delphi5, 
+1.01 (10 October 2017) - made the source code compile under Delphi5,
      thanks to Valts Silaputnins.
 
 1.00 (27 July 2017) - initial revision.
@@ -1901,7 +1901,7 @@ const
   MaxFileNameLengthDouble            = MaxFileNameLength*2;
   MaxDisplayMessageLength            = 1024;
   MaxLogMessageLength                = 32768;
-  
+
 {$ifdef fpc}
 const
   clib = 'c';
@@ -2194,7 +2194,7 @@ type
     {True = Block type is locked}
 
     SmallBlockTypeLocked: Byte; {The type is Byte for strict
-				type checking when the typed "@" operator 
+				type checking when the typed "@" operator
 				compiler option is ON.}
 
     {Bitmap indicating which of the first 8 medium block groups contain blocks
@@ -3065,14 +3065,14 @@ asm
   {$ifndef unix}
 
 {Remove false dependency on remainig bits of the eax (31-8), as eax may come
-with these bits trashed, and, as a result, the function will also return these 
+with these bits trashed, and, as a result, the function will also return these
 bits trashed in EAX. So, it may produce faster code by removing dependency
 and safer code by cleaning possbile trash}
-  movzx eax, al 
+  movzx eax, al
   movzx edx, dl
 
-{Compare AL with byte ptr [ecx]. If equal, ZF is set and al is 
-loaded into byte ptr [ecx]. Else, clear ZF and load byte ptr [ecx] into AL.}  
+{Compare AL with byte ptr [ecx]. If equal, ZF is set and al is
+loaded into byte ptr [ecx]. Else, clear ZF and load byte ptr [ecx] into AL.}
   lock cmpxchg byte ptr [ecx], dl
 
 {Clear the registers for safety}
@@ -3097,9 +3097,9 @@ loaded into byte ptr [ecx]. Else, clear ZF and load byte ptr [ecx] into AL.}
   xor rdx, rdx
   xor r8, r8
   {$else unix}
-  
-{"System V AMD64 ABI" - the de facto standard among  Unix and Unix-like 
-operating systems. The first four integer or pointer arguments are passed in 
+
+{"System V AMD64 ABI" - the de facto standard among  Unix and Unix-like
+operating systems. The first four integer or pointer arguments are passed in
 registers RDI, RSI, RDX, RCX; return value is stored in RAX and RDX }
 
   {On entry:
@@ -5353,7 +5353,7 @@ end;
 {$endif}
 
 {Converts an unsigned integer to string at the buffer location, returning the
- new buffer position. Note: The 32-bit assembler version only supports numbers 
+ new buffer position. Note: The 32-bit assembler version only supports numbers
  up to 2^31 - 1.}
 
 
@@ -9360,7 +9360,7 @@ asm
   mov ecx, eax
 {The EBP register is not used in FastFreeMem, so we will usee it
 for flags like IsMultiThreaded or MediumBlocksLocked}
-  push ebp 
+  push ebp
   {Save ebx}
   push ebx
   {Get the IsMultiThread variable}
@@ -12722,7 +12722,7 @@ begin
 
       Left := LInitialSize-NativeUint(LMsgPtr-LInitialPtr);
       LMsgPtr := AppendStringToBuffer(StackTraceMsg, LMsgPtr, Length(StackTraceMsg), Left);
-      
+
 
       Left := LInitialSize-NativeUint(LMsgPtr-LInitialPtr);
       LMsgPtr := LogStackTrace(@APointer.AllocationStackTrace[0], StackTraceDepth, LMsgPtr{, Left} {todo: implement});
@@ -12845,7 +12845,7 @@ begin
     Inc(LMsgPtr);
   end;
   Left := LInitialSize-NativeUint(LMsgPtr-LInitialPtr);
-  
+
   {Trailing #0}
   LMsgPtr^ := #0;
 {$ifdef LogErrorsToFile}
@@ -14369,7 +14369,7 @@ begin
   Inc(LPClassNode.TotalMemoryUsage, ABlockSize);
 end;
 
-{This function is only needed to copy with an error given when using 
+{This function is only needed to copy with an error given when using
 the "typed @ operator" compiler option. We are having just one typecast
 in this function to avoid using typecasts throught the entire program.}
 function GetNodeListFromNode(ANode: PMemoryLogNode): PMemoryLogNodes;
@@ -14501,8 +14501,8 @@ var
   LFileHandle: THandle; {use NativeUint if THandle is not available}
   LMemoryManagerUsageSummary: TMemoryManagerUsageSummary;
   LUTF8Str: AnsiString;
-  LMemLogNode: PMemoryLogNode; {Just to store an interim result. Needed for 
-                                "typed @ operator", to simplify things and remove 
+  LMemLogNode: PMemoryLogNode; {Just to store an interim result. Needed for
+                                "typed @ operator", to simplify things and remove
                                 typecasts that pose potential dannger.}
   LInitialSize: Cardinal;
 begin
@@ -15029,8 +15029,8 @@ begin
       LMsgPtr := @LLeakMessage[0];
       LPInitialPtr := LMsgPtr;
       LInitialSize := (SizeOf(LLeakMessage) div SizeOf(LLeakMessage[0]))-1;
-      
-     
+
+
       LMsgPtr := AppendStringToBuffer(LeakMessageHeader, LMsgPtr, length(LeakMessageHeader), LInitialSize);
       {Step through all the small block types}
       for LBlockTypeInd := 0 to NumSmallBlockTypes - 1 do
@@ -15624,9 +15624,9 @@ var
   LPMediumBlockPoolHeader, LPNextMediumBlockPoolHeader: PMediumBlockPoolHeader;
   LPMediumFreeBlock: PMediumFreeBlock;
   LPLargeBlock, LPNextLargeBlock: PLargeBlockHeader;
-  LPSmallBlockPoolHeader: PSmallBlockPoolHeader; {This is needed for simplicity, to 
+  LPSmallBlockPoolHeader: PSmallBlockPoolHeader; {This is needed for simplicity, to
 												  mitigate typecasts when used "typed @".}
-  LPSmallBlockType: PSmallBlockType; 
+  LPSmallBlockType: PSmallBlockType;
   LInd: Integer;
 begin
   {Free all block pools}
@@ -16009,7 +16009,7 @@ const
 
 {$endif Use_GetEnabledXStateFeatures_WindowsAPICall}
 
-{Use the NativeUint argument type to make Delphi clear the trash and not pass 
+{Use the NativeUint argument type to make Delphi clear the trash and not pass
 it in bits 63-32 under 64-bit, although the xgetbv instruction only accepts
 32-bits from the ECX/RCX register even under 64-bit mode}
 
@@ -16029,17 +16029,17 @@ asm
 
 {$ifdef unix}
 
-{Under Unix 64-bit, the first six integer or pointer arguments are passed 
+{Under Unix 64-bit, the first six integer or pointer arguments are passed
 in registers RDI, RSI, RDX, RCX (R10 in the Linux kernel interface), R8, and R9.
 The return value is stored in RAX and RDX.
-So Unix uses the same register for return value as Microsoft; don't correct 
+So Unix uses the same register for return value as Microsoft; don't correct
 output registers, but correct the input one}
    mov    ecx, edi // this will also clear the highest bits in ecx (63-32).
 {$else}
 {$ifdef AllowAsmNoframe}
    .noframe
 {$endif}
-{$endif}   
+{$endif}
    xor   eax, eax
    xor   edx, edx
 { EDX:EAX <- XCR[ECX]; }
@@ -16050,7 +16050,7 @@ output registers, but correct the input one}
   db $0F, $01, $D0
 {$endif}
 
-{The output of xgetbv is a 64-bit value returned in two 32-bit registers: 
+{The output of xgetbv is a 64-bit value returned in two 32-bit registers:
 eax/edx, even in 64-bit mode, so we should pack eax/edx intto rax}
 
    shl   rdx, 32
@@ -16524,7 +16524,7 @@ ENDQUOTE}
         SmallBlockTypes[LInd].UpsizeMoveProcedure := MoveWithErmsNoAVX
       else
       {$endif}
-{$endif}      
+{$endif}
         SmallBlockTypes[LInd].UpsizeMoveProcedure := MoveX16LP
       ;
     {$endif}

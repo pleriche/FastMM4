@@ -50,7 +50,7 @@ Q: I get the following error when I try to use FastMM with an application compil
 A: Enable the "UseRuntimePackages" option in FastMM4Options.inc.
 
 Q: I use runtime packages, and when my application shuts down I get a huge memory leak report followed by lots of access violations. Why?
-A: This is most likely a package unload order problem: FastMM is uninstalled (and does the leak check) before all live pointers have been freed, and when the application subsequently tries to free the remaining live pointers the A/Vs occur. Either ensure that FastMM is unloaded last (using sharemem together with the replacement borlndmm.dll is one way), or use the "NeverUninstall" option and disable the memory leak report. 
+A: This is most likely a package unload order problem: FastMM is uninstalled (and does the leak check) before all live pointers have been freed, and when the application subsequently tries to free the remaining live pointers the A/Vs occur. Either ensure that FastMM is unloaded last (using sharemem together with the replacement borlndmm.dll is one way), or use the "NeverUninstall" option and disable the memory leak report.
 
 Q: Since version 4.29 "FullDebugMode" is really slow. Why?
 A: It is because of the new "RawStackTraces" option. Switch it off and performance will be on par with previous versions, but stack traces will be less complete.

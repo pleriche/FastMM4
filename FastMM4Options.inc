@@ -175,8 +175,8 @@ number of threads is the same or greater than the number of physical cores}
 {$define ASMVersion}
 
 {Allow using ".align" assembler directive. FreePascal doesn't support ".align"
- Delphi incorrectly encodes conditional jumps (used 6-byte instructions instead 
- of just 2 bytes. So don't use it for Borland (Embarcadero) Delphi neither 
+ Delphi incorrectly encodes conditional jumps (used 6-byte instructions instead
+ of just 2 bytes. So don't use it for Borland (Embarcadero) Delphi neither
  for FreePascal}
 {.$define EnableAsmCodeAlign}
 

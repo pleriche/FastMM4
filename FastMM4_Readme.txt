@@ -18,7 +18,7 @@ https://github.com/pleriche/FastMM4
 Usage:
 ------
 
-Delphi: Place this unit as the very first unit under the "uses" section in your project's .dpr file. When sharing memory between an application and a DLL (e.g. when passing a long string or dynamic array to a DLL function), both the main application and the DLL must be compiled using this memory manager (with the required conditional defines set). There are some conditional defines (inside FastMM4Options.inc) that may be used to tweak the memory manager. To enable support for a user mode address space greater than 2GB you will have to use the EditBin* tool to set the LARGE_ADDRESS_AWARE flag in the EXE header. This informs Windows x64 or Windows 32-bit (with the /3GB option set) that the application supports an address space larger than 2GB (up to 4GB). In Delphi 6 and later you can also specify this flag through the compiler directive {$SetPEFlags $20} 
+Delphi: Place this unit as the very first unit under the "uses" section in your project's .dpr file. When sharing memory between an application and a DLL (e.g. when passing a long string or dynamic array to a DLL function), both the main application and the DLL must be compiled using this memory manager (with the required conditional defines set). There are some conditional defines (inside FastMM4Options.inc) that may be used to tweak the memory manager. To enable support for a user mode address space greater than 2GB you will have to use the EditBin* tool to set the LARGE_ADDRESS_AWARE flag in the EXE header. This informs Windows x64 or Windows 32-bit (with the /3GB option set) that the application supports an address space larger than 2GB (up to 4GB). In Delphi 6 and later you can also specify this flag through the compiler directive {$SetPEFlags $20}
 *The EditBin tool ships with the MS Visual C compiler.
 C++ Builder 6: Refer to the instructions inside FastMM4BCB.cpp.
 
@@ -91,7 +91,7 @@ Documentation for each part is available inside its folder and also as comments 
 FastMM Optional Features (FastMM4Options.Inc):
 ----------------------------------------------
 
-The default options in FastMM4Options.Inc are configured for optimal performance when FastMM4.pas is added as the first unit in the uses clause of the .dpr. There are various other options available that control the sharing of the memory manager between libraries and the main application, as well as the debugging features of FastMM. There is a short description for each option inside the FastMM4Options.inc file that explains what the option does. 
+The default options in FastMM4Options.Inc are configured for optimal performance when FastMM4.pas is added as the first unit in the uses clause of the .dpr. There are various other options available that control the sharing of the memory manager between libraries and the main application, as well as the debugging features of FastMM. There is a short description for each option inside the FastMM4Options.inc file that explains what the option does.
 
 By default, memory leak checking is enabled only if the application is being run inside the debugger, and on shutdown FastMM will report all unexpected memory leaks. (Expected memory leaks can be registered beforehand.)
 
@@ -101,7 +101,7 @@ By default, memory leak checking is enabled only if the application is being run
 FastMM Technical Details:
 -------------------------
 
-FastMM is actually three memory managers in one: small (<2.5K), medium (< 260K) and large (> 260K) blocks are managed separately. 
+FastMM is actually three memory managers in one: small (<2.5K), medium (< 260K) and large (> 260K) blocks are managed separately.
 
 Requests for large blocks are passed through to the operating system (VirtualAlloc) to be allocated from the top of the address space. (Medium and small blocks are allocated from the bottom of the address space - keeping them separate improves fragmentation behaviour).
 

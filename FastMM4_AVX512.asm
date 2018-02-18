@@ -10,7 +10,7 @@
 ; https://www.ritlabs.com/
 ; AVX1/AVX2/ERMS support is written by Maxim Masiutin <max@ritlabs.com>
 
-; FastMM4AVX is released under a dual license, and you may choose to use it 
+; FastMM4AVX is released under a dual license, and you may choose to use it
 ; under either the Mozilla Public License 2.0 (MPL 2.1, available from
 ; https://www.mozilla.org/en-US/MPL/2.0/) or the GNU Lesser General Public
 ; License Version 3, dated 29 June 2007 (LGPL 3, available from

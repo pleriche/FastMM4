@@ -21,8 +21,8 @@ What was added to FastMM4-AVX in comparison to the original FastMM4:
    you can also use Align32Bytes define without AVX; please note that the memory
    overhead is higher when the blocks are aligned by 32 bytes, because some
    memory is lost by padding;
- - with AVX, memory copy is secure - all XMM/YMM/ZMM registers used to copy 
-   memory are cleared by vxorps/vpxor, so the leftovers of the copied memory 
+ - with AVX, memory copy is secure - all XMM/YMM/ZMM registers used to copy
+   memory are cleared by vxorps/vpxor, so the leftovers of the copied memory
    are not exposed in the XMM/YMM/ZMM registers;
  - properly handle AVX-SSE transitions to not incur the transition penalties,
    only call vzeroupper under AVX1, but not under AVX2 since it slows down
@@ -132,8 +132,8 @@ modified to run under 64-bit.
     NexusDB 31 threads  134815  48132  33.46%   54686  31184  57.02%
     NexusDB 64 threads  187094  57672  30.25%   63089  41955  66.50%
 
-The tests have been done on 14-Jul-2017. 
-You can find the program, used to generate the benchmark data, 
+The tests have been done on 14-Jul-2017.
+You can find the program, used to generate the benchmark data,
 at https://github.com/maximmasiutin/FastCodeBenchmark
 
 
@@ -141,7 +141,7 @@ AVX1/AVX2/ERMS support Copyright (C) 2017 Ritlabs S.R.L. All rights reserved.
 https://www.ritlabs.com/
 AVX1/AVX2/ERMS support is written by Maxim Masiutin <max@ritlabs.com>
 
-FastMM4-AVX is released under a dual license, and you may choose to use it 
+FastMM4-AVX is released under a dual license, and you may choose to use it
 under either the Mozilla Public License 2.0 (MPL 2.1, available from
 https://www.mozilla.org/en-US/MPL/2.0/) or the GNU Lesser General Public
 License Version 3, dated 29 June 2007 (LGPL 3, available from
@@ -164,10 +164,10 @@ If not, see <http://www.gnu.org/licenses/>.
 
 FastMM4-AVX Version History:
 
-1.02 (07 November 2017) - added and tested support of the AVX-512 
+1.02 (07 November 2017) - added and tested support of the AVX-512
      instruction set.
 
-1.01 (10 October 2017) - made the source code compile under Delphi5, 
+1.01 (10 October 2017) - made the source code compile under Delphi5,
      thanks to Valts Silaputnins.
 
 1.00 (27 July 2017) - initial revision.
