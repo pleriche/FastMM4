@@ -597,7 +597,7 @@ begin
       Result := NativeUIntToHexBuf(LAddress, Result);
       {Get location info for the caller (at least one byte before the return
        address).}
-      GetLocationInfo(Pointer(Cardinal(LAddress) - 1), LInfo);
+      GetLocationInfo(Pointer(LAddress - 1), LInfo);
       {Build the result string}
       LTempStr := ' ';
       AppendInfoToString(LTempStr, LInfo.SourceName);
