@@ -120,7 +120,6 @@ modified to run under 64-bit.
     02-threads realloc   96552  59951  62.09%   65213  49471  75.86%
     04-threads realloc   97998  39494  40.30%   64402  47714  74.09%
     08-threads realloc   98325  33743  34.32%   64796  58754  90.68%
-    16-threads realloc  116708  45855  39.29%   71457  60173  84.21%
     16-threads realloc  116273  45161  38.84%   70722  60293  85.25%
     31-threads realloc  122528  53616  43.76%   70939  62962  88.76%
     64-threads realloc  137661  54330  39.47%   73696  64824  87.96%
