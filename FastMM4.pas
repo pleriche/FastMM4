@@ -1133,6 +1133,7 @@ interface
 {$else}
   {Defines for FreePascal}
   {$mode delphi}
+  {$define DisableAVX512}
   {$ifdef CPUX64}
     {$asmmode intel}
     {$define 64bit}
@@ -1448,13 +1449,19 @@ of just one option: "Boolean short-circuit evaluation".}
     {$define FastGetMemNeedAssemblerCode}
   {$endif}
 {$else}
-  {$define FastGetMemNeedPascalCode}
+   {$define FastGetMemNeedPascalCode}
 {$endif}
 
 {$ifndef FastGetMemNeedAssemblerCode}
 {$undef CheckPauseAndSwitchToThreadForAsmVersion}
 {$endif}
 
+{$ifdef fpc}
+{$ifdef 64bit}
+{$undef FastGetMemNeedAssemblerCode}
+{$define FastGetMemNeedPascalCode}
+{$endif}
+{$endif}
 
 
 {-------------------------Public constants-----------------------------}
@@ -1668,7 +1675,7 @@ var
 {$ifndef FullDebugMode}
 {The standard memory manager functions}
 function FastGetMem(ASize: {$ifdef XE2AndUp}NativeInt{$else}{$ifdef fpc}NativeUInt{$else}Integer{$endif}{$endif}): Pointer;
-function FastFreeMem(APointer: Pointer): {$ifdef fpc}NativeUInt{$else}Integer{$endif};
+function FastFreeMem(APointer: Pointer): {$ifdef fpc}{$IFDEF CPU64}PtrUInt{$ELSE}NativeUInt{$ENDIF}{$else}Integer{$endif};
 function FastReallocMem({$ifdef fpc}var {$endif}APointer: Pointer; ANewSize: {$ifdef XE2AndUp}NativeInt{$else}{$ifdef fpc}NativeUInt{$else}Integer{$endif}{$endif}): Pointer;
 function FastAllocMem(ASize: {$ifdef XE2AndUp}NativeInt{$else}{$ifdef fpc}NativeUInt{$else}Cardinal{$endif}{$endif}): Pointer;
 {$else}
@@ -9105,7 +9112,7 @@ end;
 {$endif ASMVersion}
 
 {Replacement for SysFreeMem}
-function FastFreeMem(APointer: Pointer): {$ifdef fpc}NativeUInt{$else}Integer{$endif};
+function FastFreeMem(APointer: Pointer): {$ifdef fpc}{$IFDEF CPU64}PtrUInt{$ELSE}NativeUInt{$ENDIF}{$else}Integer{$endif};
 {$ifndef ASMVersion}
 var
   LPSmallBlockPool{$ifndef FullDebugMode}, LPPreviousPool, LPNextPool{$endif},
@@ -14206,7 +14213,7 @@ begin
   {Lock all small block types}
   LockAllSmallBlockTypes;
   {Lock the medium blocks}
-  if IsMultithread then
+  if IsMultiThread then
   begin
     LMediumBlocksLocked := True;
     {$ifdef LogLockContention}LDidSleep := {$endif}LockMediumBlocks();
@@ -14542,7 +14549,7 @@ begin
   begin
     try
       {Log all allocated blocks by class.}
-      WalkAllocatedBlocks(LogMemoryManagerStateCallBack, LPLogInfo);
+      WalkAllocatedBlocks({$ifdef fpc64bit}@{$endif}LogMemoryManagerStateCallBack, LPLogInfo);
       {Sort the classes by total memory usage: Do the initial QuickSort pass over the list to sort the list in groups
        of QuickSortMinimumItemsInPartition size.}
       if LPLogInfo.NodeCount >= QuickSortMinimumItemsInPartition then
@@ -15259,7 +15266,7 @@ begin
     end;
     AMemoryManagerState.SmallBlockTypeStates[LInd].UseableBlockSize := LUsableBlockSize;
   end;
-  if IsMultithread then
+  if IsMultiThread then
   begin
     {Lock all small block types}
     LockAllSmallBlockTypes;
@@ -15404,7 +15411,7 @@ begin
   {Clear the map}
   FillChar(AMemoryMap, SizeOf(AMemoryMap), Ord(csUnallocated));
   {Step through all the medium block pools}
-  if IsMultithread then
+  if IsMultiThread then
   begin
     LMediumBlocksLocked := True;
     {$ifdef LogLockContention}LDidSleep := {$endif}LockMediumBlocks();
@@ -16791,13 +16798,13 @@ begin
 {$endif}
       {We will be using this memory manager}
 {$ifndef FullDebugMode}
-      NewMemoryManager.GetMem := FastGetMem;
-      NewMemoryManager.FreeMem := FastFreeMem;
-      NewMemoryManager.ReallocMem := FastReallocMem;
+      NewMemoryManager.GetMem := {$ifdef fpc64bit}@{$endif}FastGetMem;
+      NewMemoryManager.FreeMem := {$ifdef fpc64bit}@{$endif}FastFreeMem;
+      NewMemoryManager.ReallocMem := {$ifdef fpc64bit}@{$endif}FastReallocMem;
       {$ifdef fpc}
-      NewMemoryManager.FreememSize := FastFreeMemSize;
-      NewMemoryManager.AllocMem := FastAllocMem;
-      NewMemoryManager.MemSize := FastMemSize;
+      NewMemoryManager.FreememSize := {$ifdef fpc64bit}@{$endif}FastFreeMemSize;
+      NewMemoryManager.AllocMem := {$ifdef fpc64bit}@{$endif}FastAllocMem;
+      NewMemoryManager.MemSize := {$ifdef fpc64bit}@{$endif}FastMemSize;
       {$endif}
 {$else}
       NewMemoryManager.GetMem := DebugGetMem;
