@@ -33,13 +33,15 @@ What was added to FastMM4-AVX in comparison to the original FastMM4:
  - if the CPU supports Enhanced REP MOVSB/STOSB (ERMS), use this feature
    for faster memory copy (under 32 bit or 64-bit) (see the EnableERMS define,
    on by default, use DisableERMS to turn it off);
- - support for FreePascal 1.6.4 (the original FastMM4 4.992 requires
-   modifications, it doesn't work under FreePascal 1.6.4 out-of-the-box;
+ - support for Lazarus 1.6.4 with FreePascal (the original FastMM4 4.992
+   requires modifications, it doesn't work under Lazarus 1.6.4 with FreePascal
+   out-of-the-box, also tested under Lazarus 1.8.2 / FPC 3.0.4 with Win32
+   target;
  - proper branch target alignment in assembly routines;
  - compare instructions + conditional jump instructions are put together
    to allow macro-op fusion (which happens since Core2 processors, when
    the first instruction is a CMP or TEST instruction and the second instruction
-   is a conditional jump instruction) ;
+   is a conditional jump instruction);
  - names assigned to some constants that used to be "magic constants",
    i.e. unnamed numerical constants - plenty of them were present
    throughout the whole code.
@@ -60,7 +62,7 @@ What was added to FastMM4-AVX in comparison to the original FastMM4:
    (under the current bitness and alignment compbinations) are
    explicitly excluded from compiling, to not rely on the compiler
    that is supposed to remove these function after copmpilation;
- - added length parameter do what were dangerous nul-terminated string
+ - added length parameter to what were dangerous nul-terminated string
    operations via PAnsiChar, to prevent potential stack buffer overruns
    (or maybe even stack-based exploitation?), and there some Pascal functions
    also left, the argument is not yet checked, see the "todo" comments
@@ -101,19 +103,19 @@ Here are the comparison of the Original FastMM4 version 4.992, with default
 options compiled for Win64 by Delphi 10.2 Tokyo (Release with Optimization),
 and the current FastMM4-AVX branch. Under some scenarios, the FastMM4-AVX branch
 is more than twice as fast comparing to the Original FastMM4. The tests
-have been run on two different computers: one under Xeon E6-2543v2 with 2 CPU
+have been run on two different computers: one under Xeon E5-2543v2 with 2 CPU
 sockets, each has 6 physical cores (12 logical threads) - with only 5 physical
 core per socket enabled for the test application. Another test was done under
-a i7-7700K CPU.
+an i7-7700K CPU.
 
 Used the "Multi-threaded allocate, use and free" and "NexusDB"
 test cases from the FastCode Challenge Memory Manager test suite,
 modified to run under 64-bit.
 
-                         Xeon E6-2543v2 2*CPU     i7-7700K CPU
-                        (allocated 20 logical  (allocated 8 logical
-                         threads, 10 physical   threads, 4 physical
-                         cores, NUMA), AVX-1    cores), AVX-2
+                         Xeon E5-2543v2 2*CPU      i7-7700K CPU
+                        (allocated 20 logical   (8 logical threads,
+                         threads, 10 physical    4 physical cores),
+                         cores, NUMA), AVX-1          AVX-2
 
                         Orig.  AVX-br.  Ratio   Orig.  AVX-br. Ratio
                         ------  -----  ------   -----  -----  ------
@@ -131,7 +133,35 @@ modified to run under 64-bit.
     NexusDB 31 threads  134815  48132  33.46%   54686  31184  57.02%
     NexusDB 64 threads  187094  57672  30.25%   63089  41955  66.50%
 
-The tests have been done on 14-Jul-2017.
+The above tests have been run on 14-Jul-2017.
+
+Here are some more test results (Compiled by Delphi 10.2 Update 3):
+
+                         Xeon E5-2667v4 2*CPU       i9-7900X CPU
+                        (allocated 32 logical   (20 logical threads,
+                         threads, 16 physical    10 physical cores),
+                         cores, NUMA), AVX-2          AVX-512
+
+                        Orig.  AVX-br.  Ratio   Orig.  AVX-br. Ratio
+                        ------  -----  ------   -----  -----  ------
+    02-threads realloc   80544  60025  74.52%   66100  55854  84.50%
+    04-threads realloc   80751  47743  59.12%   64772  40213  62.08%
+    08-threads realloc   82645  32691  39.56%   62246  27056  43.47%
+    12-threads realloc   89951  43270  48.10%   65456  25853  39.50%
+    16-threads realloc   95729  56571  59.10%   67513  27058  40.08%
+    31-threads realloc  109099  97290  89.18%   63180  28408  44.96%
+    64-threads realloc  118589 104230  87.89%   57974  28951  49.94%
+    NexusDB 01 thread   160100 121961  76.18%   93341  95807 102.64%
+    NexusDB 02 threads  115447  78339  67.86%   77034  70056  90.94%
+    NexusDB 04 threads  107851  49403  45.81%   73162  50039  68.39%
+    NexusDB 08 threads  111490  36675  32.90%   70672  42116  59.59%
+    NexusDB 12 threads  148148  46608  31.46%   92693  53900  58.15%
+    NexusDB 16 threads  111041  38461  34.64%   66549  37317  56.07%
+    NexusDB 31 threads  123496  44232  35.82%   62552  34150  54.60%
+    NexusDB 64 threads  179924  62414  34.69%   83914  42915  51.14%
+
+The above tests (on Xeon E5-2667v4 and i9) have been done on 03-May-2018.
+
 You can find the program, used to generate the benchmark data,
 at https://github.com/maximmasiutin/FastCodeBenchmark
 
@@ -163,14 +193,13 @@ If not, see <http://www.gnu.org/licenses/>.
 
 FastMM4-AVX Version History:
 
-1.02 (07 November 2017) - added and tested support of the AVX-512
+1.02 (07 November 2017) - added and tested support for the AVX-512
      instruction set.
 
 1.01 (10 October 2017) - made the source code compile under Delphi5,
      thanks to Valts Silaputnins.
 
 1.00 (27 July 2017) - initial revision.
-
 
 
 The original FastMM4 description follows:
