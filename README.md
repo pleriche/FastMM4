@@ -2,7 +2,7 @@
 
 FastMM4-AVX (AVX1/AVX2/AVX512/ERMS support for FastMM4)
 
-Version 1.02
+Version 1.03
 
 This is a fork of the Fast Memory Manager 4.992 by Pierre le Riche
 (see below for the original FastMM4 description)
@@ -166,7 +166,7 @@ You can find the program, used to generate the benchmark data,
 at https://github.com/maximmasiutin/FastCodeBenchmark
 
 
-AVX1/AVX2/ERMS support Copyright (C) 2017 Ritlabs S.R.L. All rights reserved.
+AVX1/AVX2/ERMS support Copyright (C) 2017-2018 Ritlabs S.R.L. All rights reserved.
 https://www.ritlabs.com/
 AVX1/AVX2/ERMS support is written by Maxim Masiutin <max@ritlabs.com>
 
@@ -192,6 +192,9 @@ If not, see <http://www.gnu.org/licenses/>.
 
 
 FastMM4-AVX Version History:
+
+1.03 (04 May 2018) - minor fixes for the debug mode, FPC compatibility
+     and code readability cosmetic fixes.
 
 1.02 (07 November 2017) - added and tested support for the AVX-512
      instruction set.
