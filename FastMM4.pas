@@ -5816,16 +5816,16 @@ end;
 {Locks all small block types}
 procedure LockAllSmallBlockTypes;
 var
-  LInd: Cardinal;
+  LIndC: Cardinal;
 begin
   {Lock the medium blocks}
 {$ifndef AssumeMultiThreaded}
   if IsMultiThread then
 {$endif}
   begin
-    for LInd := 0 to NumSmallBlockTypes - 1 do
+    for LIndC := 0 to NumSmallBlockTypes - 1 do
     begin
-      while not AcquireLockByte(SmallBlockTypes[LInd].SmallBlockTypeLocked) do
+      while not AcquireLockByte(SmallBlockTypes[LIndC].SmallBlockTypeLocked) do
       begin
 {$ifdef NeverSleepOnThreadContention}
   {$ifdef UseSwitchToThread}
@@ -5833,7 +5833,7 @@ begin
   {$endif}
 {$else}
         Sleep(InitialSleepTime);
-        if AcquireLockByte(SmallBlockTypes[LInd].SmallBlockTypeLocked) then
+        if AcquireLockByte(SmallBlockTypes[LIndC].SmallBlockTypeLocked) then
           Break;
         Sleep(AdditionalSleepTime);
 {$endif}
@@ -15397,7 +15397,7 @@ procedure GetMemoryMap(var AMemoryMap: TMemoryMap);
 var
   LPMediumBlockPoolHeader: PMediumBlockPoolHeader;
   LPLargeBlock: PLargeBlockHeader;
-  LInd, LChunkIndex, LNextChunk, LLargeBlockSize: NativeUInt;
+  LIndNUI, LChunkIndex, LNextChunk, LLargeBlockSize: NativeUInt;
   LMBI: TMemoryBasicInformation;
   LCharToFill: AnsiChar;
 {$ifdef LogLockContention}
@@ -15421,11 +15421,11 @@ begin
   begin
     {Add to the medium block used space}
     LChunkIndex := NativeUInt(LPMediumBlockPoolHeader) shr 16;
-    for LInd := 0 to (MediumBlockPoolSize - 1) shr 16 do
+    for LIndNUI := 0 to (MediumBlockPoolSize - 1) shr 16 do
     begin
-      if (LChunkIndex + LInd) > High(AMemoryMap) then
+      if (LChunkIndex + LIndNUI) > High(AMemoryMap) then
         Break;
-      AMemoryMap[LChunkIndex + LInd] := csAllocated;
+      AMemoryMap[LChunkIndex + LIndNUI] := csAllocated;
     end;
     {Get the next medium block pool}
     LPMediumBlockPoolHeader := LPMediumBlockPoolHeader.NextMediumBlockPoolHeader;
@@ -15447,11 +15447,11 @@ begin
   begin
     LChunkIndex := UIntPtr(LPLargeBlock) shr 16;
     LLargeBlockSize := LPLargeBlock.BlockSizeAndFlags and DropMediumAndLargeFlagsMask;
-    for LInd := 0 to (LLargeBlockSize - 1) shr 16 do
+    for LIndNUI := 0 to (LLargeBlockSize - 1) shr 16 do
     begin
-      if (LChunkIndex + LInd) > High(AMemoryMap) then
+      if (LChunkIndex + LIndNUI) > High(AMemoryMap) then
         Break;
-      AMemoryMap[LChunkIndex + LInd] := csAllocated;
+      AMemoryMap[LChunkIndex + LIndNUI] := csAllocated;
     end;
     {Get the next large block}
     LPLargeBlock := LPLargeBlock.NextLargeBlockHeader;
@@ -15462,23 +15462,23 @@ begin
     UnlockLargeBlocks;
   end;
   {Fill in the rest of the map}
-  LInd := 0;
-  while LInd <= 65535 do
+  LIndNUI := 0;
+  while LIndNUI <= 65535 do
   begin
     {If the chunk is not allocated by this MM, what is its status?}
-    if AMemoryMap[LInd] = csUnallocated then
+    if AMemoryMap[LIndNUI] = csUnallocated then
     begin
       {Query the address space starting at the chunk boundary}
-      if VirtualQuery(Pointer(LInd * 65536), LMBI, SizeOf(LMBI)) = 0 then
+      if VirtualQuery(Pointer(LIndNUI * 65536), LMBI, SizeOf(LMBI)) = 0 then
       begin
         {VirtualQuery may fail for addresses >2GB if a large address space is
          not enabled.}
         LCharToFill := AnsiChar(csSysReserved);
-        FillChar(AMemoryMap[LInd], 65536 - LInd, LCharToFill);
+        FillChar(AMemoryMap[LIndNUI], 65536 - LIndNUI, LCharToFill);
         Break;
       end;
       {Get the chunk number after the region}
-      LNextChunk := (LMBI.RegionSize - 1) shr 16 + LInd + 1;
+      LNextChunk := (LMBI.RegionSize - 1) shr 16 + LIndNUI + 1;
       {Validate}
       if LNextChunk > 65536 then
         LNextChunk := 65536;
@@ -15486,23 +15486,23 @@ begin
       if LMBI.State = MEM_COMMIT then
       begin
         LCharToFill := AnsiChar(csSysReserved);
-        FillChar(AMemoryMap[LInd], LNextChunk - LInd, LCharToFill);
+        FillChar(AMemoryMap[LIndNUI], LNextChunk - LIndNUI, LCharToFill);
       end
       else
       begin
         if LMBI.State = MEM_RESERVE then
         begin
           LCharToFill := AnsiChar(csSysReserved);
-          FillChar(AMemoryMap[LInd], LNextChunk - LInd, LCharToFill);
+          FillChar(AMemoryMap[LIndNUI], LNextChunk - LIndNUI, LCharToFill);
         end;
       end;
       {Point to the start of the next chunk}
-      LInd := LNextChunk;
+      LIndNUI := LNextChunk;
     end
     else
     begin
       {Next chunk}
-      Inc(LInd);
+      Inc(LIndNUI);
     end;
   end;
 end;
@@ -16216,7 +16216,7 @@ var
 {$endif}
 
   LInd, LSizeInd, LMinimumPoolSize, LOptimalPoolSize, LGroupNumber,
-    LBlocksPerPool, LPreviousBlockSize: Cardinal;
+  LBlocksPerPool, LPreviousBlockSize: Cardinal;
   LPMediumFreeBlock: PMediumFreeBlock;
 {$ifdef FullDebugMode}
   {$ifdef LoadDebugDLLDynamically}
