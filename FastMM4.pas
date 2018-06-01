@@ -13729,11 +13729,14 @@ var
   LErrorMessageTitle: array[0..MaxDisplayMessageLength-1] of AnsiChar;
 {$endif}
   LErrorMessage: array[0..MaxLogMessageLength-1] of AnsiChar;
+  LInitialSize: Cardinal;
 begin
   {Display the error header}
-  LMsgPtr := AppendStringToBuffer(InterfaceErrorHeader, @LErrorMessage[0], Length(InterfaceErrorHeader));
+  LInitialSize := (SizeOf(LMsgPtr) div SizeOf(LMsgPtr[0]))-1;
+  LMsgPtr := AppendStringToBuffer(InterfaceErrorHeader, @LErrorMessage[0], Length(InterfaceErrorHeader),
+    LInitialSize-NativeUInt(LMsgPtr-LInitialSize));
   {Add the current stack trace}
-  LMsgPtr := LogCurrentThreadAndStackTrace(2, LMsgPtr);
+  LMsgPtr := LogCurrentThreadAndStackTrace(2, LMsgPtr, LInitialSize-NativeUInt(LMsgPtr-LInitialSize));
   {Trailing CRLF}
   LMsgPtr^ := #13;
   Inc(LMsgPtr);
