@@ -2417,12 +2417,14 @@ const
   SmallBlockTypeRecSize = UnsignedBit shl SmallBlockTypeRecSizePowerOf2;
 {$endif}
 
-{$ifdef XE2AndUp}
-  {$if SmallBlockTypeRecSize <> SizeOf(TSmallBlockType)}
-    {$ifdef SmallBlockTypeRecSizeIsPowerOf2}
-      {$Message Fatal 'Invalid SmallBlockTypeRecSizePowerOf2 constant or SizeOf(TSmallBlockType) is not a power of 2'}
-    {$endif}
-  {$ifend}
+{$ifndef UseReleaseStack}
+  {$ifdef XE2AndUp}
+    {$if SmallBlockTypeRecSize <> SizeOf(TSmallBlockType)}
+      {$ifdef SmallBlockTypeRecSizeIsPowerOf2}
+        {$Message Fatal 'Invalid SmallBlockTypeRecSizePowerOf2 constant or SizeOf(TSmallBlockType) is not a power of 2'}
+      {$endif}
+    {$ifend}
+  {$endif}
 {$endif}
 
 {$ifndef BCB6OrDelphi7AndUp}
@@ -16999,7 +17001,7 @@ begin
   end;
 end;
 
-function ReleaseStackCleanupThreadProc(const AParam: Pointer): Integer;
+function ReleaseStackCleanupThreadProc(AParam: Pointer): Integer;
 var
   LMemBlock: Pointer;
   LSlot: Integer;
@@ -17010,7 +17012,7 @@ begin
     for LSlot := 0 to NumStacksPerBlock - 1 do
     begin
       if (not MediumReleaseStack[LSlot].IsEmpty)
-        and (AcquireLockByte(@MediumBlocksLocked)) then
+        and (AcquireLockByte(MediumBlocksLocked)) then
       begin
         if MediumReleaseStack[LSlot].Pop(LMemBlock) then
           FreeMediumBlock(LMemBlock, True)
@@ -17041,7 +17043,7 @@ begin
   ReleaseStackCleanupThreadTerminate := CreateEvent(nil, False, False, nil);
   if ReleaseStackCleanupThreadTerminate = 0 then
     {$ifdef BCB6OrDelphi7AndUp}System.Error(reInvalidPtr);{$else}System.RunError(reInvalidPtr);{$endif}
-  ReleaseStackCleanupThread := BeginThread(nil, 0, @ReleaseStackCleanupThreadProc, nil, 0, LThreadID);
+  ReleaseStackCleanupThread := BeginThread(nil, 0, ReleaseStackCleanupThreadProc, nil, 0, LThreadID);
   if ReleaseStackCleanupThread = 0 then
     {$ifdef BCB6OrDelphi7AndUp}System.Error(reInvalidPtr);{$else}System.RunError(reInvalidPtr);{$endif}
   SetThreadPriority(ReleaseStackCleanupThread, THREAD_PRIORITY_LOWEST);
