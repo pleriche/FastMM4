@@ -13726,19 +13726,23 @@ end;
 {$ifdef CatchUseOfFreedInterfaces}
 procedure TFreedObject.InterfaceError;
 var
-  LMsgPtr: PAnsiChar;
+  LMsgPtr, LInitialPtr: PAnsiChar;
 {$ifndef NoMessageBoxes}
   LErrorMessageTitle: array[0..MaxDisplayMessageLength-1] of AnsiChar;
 {$endif}
   LErrorMessage: array[0..MaxLogMessageLength-1] of AnsiChar;
   LInitialSize: Cardinal;
 begin
-  {Display the error header}
-  LInitialSize := (SizeOf(LMsgPtr) div SizeOf(LMsgPtr[0]))-1;
-  LMsgPtr := AppendStringToBuffer(InterfaceErrorHeader, @LErrorMessage[0], Length(InterfaceErrorHeader),
-    LInitialSize-NativeUInt(LMsgPtr-LInitialSize));
+  FillChar(LErrorMessage, SizeOf(LErrorMessage), 0);
+  {$ifndef NoMessageBoxes}
+  FillChar(LErrorMessageTitle, SizeOf(LErrorMessageTitle), 0);
+  {$endif}
+  LMsgPtr := @LErrorMessage[0];
+  LInitialPtr := LMsgPtr;
+  LInitialSize := MaxLogMessageLength;
+  LMsgPtr := AppendStringToBuffer(InterfaceErrorHeader, LMsgPtr, length(InterfaceErrorHeader), LInitialSize-NativeUInt(LMsgPtr-LInitialPtr));
   {Add the current stack trace}
-  LMsgPtr := LogCurrentThreadAndStackTrace(2, LMsgPtr, LInitialSize-NativeUInt(LMsgPtr-LInitialSize));
+  LMsgPtr := LogCurrentThreadAndStackTrace(2, LMsgPtr, LInitialSize-NativeUInt(LMsgPtr-LInitialPtr));
   {Trailing CRLF}
   LMsgPtr^ := #13;
   Inc(LMsgPtr);
@@ -15762,24 +15766,24 @@ begin
     LMsgPtr := @LErrorMessage[0];
     LInitialPtr := LMsgPtr;
     LInitialSize := MaxLogMessageLength;
-    LMsgPtr := AppendStringToBuffer(LockingReportHeader, LMsgPtr, Length(LockingReportHeader), LInitialSize-(LMsgPtr-LInitialPtr));
-    LMsgPtr := AppendStringToBuffer(CRLF, LMsgPtr, Length(CRLF), LInitialSize-(LMsgPtr-LInitialPtr));
-    LMsgPtr := AppendStringToBuffer(CRLF, LMsgPtr, Length(CRLF), LInitialSize-(LMsgPtr-LInitialPtr));
+    LMsgPtr := AppendStringToBuffer(LockingReportHeader, LMsgPtr, Length(LockingReportHeader), LInitialSize-NativeUInt(LMsgPtr-LInitialPtr));
+    LMsgPtr := AppendStringToBuffer(CRLF, LMsgPtr, Length(CRLF), LInitialSize-NativeUInt(LMsgPtr-LInitialPtr));
+    LMsgPtr := AppendStringToBuffer(CRLF, LMsgPtr, Length(CRLF), LInitialSize-NativeUInt(LMsgPtr-LInitialPtr));
     for i := 1 to 3 do
     begin
       if i > mergedCount then
         break; //for i
       if i > 1 then
-        LMsgPtr := AppendStringToBuffer(CRLF, LMsgPtr, Length(CRLF), LInitialSize-(LMsgPtr-LInitialPtr));
-      LMsgPtr := NativeUIntToStrBuf(mergedData[i].Count, LMsgPtr, LInitialSize-(LMsgPtr-LInitialPtr));
-      if LInitialSize-(LMsgPtr-LInitialPtr) < 5 then Break;
+        LMsgPtr := AppendStringToBuffer(CRLF, LMsgPtr, Length(CRLF), LInitialSize-NativeUInt(LMsgPtr-LInitialPtr));
+      LMsgPtr := NativeUIntToStrBuf(mergedData[i].Count, LMsgPtr, LInitialSize-NativeUInt(LMsgPtr-LInitialPtr));
+      if LInitialSize-NativeUInt(LMsgPtr-LInitialPtr) < 5 then Break;
       LMsgPtr^ := ' ';
       Inc(LMsgPtr);
       LMsgPtr^ := 'x';
       Inc(LMsgPtr);
-      LMsgPtr := AppendStringToBuffer(CRLF, LMsgPtr, Length(CRLF), LInitialSize-(LMsgPtr-LInitialPtr));
+      LMsgPtr := AppendStringToBuffer(CRLF, LMsgPtr, Length(CRLF), LInitialSize-NativeUInt(LMsgPtr-LInitialPtr));
       LMsgPtr := LogStackTrace(PNativeUInt(@(mergedData[i].Data.Pointers[1])), mergedData[i].Data.Count, LMsgPtr);
-      LMsgPtr := AppendStringToBuffer(CRLF, LMsgPtr, Length(CRLF), LInitialSize-(LMsgPtr-LInitialPtr));
+      LMsgPtr := AppendStringToBuffer(CRLF, LMsgPtr, Length(CRLF), LInitialSize-NativeUInt(LMsgPtr-LInitialPtr));
     end;
     AppendStringToModuleName(LockingReportTitle, LMessageTitleBuffer, Length(LockingReportTitle), (SizeOf(LMessageTitleBuffer) div SizeOf(LMessageTitleBuffer[0]))-1);
     ShowMessageBox(LErrorMessage, LMessageTitleBuffer);
@@ -15787,18 +15791,18 @@ begin
     begin
       if i > mergedCount then
         break; //for i
-      LMsgPtr := AppendStringToBuffer(CRLF, LMsgPtr, Length(CRLF), LInitialSize-(LMsgPtr-LInitialPtr));
-      LMsgPtr := NativeUIntToStrBuf(mergedData[i].Count, LMsgPtr, LInitialSize-(LMsgPtr-LInitialPtr));
-      if LInitialSize-(LMsgPtr-LInitialPtr) < 5 then Break;
+      LMsgPtr := AppendStringToBuffer(CRLF, LMsgPtr, Length(CRLF), LInitialSize-NativeUInt(LMsgPtr-LInitialPtr));
+      LMsgPtr := NativeUIntToStrBuf(mergedData[i].Count, LMsgPtr, LInitialSize-NativeUInt(LMsgPtr-LInitialPtr));
+      if LInitialSize-NativeUInt(LMsgPtr-LInitialPtr) < 5 then Break;
       LMsgPtr^ := ' ';
       Inc(LMsgPtr);
       LMsgPtr^ := 'x';
       Inc(LMsgPtr);
-      LMsgPtr := AppendStringToBuffer(CRLF, LMsgPtr, Length(CRLF), LInitialSize-(LMsgPtr-LInitialPtr));
+      LMsgPtr := AppendStringToBuffer(CRLF, LMsgPtr, Length(CRLF), LInitialSize-NativeUInt(LMsgPtr-LInitialPtr));
       LMsgPtr := LogStackTrace(PNativeUInt(@(mergedData[i].Data.Pointers[1])), mergedData[i].Data.Count, LMsgPtr);
-      LMsgPtr := AppendStringToBuffer(CRLF, LMsgPtr, Length(CRLF), LInitialSize-(LMsgPtr-LInitialPtr));
+      LMsgPtr := AppendStringToBuffer(CRLF, LMsgPtr, Length(CRLF), LInitialSize-NativeUInt(LMsgPtr-LInitialPtr));
     end;
-    LMsgPtr := AppendStringToBuffer(CRLF, LMsgPtr, Length(CRLF), LInitialSize-(LMsgPtr-LInitialPtr));
+    LMsgPtr := AppendStringToBuffer(CRLF, LMsgPtr, Length(CRLF), LInitialSize-NativeUInt(LMsgPtr-LInitialPtr));
     AppendEventLog(@LErrorMessage[0], NativeUInt(LMsgPtr) - NativeUInt(@LErrorMessage[0]));
   end;
 end;
