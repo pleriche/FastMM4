@@ -51,7 +51,7 @@ interface
 
 uses
   Windows, Messages, SysUtils, Variants, Classes, Graphics, Controls, Forms,
-  Dialogs, StdCtrls, ExtCtrls, Grids, Buttons, ComCtrls, Menus, FastMM4;
+  Dialogs, StdCtrls, ExtCtrls, Grids, Buttons, ComCtrls, Menus, FastMM4, UITypes;
 
 type
   TChunkStatusEx = (
@@ -257,6 +257,19 @@ begin
       LS_S := LS_S + CRLF;
   end;
   ClipBoard.SetTextBuf(PChar(LS_S));
+end;
+
+function LocSort(P1, P2: Pointer): Integer;
+begin
+  if NativeUInt(P1) = NativeUInt(P2) then
+    Result := 0
+  else
+  begin
+    if NativeUInt(P1) > NativeUInt(P2) then
+      Result := -1
+    else
+      Result := 1;
+  end;
 end;
 
 //-----------------------------------------------------------------------------
@@ -474,11 +487,11 @@ end;
 procedure TfFastMMUsageTracker.RefreshSnapShot;
 var
   LP_FreeVMList: TList;
-  LU_MEM_FREE: DWord;
-  LU_MEM_COMMIT: DWord;
-  LU_MEM_RESERVE: DWord;
+  LU_MEM_FREE: SIZE_T;
+  LU_MEM_COMMIT: SIZE_T;
+  LU_MEM_RESERVE: SIZE_T;
   LAllocatedSize, LTotalBlocks, LTotalAllocated, LTotalReserved,
-    LPrevAllocatedSize, LPrevTotalBlocks, LPrevTotalAllocated, LPrevTotalReserved: Cardinal;
+    LPrevAllocatedSize, LPrevTotalBlocks, LPrevTotalAllocated, LPrevTotalReserved: NativeUInt;
 
   procedure UpdateVMGraph(var AMemoryMap: TMemoryMapEx);
   var
@@ -529,7 +542,7 @@ var
   var
     LP_Base: PByte;
     LR_Info: TMemoryBasicInformation;
-    LU_rv: DWORD;
+    LU_rv: SIZE_T;
     LI_I: Integer;
     LA_Char: array[0..MAX_PATH] of Char;
   begin
@@ -587,7 +600,6 @@ var
 
     sgVMDump.RowCount := LI_I;
   end;
-
 
   procedure UpdateFastMM4Data;
   var
@@ -684,20 +696,6 @@ var
   end;
 
   procedure UpdateStatisticsData;
-
-    function LocSort(P1, P2: Pointer): Integer;
-    begin
-      if Cardinal(P1) = Cardinal(P2) then
-        Result := 0
-      else
-      begin
-        if Cardinal(P1) > Cardinal(P2) then
-          Result := -1
-        else
-          Result := 1;
-      end;
-    end;
-
   const
     CI_MaxFreeBlocksList = 9;
 
@@ -735,7 +733,7 @@ var
         GlobalMemoryStatus(LR_GlobalMemoryStatus);
       end;
 
-      LP_FreeVMList.Sort(@LocSort);
+      LP_FreeVMList.SortList(LocSort);
 
       GetProcessWorkingSetSize(GetCurrentProcess, LU_MinQuota, LU_MaxQuota);
       GetSystemInfo(LR_SystemInfo);
@@ -764,10 +762,10 @@ var
         begin
           with LR_GlobalMemoryStatus do
           begin
-            Add('Available Physical Memory         = ' + CardinalToKStringFormatted(dwAvailPhys));
-            Add('Total Physical Memory             = ' + CardinalToKStringFormatted(dwTotalPhys));
-            Add('Available Virtual Memory          = ' + CardinalToKStringFormatted(dwAvailVirtual));
-            Add('Total Virtual Memory              = ' + CardinalToKStringFormatted(dwTotalVirtual));
+            Add('Available Physical Memory         = ' + Int64ToKStringFormatted(dwAvailPhys));
+            Add('Total Physical Memory             = ' + Int64ToKStringFormatted(dwTotalPhys));
+            Add('Available Virtual Memory          = ' + Int64ToKStringFormatted(dwAvailVirtual));
+            Add('Total Virtual Memory              = ' + Int64ToKStringFormatted(dwTotalVirtual));
           end;
         end;
 
@@ -802,34 +800,34 @@ var
           with LR_ProcessMemoryCounters do
           begin
             Add('Page Fault Count                  = ' + CardinalToKStringFormatted(PageFaultCount));
-            Add('Peak Working Set Size             = ' + CardinalToKStringFormatted(PeakWorkingSetSize));
-            Add('Working Set Size                  = ' + CardinalToKStringFormatted(WorkingSetSize));
-            Add('Quota Peak Paged Pool Usage       = ' + CardinalToKStringFormatted(QuotaPeakPagedPoolUsage));
-            Add('Quota Paged Pool Usage            = ' + CardinalToStringFormatted(QuotaPagedPoolUsage));
-            Add('Quota Peak Non-Paged Pool Usage  = ' + CardinalToStringFormatted(QuotaPeakNonPagedPoolUsage));
-            Add('Quota Non-Paged Pool Usage       = ' + CardinalToStringFormatted(QuotaNonPagedPoolUsage));
-            Add('Pagefile Usage                    = ' + CardinalToKStringFormatted(PagefileUsage));
-            Add('Peak Pagefile Usage               = ' + CardinalToKStringFormatted(PeakPagefileUsage));
+            Add('Peak Working Set Size             = ' + Int64ToKStringFormatted(PeakWorkingSetSize));
+            Add('Working Set Size                  = ' + Int64ToKStringFormatted(WorkingSetSize));
+            Add('Quota Peak Paged Pool Usage       = ' + Int64ToKStringFormatted(QuotaPeakPagedPoolUsage));
+            Add('Quota Paged Pool Usage            = ' + Int64ToKStringFormatted(QuotaPagedPoolUsage));
+            Add('Quota Peak Non-Paged Pool Usage  = ' + Int64ToKStringFormatted(QuotaPeakNonPagedPoolUsage));
+            Add('Quota Non-Paged Pool Usage       = ' + Int64ToKStringFormatted(QuotaNonPagedPoolUsage));
+            Add('Pagefile Usage                    = ' + Int64ToKStringFormatted(PagefileUsage));
+            Add('Peak Pagefile Usage               = ' + Int64ToKStringFormatted(PeakPagefileUsage));
           end;
         end;
 
         Add('');
         Add('Process Info: PID (' + IntToStr(GetCurrentProcessId) + ')');
         Add('------------------------');
-        Add('Minimum Address                   = ' + CardinalToStringFormatted(Cardinal(LR_SystemInfo.lpMinimumApplicationAddress)));
-        Add('Maximum VM Address                = ' + CardinalToKStringFormatted(Cardinal(LR_SystemInfo.lpMaximumApplicationAddress)));
+        Add('Minimum Address                   = ' + Int64ToKStringFormatted(NativeUInt(LR_SystemInfo.lpMinimumApplicationAddress)));
+        Add('Maximum VM Address                = ' + Int64ToKStringFormatted(NativeUInt(LR_SystemInfo.lpMaximumApplicationAddress)));
         Add('Page Protection & Commit Size     = ' + IntToStr(LR_SystemInfo.dWPageSize));
         Add('');
         Add('Quota info:');
         Add('-----------');
-        Add('Minimum Quota                     = ' + CardinalToStringFormatted(LU_MinQuota));
-        Add('Maximum Quota                     = ' + CardinalToStringFormatted(LU_MaxQuota));
+        Add('Minimum Quota                     = ' + Int64ToKStringFormatted(LU_MinQuota));
+        Add('Maximum Quota                     = ' + Int64ToKStringFormatted(LU_MaxQuota));
         Add('');
         Add('VM Info:');
         Add('--------');
-        Add('Total Free                        = ' + CardinalToKStringFormatted(LU_MEM_FREE));
-        Add('Total Reserve                     = ' + CardinalToKStringFormatted(LU_MEM_RESERVE));
-        Add('Total Commit                      = ' + CardinalToKStringFormatted(LU_MEM_COMMIT));
+        Add('Total Free                        = ' + Int64ToKStringFormatted(LU_MEM_FREE));
+        Add('Total Reserve                     = ' + Int64ToKStringFormatted(LU_MEM_RESERVE));
+        Add('Total Commit                      = ' + Int64ToKStringFormatted(LU_MEM_COMMIT));
 
         if LP_FreeVMList.Count > CI_MaxFreeBlocksList then
           LI_Max := CI_MaxFreeBlocksList - 1
@@ -838,15 +836,15 @@ var
 
         for LI_I := 0 to LI_Max do
         begin
-          Add('Largest Free Block ' + IntToStr(LI_I + 1) + '.             = ' + CardinalToKStringFormatted(Cardinal(LP_FreeVMList.List[LI_I])));
+          Add('Largest Free Block ' + IntToStr(LI_I + 1) + '.             = ' + Int64ToKStringFormatted(NativeUInt(LP_FreeVMList.List[LI_I])));
         end;
 
         Add('');
         Add('FastMM4 Info:');
         Add('-------------');
-        Add('Total Blocks                      = ' + CardinalToStringFormatted(LTotalBlocks));
-        Add('Total Allocated                   = ' + CardinalToStringFormatted(LTotalAllocated));
-        Add('Total Reserved                    = ' + CardinalToStringFormatted(LTotalReserved));
+        Add('Total Blocks                      = ' + Int64ToKStringFormatted(LTotalBlocks));
+        Add('Total Allocated                   = ' + Int64ToKStringFormatted(LTotalAllocated));
+        Add('Total Reserved                    = ' + Int64ToKStringFormatted(LTotalReserved));
       end;
 
     finally
