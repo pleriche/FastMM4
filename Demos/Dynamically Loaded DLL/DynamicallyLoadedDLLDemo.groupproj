@@ -1,0 +1,44 @@
+﻿<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <ProjectGuid>{39e9f19f-728b-49d7-8ea1-18ef0776485d}</ProjectGuid>
+  </PropertyGroup>
+  <ItemGroup />
+  <ItemGroup>
+    <Projects Include="TestApplication.dproj" />
+    <Projects Include="TestDLL.dproj" />
+  </ItemGroup>
+  <ProjectExtensions>
+    <Borland.Personality>Default.Personality</Borland.Personality>
+    <Borland.ProjectType />
+    <BorlandProject>
+  <BorlandProject xmlns=""> <Default.Personality> </Default.Personality> </BorlandProject></BorlandProject>
+  </ProjectExtensions>
+  <Target Name="TestApplication">
+    <MSBuild Projects="TestApplication.dproj" Targets="" />
+  </Target>
+  <Target Name="TestApplication:Clean">
+    <MSBuild Projects="TestApplication.dproj" Targets="Clean" />
+  </Target>
+  <Target Name="TestApplication:Make">
+    <MSBuild Projects="TestApplication.dproj" Targets="Make" />
+  </Target>
+  <Target Name="TestDLL">
+    <MSBuild Projects="TestDLL.dproj" Targets="" />
+  </Target>
+  <Target Name="TestDLL:Clean">
+    <MSBuild Projects="TestDLL.dproj" Targets="Clean" />
+  </Target>
+  <Target Name="TestDLL:Make">
+    <MSBuild Projects="TestDLL.dproj" Targets="Make" />
+  </Target>
+  <Target Name="Build">
+    <CallTarget Targets="TestApplication;TestDLL" />
+  </Target>
+  <Target Name="Clean">
+    <CallTarget Targets="TestApplication:Clean;TestDLL:Clean" />
+  </Target>
+  <Target Name="Make">
+    <CallTarget Targets="TestApplication:Make;TestDLL:Make" />
+  </Target>
+  <Import Condition="Exists('$(MSBuildBinPath)\Borland.Group.Targets')" Project="$(MSBuildBinPath)\Borland.Group.Targets" />
+</Project>
