@@ -237,6 +237,13 @@ Set the default options for FastMM here.
    message.}
   {.$define HideMemoryLeakHintMessage}
 
+  {Set this option to use QualifiedClassName equivalent instead of ClassName
+   equivalent during memory leak reporting.
+   This is useful for duplicate class names (like EConversionError, which is in
+   units Data.DBXJSONReflect, REST.JsonReflect and System.ConvUtils,
+   or TClipboard being in Vcl.Clibprd and WinAPI.ApplicationModel.DataTransfer }
+  {$define EnableMemoryLeakReportingUsesQualifiedClassName}
+
 {--------------------------Instruction Set Options----------------------------}
 
 {Set this option to enable the use of MMX instructions. Disabling this option
