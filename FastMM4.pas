@@ -4375,7 +4375,7 @@ begin
   LLargeUsedBlockSize := (ASize + LargeBlockHeaderSize + LargeBlockGranularity - 1 + BlockHeaderSize)
     and -LargeBlockGranularity;
   {Get the Large block}
-  Result := VirtualAlloc(nil, LLargeUsedBlockSize, MEM_COMMIT or MEM_TOP_DOWN,
+  Result := VirtualAlloc(nil, LLargeUsedBlockSize, MEM_COMMIT {$ifdef AllocateLargeBlocksTopDown}or MEM_TOP_DOWN{$endif},
     PAGE_READWRITE);
   {Set the Large block fields}
   if Result <> nil then
