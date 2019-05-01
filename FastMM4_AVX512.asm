@@ -16,6 +16,32 @@
 ; License Version 3, dated 29 June 2007 (LGPL 3, available from
 ; https://www.gnu.org/licenses/lgpl.html).
 
+; This code uses zmm26 - zmm31 registers to avoid AVX-SSE transition penalty.
+; These regsters (zmm16 - zmm31) have no non-VEX counterpart. According to the 
+; advise of Agner Fog, there is no state transition and no penalty for mixing 
+; zmm16 - zmm31 with non-VEX SSE code. Source: 
+; https://stackoverflow.com/questions/43879935/avoiding-avx-sse-vex-transition-penalties/54587480#54587480
+ 
+
+%define	EVEXR512N0	zmm31
+%define	EVEXR512N1	zmm30
+%define	EVEXR512N2	zmm29
+%define	EVEXR512N3	zmm28
+%define	EVEXR512N4	zmm27
+%define	EVEXR512N5	zmm26
+%define	EVEXR256N0	ymm31
+%define	EVEXR256N1	ymm30
+%define	EVEXR256N2	ymm29
+%define	EVEXR256N3	ymm28
+%define	EVEXR256N4	ymm27
+%define	EVEXR256N5	ymm26
+%define	EVEXR128N0	xmm31
+%define	EVEXR128N1	xmm30
+%define	EVEXR128N2	xmm29
+%define	EVEXR128N3	xmm28
+%define	EVEXR128N4	xmm27
+%define	EVEXR128N5	xmm26
+
 
 section	.text
 
@@ -33,170 +59,170 @@ section	.text
 
 	align		16
 Move88AVX512:
-	vmovdqu64	zmm0, [rcx]
-	vmovdqa		xmm1, [rcx+40h]
+	vmovdqu64	EVEXR512N0, [rcx]
+	vmovdqa64	EVEXR128N1, [rcx+40h]
 	mov		rcx, [rcx + 50h]
-	vmovdqu64	[rdx], zmm0
-	vmovdqa		[rdx+40h], xmm1
+	vmovdqu64	[rdx], EVEXR512N0
+	vmovdqa64	[rdx+40h], EVEXR128N1
 	mov 		[rdx + 50h], rcx
-	vpxord 		zmm0,zmm0,zmm0
-	vpxor		xmm1,xmm1,xmm1
+	vpxord		EVEXR512N0,EVEXR512N0,EVEXR512N0
+	vpxord		EVEXR128N1,EVEXR128N1,EVEXR128N1
 	ret
 
 	align		16
 Move120AVX512:
-	vmovdqu64	zmm0, [rcx]
-	vmovdqa		ymm1, [rcx+40h]
-	vmovdqa		xmm2, [rcx+60h]
+	vmovdqu64	EVEXR512N0, [rcx]
+	vmovdqa64	EVEXR256N1, [rcx+40h]
+	vmovdqa64	EVEXR128N2, [rcx+60h]
 	mov		rcx, [rcx + 70h]
-	vmovdqu64 	[rdx], zmm0
-	vmovdqa 	[rdx+40h], ymm1
-	vmovdqa 	[rdx+60h], xmm2
+	vmovdqu64 	[rdx], EVEXR512N0
+	vmovdqa64 	[rdx+40h], EVEXR256N1
+	vmovdqa64 	[rdx+60h], EVEXR128N2
 	mov		[rdx+70h], rcx
-	vpxord		zmm0,zmm0,zmm0
-	vpxor		ymm1,ymm1,ymm1
-	vpxor		xmm2,xmm2,xmm2
+	vpxord		EVEXR512N0,EVEXR512N0,EVEXR512N0
+	vpxord		EVEXR256N1,EVEXR256N1,EVEXR256N1
+	vpxord		EVEXR128N2,EVEXR128N2,EVEXR128N2
 	ret
 
 	align		16
 Move152AVX512:
-	vmovdqu64	zmm0, [rcx+00h]
-	vmovdqu64	zmm1, [rcx+40h]
-	vmovdqa		xmm2, [rcx+80h]
+	vmovdqu64	EVEXR512N0, [rcx+00h]
+	vmovdqu64	EVEXR512N1, [rcx+40h]
+	vmovdqa64	EVEXR128N2, [rcx+80h]
 	mov		rcx, [rcx+90h]
-	vmovdqu64 	[rdx+00h], zmm0
-	vmovdqu64 	[rdx+40h], zmm1
-	vmovdqa 	[rdx+80h], xmm2
+	vmovdqu64 	[rdx+00h], EVEXR512N0
+	vmovdqu64 	[rdx+40h], EVEXR512N1
+	vmovdqa64 	[rdx+80h], EVEXR128N2
 	mov 		[rdx+90h], rcx
-	vpxord		zmm0,zmm0,zmm0
-	vpxord		zmm1,zmm1,zmm1
-	vpxor		xmm2,xmm2,xmm2
+	vpxord  	EVEXR512N0,EVEXR512N0,EVEXR512N0
+	vpxord  	EVEXR512N1,EVEXR512N1,EVEXR512N1
+	vpxord		EVEXR128N2,EVEXR128N2,EVEXR128N2
 	ret
 
 	align		16
 Move184AVX512:
-	vmovdqu64 	zmm0, [rcx+00h]
-	vmovdqu64 	zmm1, [rcx+40h]
-	vmovdqa 	ymm2, [rcx+80h]
-	vmovdqa 	xmm3, [rcx+0A0h]
+	vmovdqu64 	EVEXR512N0, [rcx+00h]
+	vmovdqu64 	EVEXR512N1, [rcx+40h]
+	vmovdqa64 	EVEXR256N2, [rcx+80h]
+	vmovdqa64 	EVEXR128N3, [rcx+0A0h]
 	mov 		rcx, [rcx+0B0h]
-	vmovdqu64 	[rdx-00h], zmm0
-	vmovdqu64 	[rdx+40h], zmm1
-	vmovdqa 	[rdx+80h], ymm2
-	vmovdqa 	[rdx+0A0h],xmm3
+	vmovdqu64 	[rdx-00h], EVEXR512N0
+	vmovdqu64 	[rdx+40h], EVEXR512N1
+	vmovdqa64 	[rdx+80h], EVEXR256N2
+	vmovdqa64 	[rdx+0A0h],EVEXR128N3
 	mov 		[rdx+0B0h],rcx
-	vpxord 		zmm0,zmm0,zmm0
-	vpxord 		zmm1,zmm1,zmm1
-	vpxor 		ymm2,ymm2,ymm2
-	vpxor 		xmm3,xmm3,xmm3
+	vpxord 		EVEXR512N0,EVEXR512N0,EVEXR512N0
+	vpxord 		EVEXR512N1,EVEXR512N1,EVEXR512N1
+	vpxord 		EVEXR256N2,EVEXR256N2,EVEXR256N2
+	vpxord 		EVEXR128N3,EVEXR128N3,EVEXR128N3
 	ret
 
 	align		16
 Move216AVX512:
-	vmovdqu64	zmm0, [rcx+00h]
-	vmovdqu64	zmm1, [rcx+40h]
-	vmovdqu64	zmm2, [rcx+80h]
-	vmovdqa		xmm3, [rcx+0C0h]
+	vmovdqu64	EVEXR512N0, [rcx+00h]
+	vmovdqu64	EVEXR512N1, [rcx+40h]
+	vmovdqu64	EVEXR512N2, [rcx+80h]
+	vmovdqa64	EVEXR128N3, [rcx+0C0h]
 	mov		rcx, [rcx+0D0h]
-	vmovdqu64 	[rdx+00h], zmm0
-	vmovdqu64 	[rdx+40h], zmm1
-	vmovdqu64 	[rdx+80h], zmm2
-	vmovdqa 	[rdx+0C0h], xmm3
+	vmovdqu64 	[rdx+00h], EVEXR512N0
+	vmovdqu64 	[rdx+40h], EVEXR512N1
+	vmovdqu64 	[rdx+80h], EVEXR512N2
+	vmovdqa64 	[rdx+0C0h], EVEXR128N3
 	mov 		[rdx+0D0h], rcx
-	vpxord 		zmm0,zmm0,zmm0
-	vpxord 		zmm1,zmm1,zmm1
-	vpxord 		zmm2,zmm2,zmm2
-	vpxor 		xmm3,xmm3,xmm3
+	vpxord  	EVEXR512N0,EVEXR512N0,EVEXR512N0
+	vpxord  	EVEXR512N1,EVEXR512N1,EVEXR512N1
+	vpxord  	EVEXR512N2,EVEXR512N2,EVEXR512N2
+	vpxord 		EVEXR128N3,EVEXR128N3,EVEXR128N3
 	ret
 
 	align		16
 Move248AVX512:
-	vmovdqu64 	zmm0, [rcx+00h]
-	vmovdqu64 	zmm1, [rcx+40h]
-	vmovdqu64 	zmm2, [rcx+80h]
-	vmovdqa 	ymm3, [rcx+0C0h]
-	vmovdqa		xmm4, [rcx+0E0h]
+	vmovdqu64 	EVEXR512N0, [rcx+00h]
+	vmovdqu64 	EVEXR512N1, [rcx+40h]
+	vmovdqu64 	EVEXR512N2, [rcx+80h]
+	vmovdqa64	EVEXR256N3, [rcx+0C0h]
+	vmovdqa64	EVEXR128N4, [rcx+0E0h]
 	mov 		rcx, [rcx+0F0h]
-	vmovdqu64 	[rdx+00h], zmm0
-	vmovdqu64 	[rdx+40h], zmm1
-	vmovdqu64 	[rdx+80h], zmm2
-	vmovdqa 	[rdx+0C0h], ymm3
-	vmovdqa 	[rdx+0E0h], xmm4
+	vmovdqu64 	[rdx+00h], EVEXR512N0
+	vmovdqu64 	[rdx+40h], EVEXR512N1
+	vmovdqu64 	[rdx+80h], EVEXR512N2
+	vmovdqa64 	[rdx+0C0h], EVEXR256N3
+	vmovdqa64 	[rdx+0E0h], EVEXR128N4
 	mov 		[rdx+0F0h], rcx
-	vpxord 		zmm0,zmm0,zmm0
-	vpxord 		zmm1,zmm1,zmm1
-	vpxord 		zmm2,zmm2,zmm2
-	vpxor 		ymm3,ymm3,ymm3
-	vpxor 		xmm4,xmm4,xmm4
+	vpxord 		EVEXR512N0,EVEXR512N0,EVEXR512N0
+	vpxord 		EVEXR512N1,EVEXR512N1,EVEXR512N1
+	vpxord 		EVEXR512N2,EVEXR512N2,EVEXR512N2
+	vpxord		EVEXR256N3,EVEXR256N3,EVEXR256N3
+	vpxord		EVEXR128N4,EVEXR128N4,EVEXR128N4
 	ret
 
 	align		16
 Move280AVX512:
-	vmovdqu64 	zmm0, [rcx+00h]
-	vmovdqu64 	zmm1, [rcx+40h]
-	vmovdqu64 	zmm2, [rcx+80h]
-	vmovdqu64 	zmm3, [rcx+0C0h]
-	vmovdqa 	xmm4, [rcx+100h]
+	vmovdqu64 	EVEXR512N0, [rcx+00h]
+	vmovdqu64 	EVEXR512N1, [rcx+40h]
+	vmovdqu64 	EVEXR512N2, [rcx+80h]
+	vmovdqu64 	EVEXR512N3, [rcx+0C0h]
+	vmovdqa64 	EVEXR128N4, [rcx+100h]
 	mov 		rcx, [rcx+110h]
-	vmovdqu64 	[rdx+00h], zmm0
-	vmovdqu64 	[rdx+40h], zmm1
-	vmovdqu64 	[rdx+80h], zmm2
-	vmovdqu64 	[rdx+0C0h], zmm3
-	vmovdqa 	[rdx+100h], xmm4
+	vmovdqu64 	[rdx+00h], EVEXR512N0
+	vmovdqu64 	[rdx+40h], EVEXR512N1
+	vmovdqu64 	[rdx+80h], EVEXR512N2
+	vmovdqu64 	[rdx+0C0h], EVEXR512N3
+	vmovdqa64 	[rdx+100h], EVEXR128N4
 	mov 		[rdx+110h], rcx
-	vpxord 		zmm0,zmm0,zmm0
-	vpxord 		zmm1,zmm1,zmm1
-	vpxord 		zmm2,zmm2,zmm2
-	vpxord 		zmm3,zmm3,zmm3
-	vpxor 		xmm4,xmm4,xmm4
+	vpxord 		EVEXR512N0,EVEXR512N0,EVEXR512N0
+	vpxord 		EVEXR512N1,EVEXR512N1,EVEXR512N1
+	vpxord 		EVEXR512N2,EVEXR512N2,EVEXR512N2
+	vpxord 		EVEXR512N3,EVEXR512N3,EVEXR512N3
+	vpxord		EVEXR128N4,EVEXR128N4,EVEXR128N4
 	ret
 
 	align		16
 Move312AVX512:
-	vmovdqu64 	zmm0, [rcx+00h]
-	vmovdqu64 	zmm1, [rcx+40h]
-	vmovdqu64 	zmm2, [rcx+80h]
-	vmovdqu64 	zmm3, [rcx+0C0h]
-	vmovdqa 	ymm4, [rcx+100h]
-	vmovdqa 	xmm5, [rcx+120h]
+	vmovdqu64 	EVEXR512N0, [rcx+00h]
+	vmovdqu64 	EVEXR512N1, [rcx+40h]
+	vmovdqu64 	EVEXR512N2, [rcx+80h]
+	vmovdqu64 	EVEXR512N3, [rcx+0C0h]
+	vmovdqa64 	EVEXR256N4, [rcx+100h]
+	vmovdqa64 	EVEXR128N5, [rcx+120h]
 	mov 		rcx, [rcx+130h]
-	vmovdqu64 	[rdx+00h], zmm0
-	vmovdqu64 	[rdx+40h], zmm1
-	vmovdqu64 	[rdx+80h], zmm2
-	vmovdqu64 	[rdx+0C0h], zmm3
-	vmovdqa 	[rdx+100h], ymm4
-	vmovdqa 	[rdx+120h], xmm5
+	vmovdqu64 	[rdx+00h], EVEXR512N0
+	vmovdqu64 	[rdx+40h], EVEXR512N1
+	vmovdqu64 	[rdx+80h], EVEXR512N2
+	vmovdqu64 	[rdx+0C0h], EVEXR512N3
+	vmovdqa64 	[rdx+100h], EVEXR256N4
+	vmovdqa64 	[rdx+120h], EVEXR128N5
 	mov 		[rdx+130h], rcx
-	vpxord 		zmm0,zmm0,zmm0
-	vpxord 		zmm1,zmm1,zmm1
-	vpxord 		zmm2,zmm2,zmm2
-	vpxord 		zmm3,zmm3,zmm3
-	vpxor 		ymm4,ymm4,ymm4
-	vpxor 		xmm5,xmm5,xmm5
+	vpxord 		EVEXR512N0,EVEXR512N0,EVEXR512N0
+	vpxord 		EVEXR512N1,EVEXR512N1,EVEXR512N1
+	vpxord 		EVEXR512N2,EVEXR512N2,EVEXR512N2
+	vpxord 		EVEXR512N3,EVEXR512N3,EVEXR512N3
+	vpxord 		EVEXR256N4,EVEXR256N4,EVEXR256N4
+	vpxord 		EVEXR128N5,EVEXR128N5,EVEXR128N5
 	ret
 
 	align		16
 Move344AVX512:
-	vmovdqu64 	zmm0, [rcx+00h]
-	vmovdqu64 	zmm1, [rcx+40h]
-	vmovdqu64 	zmm2, [rcx+80h]
-	vmovdqu64 	zmm3, [rcx+0C0h]
-	vmovdqu64 	zmm4, [rcx+100h]
-	vmovdqa 	xmm5, [rcx+140h]
+	vmovdqu64 	EVEXR512N0, [rcx+00h]
+	vmovdqu64 	EVEXR512N1, [rcx+40h]
+	vmovdqu64 	EVEXR512N2, [rcx+80h]
+	vmovdqu64 	EVEXR512N3, [rcx+0C0h]
+	vmovdqu64 	EVEXR512N4, [rcx+100h]
+	vmovdqa64 	EVEXR128N5, [rcx+140h]
 	mov 		rcx, [rcx+150h]
-	vmovdqu64 	[rdx+00h], zmm0
-	vmovdqu64 	[rdx+40h], zmm1
-	vmovdqu64 	[rdx+80h], zmm2
-	vmovdqu64 	[rdx+0C0h], zmm3
-	vmovdqu64 	[rdx+100h], zmm4
-	vmovdqa 	[rdx+140h], xmm5
+	vmovdqu64 	[rdx+00h], EVEXR512N0
+	vmovdqu64 	[rdx+40h], EVEXR512N1
+	vmovdqu64 	[rdx+80h], EVEXR512N2
+	vmovdqu64 	[rdx+0C0h], EVEXR512N3
+	vmovdqu64 	[rdx+100h], EVEXR512N4
+	vmovdqa64 	[rdx+140h], EVEXR128N5
 	mov 		[rdx+150h], rcx
-	vpxord 		zmm0,zmm0,zmm0
-	vpxord 		zmm1,zmm1,zmm1
-	vpxord 		zmm2,zmm2,zmm2
-	vpxord 		zmm3,zmm3,zmm3
-	vpxord 		zmm4,zmm4,zmm4
-	vpxor 		xmm5,xmm5,xmm5
+	vpxord 		EVEXR512N0,EVEXR512N0,EVEXR512N0
+	vpxord 		EVEXR512N1,EVEXR512N1,EVEXR512N1
+	vpxord 		EVEXR512N2,EVEXR512N2,EVEXR512N2
+	vpxord 		EVEXR512N3,EVEXR512N3,EVEXR512N3
+	vpxord 		EVEXR512N4,EVEXR512N4,EVEXR512N4
+	vpxord		EVEXR128N5,EVEXR128N5,EVEXR128N5
 	ret
 
 
@@ -249,17 +275,17 @@ MoveX32LpAvx512WithErms:
 	jz              @Avx512BigMoveDestAligned
 
 ; destination is already 32-bytes aligned, so we just align by 64 bytes	
-	vmovdqa		ymm0, [rcx+r8]
-	vmovdqa		[rdx+r8], ymm0
+	vmovdqa64	EVEXR256N0, [rcx+r8]
+	vmovdqa64	[rdx+r8], EVEXR256N0
 	add		r8, 20h
 
 	align		16
 
 @Avx512BigMoveDestAligned:
-	vmovdqu64	zmm0, [rcx+r8+00h]
-	vmovdqu64	zmm1, [rcx+r8+40h]
-	vmovdqa64	[rdx+r8+00h], zmm0
-	vmovdqa64	[rdx+r8+40h], zmm1
+	vmovdqu64	EVEXR512N0, [rcx+r8+00h]
+	vmovdqu64	EVEXR512N1, [rcx+r8+40h]
+	vmovdqa64	[rdx+r8+00h], EVEXR512N0
+	vmovdqa64	[rdx+r8+40h], EVEXR512N1
 	add		r8, rax
 	js 		@Avx512BigMoveDestAligned
 
@@ -273,15 +299,15 @@ MoveX32LpAvx512WithErms:
 
 @MoveLoopAvx:
 ; Move a 16 byte block
-	vmovdqa 	xmm0, [rcx+r8]
-	vmovdqa 	[rdx+r8], xmm0
+	vmovdqa64 	EVEXR128N0, [rcx+r8]
+	vmovdqa64 	[rdx+r8], EVEXR128N0
 
 ; Are there another 16 bytes to move?
 	add		r8, 16
 	js		@MoveLoopAvx
 
-	vpxord		zmm0,zmm0,zmm0
-	vpxord		zmm1,zmm1,zmm1
+	vpxord		EVEXR512N0,EVEXR512N0,EVEXR512N0
+	vpxord		EVEXR512N1,EVEXR512N1,EVEXR512N1
 
 	align		8
 @MoveLast8:
