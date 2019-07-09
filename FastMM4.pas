@@ -367,8 +367,8 @@ Acknowledgements (for version 4):
  - Kristofer Skaug for reporting the bug that sometimes causes the leak report
    to be shown, even when all the leaks have been registered as expected leaks.
    Also for some useful enhancement suggestions.
- - Günther Schoch for the "RequireDebuggerPresenceForLeakReporting" option.
- - Jan Schlüter for the "ForceMMX" option.
+ - GÃ¼nther Schoch for the "RequireDebuggerPresenceForLeakReporting" option.
+ - Jan SchlÃ¼ter for the "ForceMMX" option.
  - Hallvard Vassbotn for various good enhancement suggestions.
  - Mark Edington for some good suggestions and bug reports.
  - Paul Ishenin for reporting the compilation error when the NoMessageBoxes
@@ -426,7 +426,7 @@ Acknowledgements (for version 4):
    not work in FullDebugMode.
  - Ionut Muntean for the Romanian translation.
  - Florent Ouchet for the French translation.
- - Marcus Mönnig for the ScanMemoryPoolForCorruptions suggestion and the
+ - Marcus MÃ¶nnig for the ScanMemoryPoolForCorruptions suggestion and the
    suggestion to have the option to scan the memory pool before every
    operation when in FullDebugMode.
  - Francois Piette for bringing under my attention that
@@ -645,10 +645,10 @@ Change log:
    leaks were registered as expected leaks. (Thanks to Kristofer Skaug.)
  Version 4.29 (30 September 2005):
  - Added the "RequireDebuggerPresenceForLeakReporting" option to only display
-   the leak report if the application is run inside the IDE. (Thanks to Günther
+   the leak report if the application is run inside the IDE. (Thanks to GÃ¼nther
    Schoch.)
  - Added the "ForceMMX" option, which when disabled will check the CPU for
-   MMX compatibility before using MMX. (Thanks to Jan Schlüter.)
+   MMX compatibility before using MMX. (Thanks to Jan SchlÃ¼ter.)
  - Added the module name to the title of error dialogs to more easily identify
    which application caused the error. (Thanks to Kristofer Skaug.)
  - Added an ASCII dump to the "FullDebugMode" memory dumps. (Thanks to Hallvard
@@ -1798,11 +1798,11 @@ const
   {The pattern used to fill unused memory}
   DebugFillByte = $80;
 {$ifdef 32Bit}
-  DebugFillPattern = $01010101 * Cardinal(DebugFillByte);
+  DebugFillPattern = $01010101 * Cardinal(DebugFillByte); // Default value $80808080
   {The address that is reserved so that accesses to the address of the fill
    pattern will result in an A/V. (Not used under 64-bit, since the upper half
    of the address space is always reserved by the OS.)}
-  DebugReservedAddress = $01010000 * Cardinal(DebugFillByte);
+  DebugReservedAddress = $01010000 * Cardinal(DebugFillByte); // Default value $80800000
 {$else}
   DebugFillPattern = $8080808080808080;
 {$endif}
@@ -2014,9 +2014,9 @@ const
   UnsignedBit = NativeUInt(1);
 
 
-  {According to the Intel 64 and IA-32 Architectures Software Developer’s Manual,
+  {According to the Intel 64 and IA-32 Architectures Software DeveloperÂ’s Manual,
   p. 3.7.5 (Specifying an Offset) and 3.7.5.1 (Specifying an Offset in 64-Bit Mode):
-  "Scale factor — A value of 2, 4, or 8 that is multiplied by the index value";
+  "Scale factor Â— A value of 2, 4, or 8 that is multiplied by the index value";
   The value of MaximumCpuScaleFactor is determined by the processor architecture}
   MaximumCpuScaleFactorPowerOf2 = 3;
   MaximumCpuScaleFactor = UnsignedBit shl MaximumCpuScaleFactorPowerOf2;
@@ -2917,7 +2917,7 @@ end;
 function CPUID_Supported: Boolean;
 {$ifdef 32bit} assembler;
 
-{QUOTE from the Intel 64 and IA-32 Architectures Software Developer’s Manual
+{QUOTE from the Intel 64 and IA-32 Architectures Software DeveloperÂ’s Manual
 
 22.16.1 Using EFLAGS Flags to Distinguish Between 32-Bit IA-32 Processors
 The following bits in the EFLAGS register that can be used to differentiate between the 32-bit IA-32 processors:
@@ -5691,18 +5691,53 @@ begin
   end;
 end;
 
+{$ifdef EnableMemoryLeakReportingUsesQualifiedClassName}
+type
+  PClassData = ^TClassData;
+  TClassData = record
+    ClassType: TClass;
+    ParentInfo: Pointer;
+    PropCount: SmallInt;
+    UnitName: ShortString;
+  end;
+{$endif EnableMemoryLeakReportingUsesQualifiedClassName}
+
 {Appends the name of the class to the destination buffer and returns the new
  destination position}
 function AppendClassNameToBuffer(AClass: TClass; ADestination: PAnsiChar; ADestinationBufferLengthChars: Cardinal): PAnsiChar;
 var
+{$ifdef EnableMemoryLeakReportingUsesQualifiedClassName}
+  FirstUnitNameChar: PAnsiChar;
+  LClassInfo: Pointer;
+  UnitName: PShortString;
+{$endif EnableMemoryLeakReportingUsesQualifiedClassName}
   LPClassName: PShortString;
 begin
   {Get a pointer to the class name}
   if AClass <> nil then
   begin
+    Result := ADestination;
+{$ifdef EnableMemoryLeakReportingUsesQualifiedClassName}
+    // based on TObject.UnitScope
+    LClassInfo := AClass.ClassInfo;
+    if LClassInfo <> nil then // prepend the UnitName
+    begin
+      UnitName := @PClassData(PByte(LClassInfo) + 2 + PByte(PByte(LClassInfo) + 1)^).UnitName;
+      FirstUnitNameChar := @UnitName^[1];
+      if FirstUnitNameChar^ <> '@' then
+        Result := AppendStringToBuffer(FirstUnitNameChar, Result, Length(UnitName^))
+      else // Pos does no memory allocations, so it is safe to use
+      begin // Skip the '@', then copy until the ':' - never seen this happen in Delphi, but might be a C++ thing
+        Result := AppendStringToBuffer(@UnitName^[2], Result, Pos(ShortString(':'), UnitName^) - 2)
+        ;
+      end;
+      // dot between unit name and class name:
+      Result := AppendStringToBuffer('.', Result, Length('.'));
+    end;
+{$endif EnableMemoryLeakReportingUsesQualifiedClassName}
     LPClassName := PShortString(PPointer(PByte(AClass) + vmtClassName)^);
     {Append the class name}
-    Result := AppendStringToBuffer(@LPClassName^[1], ADestination, Length(LPClassName^), ADestinationBufferLengthChars);
+    Result := AppendStringToBuffer(@LPClassName^[1], Result, Length(LPClassName^), ADestinationBufferLengthChars);
   end
   else
   begin
@@ -16198,12 +16233,12 @@ const
   VMTIndexIncCodeSize = 6;
 
 const
-  {XCR0[2:1] = ‘11b’ (XMM state and YMM state are enabled by OS).}
+  {XCR0[2:1] = Â‘11bÂ’ (XMM state and YMM state are enabled by OS).}
   cXcrXmmAndYmmMask = (4-1) shl 1;
 
 {$ifdef EnableAVX512}
 const
-  {XCR0[7:5] = ‘111b’ (OPMASK state, upper 256-bit of ZMM0-ZMM15 and ZMM16-ZMM31 state are enabled by OS).}
+  {XCR0[7:5] = Â‘111bÂ’ (OPMASK state, upper 256-bit of ZMM0-ZMM15 and ZMM16-ZMM31 state are enabled by OS).}
   cXcrZmmMask       = (8-1) shl 5;
 {$endif}
 
@@ -16374,7 +16409,7 @@ This is because the operating system would not save the registers and the states
 { Here is the Intel algorithm to detext AVX
 { QUOTE from the Intel 64 and IA-32 Architectures Optimization Reference Manual
 1) Detect CPUID.1:ECX.OSXSAVE[bit 27] = 1 (XGETBV enabled for application use1)
-2) Issue XGETBV and verify that XCR0[2:1] = ‘11b’ (XMM state and YMM state are enabled by OS).
+2) Issue XGETBV and verify that XCR0[2:1] = Â‘11bÂ’ (XMM state and YMM state are enabled by OS).
 3) detect CPUID.1:ECX.AVX[bit 28] = 1 (AVX instructions supported).
 ENDQUOTE}
       if
@@ -16388,7 +16423,7 @@ ENDQUOTE}
 
       {$ifdef EnableAVX}
       if
-         {verify that XCR0[2:1] = ‘11b’ (XMM state and YMM state are enabled by OS).}
+         {verify that XCR0[2:1] = Â‘11bÂ’ (XMM state and YMM state are enabled by OS).}
          (CpuXCR0 and cXcrXmmAndYmmMask = cXcrXmmAndYmmMask) and
 
          {verify that CPUID.1:ECX.AVX[bit 28] = 1 (AVX instructions supported)}
@@ -16744,7 +16779,7 @@ begin
   begin
 {$ifdef FullDebugMode}
   {$ifdef 32Bit}
-    {Try to reserve the 64K block covering address $80808080}
+    {Try to reserve the 64K block covering address $80808080 so pointers with DebugFillPattern will A/V}
     ReservedBlock := VirtualAlloc(Pointer(DebugReservedAddress), 65536, MEM_RESERVE, PAGE_NOACCESS);
     {Allocate the address space slack.}
     AddressSpaceSlackPtr := VirtualAlloc(nil, FullDebugModeAddressSpaceSlack, MEM_RESERVE or MEM_TOP_DOWN, PAGE_NOACCESS);
