@@ -1,4 +1,4 @@
-(*
+﻿(*
 
 FastMM4-AVX (AVX1/AVX2/AVX512/ERMS support for FastMM4)
 
@@ -5725,14 +5725,14 @@ begin
       UnitName := @PClassData(PByte(LClassInfo) + 2 + PByte(PByte(LClassInfo) + 1)^).UnitName;
       FirstUnitNameChar := @UnitName^[1];
       if FirstUnitNameChar^ <> '@' then
-        Result := AppendStringToBuffer(FirstUnitNameChar, Result, Length(UnitName^))
+        Result := AppendStringToBuffer(FirstUnitNameChar, Result, Length(UnitName^), ADestinationBufferLengthChars)
       else // Pos does no memory allocations, so it is safe to use
       begin // Skip the '@', then copy until the ':' - never seen this happen in Delphi, but might be a C++ thing
-        Result := AppendStringToBuffer(@UnitName^[2], Result, Pos(ShortString(':'), UnitName^) - 2)
+        Result := AppendStringToBuffer(@UnitName^[2], Result, Pos(ShortString(':'), UnitName^) - 2, ADestinationBufferLengthChars)
         ;
       end;
       // dot between unit name and class name:
-      Result := AppendStringToBuffer('.', Result, Length('.'));
+      Result := AppendStringToBuffer('.', Result, Length('.'), ADestinationBufferLengthChars);
     end;
 {$endif EnableMemoryLeakReportingUsesQualifiedClassName}
     LPClassName := PShortString(PPointer(PByte(AClass) + vmtClassName)^);
