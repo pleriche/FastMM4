@@ -160,8 +160,8 @@ Acknowledgements (for version 4):
  - Kristofer Skaug for reporting the bug that sometimes causes the leak report
    to be shown, even when all the leaks have been registered as expected leaks.
    Also for some useful enhancement suggestions.
- - Günther Schoch for the "RequireDebuggerPresenceForLeakReporting" option.
- - Jan Schlüter for the "ForceMMX" option.
+ - GÃ¼nther Schoch for the "RequireDebuggerPresenceForLeakReporting" option.
+ - Jan SchlÃ¼ter for the "ForceMMX" option.
  - Hallvard Vassbotn for various good enhancement suggestions.
  - Mark Edington for some good suggestions and bug reports.
  - Paul Ishenin for reporting the compilation error when the NoMessageBoxes
@@ -219,7 +219,7 @@ Acknowledgements (for version 4):
    not work in FullDebugMode.
  - Ionut Muntean for the Romanian translation.
  - Florent Ouchet for the French translation.
- - Marcus Mönnig for the ScanMemoryPoolForCorruptions suggestion and the
+ - Marcus MÃ¶nnig for the ScanMemoryPoolForCorruptions suggestion and the
    suggestion to have the option to scan the memory pool before every
    operation when in FullDebugMode.
  - Francois Piette for bringing under my attention that
@@ -438,10 +438,10 @@ Change log:
    leaks were registered as expected leaks. (Thanks to Kristofer Skaug.)
  Version 4.29 (30 September 2005):
  - Added the "RequireDebuggerPresenceForLeakReporting" option to only display
-   the leak report if the application is run inside the IDE. (Thanks to Günther
+   the leak report if the application is run inside the IDE. (Thanks to GÃ¼nther
    Schoch.)
  - Added the "ForceMMX" option, which when disabled will check the CPU for
-   MMX compatibility before using MMX. (Thanks to Jan Schlüter.)
+   MMX compatibility before using MMX. (Thanks to Jan SchlÃ¼ter.)
  - Added the module name to the title of error dialogs to more easily identify
    which application caused the error. (Thanks to Kristofer Skaug.)
  - Added an ASCII dump to the "FullDebugMode" memory dumps. (Thanks to Hallvard
@@ -670,14 +670,14 @@ Change log:
   - Added a ScanMemoryPoolForCorruptions procedure that checks the entire
     memory pool for corruptions and raises an exception if one is found. It can
     be called at any time, but is only available in FullDebugMode. (Thanks to
-    Marcus Mönnig.)
+    Marcus MÃ¶nnig.)
   - Added a global variable "FullDebugModeScanMemoryPoolBeforeEveryOperation".
     When this variable is set to true and FullDebugMode is enabled, then the
     entire memory pool is checked for consistency before every GetMem, FreeMem
     and ReallocMem operation. An "Out of Memory" error is raised if a
     corruption is found (and this variable is set to false to prevent recursive
     errors). This obviously incurs a massive performance hit, so enable it only
-    when hunting for elusive memory corruption bugs. (Thanks to Marcus Mönnig.)
+    when hunting for elusive memory corruption bugs. (Thanks to Marcus MÃ¶nnig.)
   - Fixed a bug in AllocMem that caused the FPU stack to be shifted by one
     position.
   - Changed the default for option "EnableMMX" to false, since using MMX may
@@ -840,7 +840,7 @@ Change log:
   - Included the average block size in the memory state log file. (Thanks to
     Hallvard Vassbotn)
   - Support added for Free Pascal's OS X and Linux targets, both i386 and
-    x86-64. (Thanks to Zoë Peterson - some fixes by Arnaud Bouchez)
+    x86-64. (Thanks to ZoÃ« Peterson - some fixes by Arnaud Bouchez)
   - Added the LogLockContention option which may be used to track down areas
     in the application that lead to frequent lock contentions in the memory
     manager. (Primoz Gabrijelcic)
@@ -12144,7 +12144,9 @@ begin
       LMsgPtr := AppendStringToBuffer(CRLF, LMsgPtr, Length(CRLF));
     end;
     AppendStringToModuleName(LockingReportTitle, LMessageTitleBuffer);
+{$ifndef NoMessageBoxes}
     ShowMessageBox(LErrorMessage, LMessageTitleBuffer);
+{$endif}
     for i := 4 to 10 do
     begin
       if i > mergedCount then
