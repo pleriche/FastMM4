@@ -12144,7 +12144,9 @@ begin
       LMsgPtr := AppendStringToBuffer(CRLF, LMsgPtr, Length(CRLF));
     end;
     AppendStringToModuleName(LockingReportTitle, LMessageTitleBuffer);
+{$ifndef NoMessageBoxes}
     ShowMessageBox(LErrorMessage, LMessageTitleBuffer);
+{$endif}
     for i := 4 to 10 do
     begin
       if i > mergedCount then
