@@ -186,10 +186,6 @@ object fFastMMUsageTracker: TfFastMMUsageTracker
     object tsVMDump: TTabSheet
       Caption = 'VM Dump'
       ImageIndex = 2
-      ExplicitLeft = 0
-      ExplicitTop = 0
-      ExplicitWidth = 281
-      ExplicitHeight = 165
       object sgVMDump: TStringGrid
         Left = 4
         Top = 4
