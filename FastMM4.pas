@@ -3768,6 +3768,9 @@ asm
 {The xmm6/ymm6 register is nonvolatile, according to Microsoft's
 Win64 calling convention. Since we cannot use xmm6, we use general-purpose
 64-bit registers to copy remaining data.
+
+According to Microsoft, "The registers RBX, RBP, RDI, RSI, RSP, R12, R13, R14, R15, and XMM6-15 are considered nonvolatile and must be saved and restored by a function that uses them."
+
 We are using that many ymm registers, not just two of them in a sequence,
 because our routines allow overlapped moves (although it is not needed for
 FastMM4 realloc) - see the comment at Move120AVX1 on why we are using that
@@ -4061,8 +4064,15 @@ asm
   db $C5, $FD, $6F, $61, $20    // vmovdqa ymm4, [rdi+20h]
   db $C5, $FD, $6F, $69, $40    // vmovdqa ymm5, [rdi+40h]
 
-{Although, under unix, we can use xmm6(ymm6) and xmm7 (ymm7), here we mimic
-the Win64 code, see the comment at Move216AVX1 on this}
+{
+
+Although, under unix, we can use xmm6(ymm6) and xmm7 (ymm7), here we mimic the Win64 code, see the comment at Move216AVX1 on this.
+
+We cannot use xmm6(ymm6) and xmm7 (ymm7) under Windows due to the calling convention.
+
+According to Microsoft, "The registers RBX, RBP, RDI, RSI, RSP, R12, R13, R14, R15, and XMM6-15 are considered nonvolatile and must be saved and restored by a function that uses them."
+
+}
                                    mov r9,  [rdi+60h]
                                    mov r10, [rdi+68h]
                                    mov r11, [rdi+70h]
