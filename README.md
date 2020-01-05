@@ -1,4 +1,4 @@
-# FastMM4AVX
+# FastMM4-AVX
 
 FastMM4-AVX (AVX1/AVX2/AVX512/ERMS support for FastMM4)
 

@@ -1,16 +1,16 @@
 
-; This file is needed to enable AVX-512 code for FastMM4AVX.
+; This file is needed to enable AVX-512 code for FastMM4-AVX.
 ; Use "nasm.exe -Ox -f win64 FastMM4_AVX512.asm" to compile this file
 ; You can get The Netwide Assembler, NASM, from http://www.nasm.us/
 
-; This file is a part of FastMM4AVX.
-; FastMM4AVX is a fork of the Fast Memory Manager 4.992 by Pierre le Riche
+; This file is a part of FastMM4-AVX.
+; FastMM4-AVX is a fork of the Fast Memory Manager 4.992 by Pierre le Riche
 
-; FastMM4AVX Copyright (C) 2017 Ritlabs S.R.L. All rights reserved.
+; FastMM4-AVX Copyright (C) 2017 Ritlabs S.R.L. All rights reserved.
 ; https://www.ritlabs.com/
 ; AVX1/AVX2/ERMS support is written by Maxim Masiutin <max@ritlabs.com>
 
-; FastMM4AVX is released under a dual license, and you may choose to use it
+; FastMM4-AVX is released under a dual license, and you may choose to use it
 ; under either the Mozilla Public License 2.0 (MPL 2.1, available from
 ; https://www.mozilla.org/en-US/MPL/2.0/) or the GNU Lesser General Public
 ; License Version 3, dated 29 June 2007 (LGPL 3, available from
@@ -19,7 +19,9 @@
 ; This code uses zmm26 - zmm31 registers to avoid AVX-SSE transition penalty.
 ; These regsters (zmm16 - zmm31) have no non-VEX counterpart. According to the 
 ; advise of Agner Fog, there is no state transition and no penalty for mixing 
-; zmm16 - zmm31 with non-VEX SSE code. Source: 
+; zmm16 - zmm31 with non-VEX SSE code. By using these registers (zmm16 - zmm31)
+; rather than zmm0-xmm15 we save us from calling "vzeroupper".
+; Source: 
 ; https://stackoverflow.com/questions/43879935/avoiding-avx-sse-vex-transition-penalties/54587480#54587480
  
 
