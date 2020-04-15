@@ -1388,8 +1388,9 @@ function FastGetHeapStatus: THeapStatus;
 {Returns statistics about the current state of the memory manager}
 procedure GetMemoryManagerState(var AMemoryManagerState: TMemoryManagerState);
 {Returns a summary of the information returned by GetMemoryManagerState}
-procedure GetMemoryManagerUsageSummary(
-  var AMemoryManagerUsageSummary: TMemoryManagerUsageSummary);
+function GetMemoryManagerUsageSummary: TMemoryManagerUsageSummary; overload;
+procedure GetMemoryManagerUsageSummary(var AMemoryManagerUsageSummary: TMemoryManagerUsageSummary); overload;
+
 {$ifndef POSIX}
 {Gets the state of every 64K block in the 4GB address space}
 procedure GetMemoryMap(var AMemoryMap: TMemoryMap);
@@ -11804,8 +11805,7 @@ begin
 end;
 
 {Returns a summary of the information returned by GetMemoryManagerState}
-procedure GetMemoryManagerUsageSummary(
-  var AMemoryManagerUsageSummary: TMemoryManagerUsageSummary);
+function GetMemoryManagerUsageSummary: TMemoryManagerUsageSummary;
 var
   LMMS: TMemoryManagerState;
   LAllocatedBytes, LReservedBytes: NativeUInt;
@@ -11814,10 +11814,8 @@ begin
   {Get the memory manager state}
   GetMemoryManagerState(LMMS);
   {Add up the totals}
-  LAllocatedBytes := LMMS.TotalAllocatedMediumBlockSize
-    + LMMS.TotalAllocatedLargeBlockSize;
-  LReservedBytes := LMMS.ReservedMediumBlockAddressSpace
-    + LMMS.ReservedLargeBlockAddressSpace;
+  LAllocatedBytes := LMMS.TotalAllocatedMediumBlockSize + LMMS.TotalAllocatedLargeBlockSize;
+  LReservedBytes := LMMS.ReservedMediumBlockAddressSpace + LMMS.ReservedLargeBlockAddressSpace;
   for LSBTIndex := 0 to NumSmallBlockTypes - 1 do
   begin
     Inc(LAllocatedBytes, LMMS.SmallBlockTypeStates[LSBTIndex].UseableBlockSize
@@ -11825,15 +11823,17 @@ begin
     Inc(LReservedBytes, LMMS.SmallBlockTypeStates[LSBTIndex].ReservedAddressSpace);
   end;
   {Set the structure values}
-  AMemoryManagerUsageSummary.AllocatedBytes := LAllocatedBytes;
-  AMemoryManagerUsageSummary.OverheadBytes := LReservedBytes - LAllocatedBytes;
+  Result.AllocatedBytes := LAllocatedBytes;
+  Result.OverheadBytes := LReservedBytes - LAllocatedBytes;
   if LReservedBytes > 0 then
-  begin
-    AMemoryManagerUsageSummary.EfficiencyPercentage :=
-      LAllocatedBytes / LReservedBytes * 100;
-  end
+    Result.EfficiencyPercentage := LAllocatedBytes / LReservedBytes * 100
   else
-    AMemoryManagerUsageSummary.EfficiencyPercentage := 100;
+    Result.EfficiencyPercentage := 100;
+end;
+
+procedure GetMemoryManagerUsageSummary(var AMemoryManagerUsageSummary: TMemoryManagerUsageSummary);
+begin
+  AMemoryManagerUsageSummary := GetMemoryManagerUsageSummary;
 end;
 
 {$ifndef POSIX}
