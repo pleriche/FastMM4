@@ -1247,6 +1247,16 @@ type
   {The callback procedure for WalkAllocatedBlocks.}
   TWalkAllocatedBlocksCallback = procedure(APBlock: Pointer; ABlockSize: NativeInt; AUserData: Pointer);
 
+  TFastMM_MemoryManagerInstallationState = (
+    {The default memory manager is currently in use.}
+    mmisDefaultMemoryManagerInUse,
+    {Another third party memory manager has been installed.}
+    mmisOtherThirdPartyMemoryManagerInstalled,
+    {A shared memory manager is being used.}
+    mmisUsingSharedMemoryManager,
+    {This memory manager has been installed.}
+    mmisInstalled);
+
 {--------------------------Public variables----------------------------}
 var
   {If this variable is set to true and FullDebugMode is enabled, then the
@@ -1390,11 +1400,12 @@ procedure GetMemoryManagerState(var AMemoryManagerState: TMemoryManagerState);
 {Returns a summary of the information returned by GetMemoryManagerState}
 function GetMemoryManagerUsageSummary: TMemoryManagerUsageSummary; overload;
 procedure GetMemoryManagerUsageSummary(var AMemoryManagerUsageSummary: TMemoryManagerUsageSummary); overload;
-
 {$ifndef POSIX}
 {Gets the state of every 64K block in the 4GB address space}
 procedure GetMemoryMap(var AMemoryMap: TMemoryMap);
 {$endif}
+{Returns the current installation state of the memory manager.}
+function FastMM_GetInstallationState: TFastMM_MemoryManagerInstallationState;
 
 {$ifdef EnableMemoryLeakReporting}
 {Registers expected memory leaks. Returns true on success. The list of leaked
@@ -12097,6 +12108,25 @@ begin
   {There are no large blocks allocated}
   LargeBlocksCircularList.PreviousLargeBlockHeader := @LargeBlocksCircularList;
   LargeBlocksCircularList.NextLargeBlockHeader := @LargeBlocksCircularList;
+end;
+
+{Returns the current installation state of the memory manager.}
+function FastMM_GetInstallationState: TFastMM_MemoryManagerInstallationState;
+begin
+  if IsMemoryManagerSet then
+  begin
+    if FastMMIsInstalled then
+    begin
+      if IsMemoryManagerOwner then
+        Result := mmisInstalled
+      else
+        Result := mmisUsingSharedMemoryManager;
+    end
+    else
+      Result := mmisOtherThirdPartyMemoryManagerInstalled
+  end
+  else
+    Result := mmisDefaultMemoryManagerInUse;
 end;
 
 {$ifdef LogLockContention}
