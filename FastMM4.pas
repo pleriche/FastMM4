@@ -58,33 +58,20 @@ License:
  License 2.1 (LGPL 2.1, available from
  http://www.opensource.org/licenses/lgpl-license.php). If you find FastMM useful
  or you would like to support further development, a donation would be much
- appreciated. My banking details are:
-   Country: South Africa
-   Bank: ABSA Bank Ltd
-   Branch: Somerset West
-   Branch Code: 334-712
-   Account Name: PSD (Distribution)
-   Account No.: 4041827693
-   Swift Code: ABSAZAJJ
+ appreciated.
  My PayPal account is:
-   bof@psd.co.za
+   paypal@leriche.org
 
 Contact Details:
  My contact details are shown below if you would like to get in touch with me.
  If you use this memory manager I would like to hear from you: please e-mail me
  your comments - good and bad.
- Snailmail:
-   PO Box 2514
-   Somerset West
-   7129
-   South Africa
  E-mail:
-   plr@psd.co.za
+   fastmm@leriche.org
 
 Support:
  If you have trouble using FastMM, you are welcome to drop me an e-mail at the
- address above, or you may post your questions in the BASM newsgroup on the
- Embarcadero news server (which is where I hang out quite frequently).
+ address above.
 
 Disclaimer:
  FastMM has been tested extensively with both single and multithreaded
