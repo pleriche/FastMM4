@@ -1,6 +1,6 @@
 (*
 
-Fast Memory Manager 4.992
+Fast Memory Manager 4.993
 
 Description:
  A fast replacement memory manager for Embarcadero Delphi Win32 applications
@@ -9,7 +9,8 @@ Description:
  files.
 
 Homepage:
- https://github.com/pleriche/FastMM4
+ Version 4: https://github.com/pleriche/FastMM4
+ Version 5: https://github.com/pleriche/FastMM5
 
 Advantages:
  - Fast
@@ -836,7 +837,7 @@ Change log:
     immediately during a FreeMem call the block will added to a list of blocks
     that will be freed later, either in the background cleanup thread or during
     the next call to FreeMem.
-  Version 4.??? (unreleased)
+  Version 4.993 (10 August 2021)
   - Added some "address space slack" under FullDebugMode. This reserves a
     block of address space on startup (currently 5MB) that is released just
     before the first time an EOutOfMemory exception is raised, allowing some
@@ -846,6 +847,15 @@ Change log:
     completely exhausted. (Under FullDebugMode address space is never released
     back to the operating system so once the address space has been exhausted
     there is very little room to manoeuvre.)
+  - Added the RestrictDebugDLLLoadPath option to only load the debug DLL from
+    the host module directory.
+  - Performance and other enhancements to the call stack generation. (Thanks to
+    Andreas Hausladen.)
+  - Added FastMM artwork. (Thanks to Jim McKeeth.)
+  - Added the FastMM_GetInstallationState function:  Allows determination of
+    whether FastMM is installed or not, and if not whether the default memory
+    manager is in use or a different third party memory manager.
+
 *)
 
 unit FastMM4;
@@ -1126,7 +1136,7 @@ interface
 {-------------------------Public constants-----------------------------}
 const
   {The current version of FastMM}
-  FastMMVersion = '4.992';
+  FastMMVersion = '4.993';
   {The number of small block types}
 {$ifdef Align16Bytes}
   NumSmallBlockTypes = 46;
