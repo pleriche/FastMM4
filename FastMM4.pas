@@ -3612,7 +3612,7 @@ var
 {$ifdef EnableMemoryLeakReportingUsesQualifiedClassName}
   FirstUnitNameChar: PAnsiChar;
   LClassInfo: Pointer;
-  UnitName: PShortString;
+  LPUnitName: PShortString;
 {$endif EnableMemoryLeakReportingUsesQualifiedClassName}
   LPClassName: PShortString;
 begin
@@ -3625,13 +3625,13 @@ begin
     LClassInfo := AClass.ClassInfo;
     if LClassInfo <> nil then // prepend the UnitName
     begin
-      UnitName := @PClassData(PByte(LClassInfo) + 2 + PByte(PByte(LClassInfo) + 1)^).UnitName;
-      FirstUnitNameChar := @UnitName^[1];
+      LPUnitName := @(PClassData(IntPtr(LClassInfo) + 2 + IntPtr(PByte(IntPtr(LClassInfo) + 1)^))^.UnitName);
+      FirstUnitNameChar := @LPUnitName^[1];
       if FirstUnitNameChar^ <> '@' then
-        Result := AppendStringToBuffer(FirstUnitNameChar, Result, Length(UnitName^))
+        Result := AppendStringToBuffer(FirstUnitNameChar, Result, Length(LPUnitName^))
       else // Pos does no memory allocations, so it is safe to use
       begin // Skip the '@', then copy until the ':' - never seen this happen in Delphi, but might be a C++ thing
-        Result := AppendStringToBuffer(@UnitName^[2], Result, Pos(ShortString(':'), UnitName^) - 2)
+        Result := AppendStringToBuffer(@LPUnitName^[2], Result, Pos(ShortString(':'), LPUnitName^) - 2)
         ;
       end;
       // dot between unit name and class name:
