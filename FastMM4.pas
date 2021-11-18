@@ -8769,7 +8769,8 @@ const
   {Declared here, because it is not declared in the SHFolder.pas unit of some older Delphi versions.}
   SHGFP_TYPE_CURRENT = 0;
 var
-  LFileHandle, LBytesWritten: Cardinal;
+  LFileHandle: THandle;
+  LBytesWritten: Cardinal;
   LEventHeader: array[0..1023] of AnsiChar;
   LAlternateLogFileName: array[0..2047] of AnsiChar;
   LPathLen, LNameLength: Integer;
