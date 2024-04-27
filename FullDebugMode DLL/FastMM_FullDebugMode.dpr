@@ -1,67 +1,68 @@
 {
 
-Fast Memory Manager: FullDebugMode Support DLL 1.62
+Fast Memory Manager: FullDebugMode Support DLL 1.64
 
 Description:
- Support DLL for FastMM. With this DLL available, FastMM will report debug info
- (unit name, line numbers, etc.) for stack traces.
+ Support DLL for FastMM. With this DLL available, FastMM will report debug info (unit name, line numbers, etc.) for
+ stack traces.
 
 Usage:
  1) To compile you will need the JCL library (http://sourceforge.net/projects/jcl/)
- 2) Place in the same location as the replacement borlndmm.dll or your
- application's executable module.
+ 2) Place in the same location as the replacement borlndmm.dll or your application's executable module.
 
 Change log:
  Version 1.00 (9 July 2005):
   - Initial release.
  Version 1.01 (13 July 2005):
-  - Added the option to use madExcept instead of the JCL Debug library. (Thanks
-    to Martin Aignesberger.)
+  - Added the option to use madExcept instead of the JCL Debug library. (Thanks to Martin Aignesberger.)
  Version 1.02 (30 September 2005):
   - Changed options to display detail for addresses inside libraries as well.
  Version 1.03 (13 October 2005):
   - Added a raw stack trace procedure that implements raw stack traces.
  Version 1.10 (14 October 2005):
-  - Improved the program logic behind the skipping of stack levels to cause
-    less incorrect entries in raw stack traces. (Thanks to Craig Peterson.)
+  - Improved the program logic behind the skipping of stack levels to cause less incorrect entries in raw stack traces.
+    (Thanks to Craig Peterson.)
  Version 1.20 (17 October 2005):
   - Improved support for madExcept stack traces. (Thanks to Mathias Rauen.)
  Version 1.30 (26 October 2005):
-  - Changed name to FastMM_FullDebugMode to reflect the fact that there is now
-    a static dependency on this DLL for FullDebugMode. The static dependency
-    solves a DLL unload order issue. (Thanks to Bart van der Werf.)
+  - Changed name to FastMM_FullDebugMode to reflect the fact that there is now a static dependency on this DLL for
+    FullDebugMode.  The static dependency solves a DLL unload order issue.  (Thanks to Bart van der Werf.)
  Version 1.40 (31 October 2005):
   - Added support for EurekaLog. (Thanks to Fabio Dell'Aria.)
  Version 1.42 (23 June 2006):
-  - Fixed a bug in the RawStackTraces code that may have caused an A/V in some
-    rare circumstances. (Thanks to Primoz Gabrijelcic.)
+  - Fixed a bug in the RawStackTraces code that may have caused an A/V in some rare circumstances. (Thanks to Primoz
+    Gabrijelcic.)
  Version 1.44 (16 November 2006):
-  - Changed the RawStackTraces code to prevent it from modifying the Windows
-    "GetLastError" error code. (Thanks to Primoz Gabrijelcic.)
+  - Changed the RawStackTraces code to prevent it from modifying the Windows "GetLastError" error code. (Thanks to
+    Primoz Gabrijelcic.)
  Version 1.50 (14 August 2008):
   - Added support for Delphi 2009. (Thanks to Mark Edington.)
  Version 1.60 (5 May 2009):
-  - Improved the code used to identify call instructions in the stack trace
-    code. (Thanks to the JCL team.)
+  - Improved the code used to identify call instructions in the stack trace code.  (Thanks to the JCL team.)
  Version 1.61 (5 September 2010):
-  - Recompiled using the latest JCL in order to fix a possible crash on shutdown
-    when the executable contains no debug information. (Thanks to Hanspeter
-    Widmer.)
+  - Recompiled using the latest JCL in order to fix a possible crash on shutdown when the executable contains no debug
+    information. (Thanks to Hanspeter Widmer.)
  Version 1.62 (19 July 2012):
   - Added a workaround for QC 107209 (Thanks to David Heffernan.)
-  Version 1.63 (14 September 2013):
+ Version 1.63 (14 September 2013):
   - Added support for OSX (Thanks to Sebastian Zierer)
+ Version 1.64 (27 February 2021)
+  - Implemented a return address information cache that greatly speeds up the conversion of many similar stack traces
+    to text.
+ Version 1.65 (10 July 2023)
+  - Made LogStackTrace thread safe.
 
 }
 
 {$IFDEF MSWINDOWS}
 {--------------------Start of options block-------------------------}
 
-{Select the stack tracing library to use. The JCL, madExcept and EurekaLog are
- supported. Only one can be used at a time.}
+{Select the stack tracing library to use. The JCL, madExcept and EurekaLog are supported. Only one can be used at a
+time.}
 {$define JCLDebug}
 {.$define madExcept}
-{.$define EurekaLog}
+{.$define EurekaLog_Legacy}
+{.$define EurekaLog_V7}
 
 {--------------------End of options block-------------------------}
 {$ENDIF}
@@ -72,23 +73,183 @@ library FastMM_FullDebugMode;
 uses
   {$ifdef JCLDebug}JCLDebug,{$endif}
   {$ifdef madExcept}madStackTrace,{$endif}
-  {$ifdef EurekaLog}ExceptionLog,{$endif}
-  SysUtils, {$IFDEF MACOS}Posix.Base, SBMapFiles {$ELSE} Windows {$ENDIF};
+  {$ifdef EurekaLog_Legacy}ExceptionLog,{$endif}
+  {$ifdef EurekaLog_V7}EFastMM4Support,{$endif}
+  System.SysUtils, {$IFDEF MACOS}Posix.Base, SBMapFiles {$ELSE} Winapi.Windows {$ENDIF};
 
 {$R *.res}
 
-{$stackframes on}
+{$StackFrames on}
+{$warn Symbol_Platform off}
 
 {The name of the 64-bit DLL has a '64' at the end.}
 {$if SizeOf(Pointer) = 8}
 {$LIBSUFFIX '64'}
 {$ifend}
 
-{$if CompilerVersion <= 20}
+{--------------------------Return Address Info Cache --------------------------}
+
+const
+  CReturnAddressCacheSize = 4096;
+  {FastMM assumes a maximum of 256 characters per stack trace entry.  The address text and line break are in addition to
+  the info text.}
+  CMaxInfoTextLength = 224;
+
 type
-  NativeUInt = Cardinal; // not available or cause for internal compiler errors (e.g. Delphi 2009)
-  PNativeUInt = ^NativeUInt;
-{$ifend}
+  {Return address info cache:  Maintains the source information for up to CReturnAddressCacheSize return addresses in
+  a binary search tree.}
+
+  PReturnAddressInfo = ^TReturnAddressInfo;
+  TReturnAddressInfo = record
+    ParentEntry: PReturnAddressInfo;
+    ChildEntries: array[0..1] of PReturnAddressInfo;
+    ReturnAddress: NativeUInt;
+    InfoTextLength: Integer;
+    InfoText: array[0..CMaxInfoTextLength - 1] of AnsiChar;
+  end;
+
+  TReturnAddressInfoCache = record
+    {Entry 0 is the root of the tree.}
+    Entries: array[0..CReturnAddressCacheSize] of TReturnAddressInfo;
+    NextNewEntryIndex: Integer;
+    function AddEntry(AReturnAddress: NativeUInt; const AReturnAddressInfoText: AnsiString): PReturnAddressInfo;
+    procedure DeleteEntry(AEntry: PReturnAddressInfo);
+    function FindEntry(AReturnAddress: NativeUInt): PReturnAddressInfo;
+  end;
+
+function TReturnAddressInfoCache.AddEntry(AReturnAddress: NativeUInt; const AReturnAddressInfoText: AnsiString): PReturnAddressInfo;
+var
+  LParentItem, LChildItem: PReturnAddressInfo;
+  LAddressBits: NativeUInt;
+  LChildIndex: Integer;
+begin
+  {Get the address of the entry to reuse. (Entry 0 is the tree root.)}
+  if NextNewEntryIndex = High(Entries) then
+    NextNewEntryIndex := 0;
+  Inc(NextNewEntryIndex);
+
+  Result := @Entries[NextNewEntryIndex];
+
+  {Delete it if it is already in use}
+  DeleteEntry(Result);
+
+  {Step down the tree until an open slot is found in the required direction.}
+  LParentItem := @Entries[0];
+  LAddressBits := AReturnAddress;
+  while True do
+  begin
+    {Get the current child in the appropriate direction.}
+    LChildItem := LParentItem.ChildEntries[LAddressBits and 1];
+    {No child -> This slot is available.}
+    if LChildItem = nil then
+      Break;
+    {Traverse further down the tree.}
+    LParentItem := LChildItem;
+    LAddressBits := LAddressBits shr 1;
+  end;
+  LChildIndex := LAddressBits and 1;
+
+  {Insert the node into the tree}
+  LParentItem.ChildEntries[LChildIndex] := Result;
+  Result.ParentEntry := LParentItem;
+
+  {Set the info text for the item.}
+  Result.ReturnAddress := AReturnAddress;
+  Result.InfoTextLength := Length(AReturnAddressInfoText);
+  if Result.InfoTextLength > CMaxInfoTextLength then
+    Result.InfoTextLength := CMaxInfoTextLength;
+  System.Move(Pointer(AReturnAddressInfoText)^, Result.InfoText, Result.InfoTextLength * SizeOf(AnsiChar));
+end;
+
+procedure TReturnAddressInfoCache.DeleteEntry(AEntry: PReturnAddressInfo);
+var
+  LRemovedItemChildIndex, LMovedItemChildIndex: Integer;
+  LMovedItem, LChildItem: PReturnAddressInfo;
+begin
+  {Is this entry currentlty in the tree?}
+  if AEntry.ParentEntry = nil then
+    Exit;
+
+  LRemovedItemChildIndex := Ord(AEntry.ParentEntry.ChildEntries[1] = AEntry);
+
+  {Does this item have children of its own?}
+  if (NativeInt(AEntry.ChildEntries[0]) or NativeInt(AEntry.ChildEntries[1])) <> 0 then
+  begin
+    {It has children:  We need to traverse child items until we find a leaf item and then move it into this item's
+    position in the search tree.}
+    LMovedItem := AEntry;
+
+    while True do
+    begin
+      LChildItem := LMovedItem.ChildEntries[0]; //try left then right
+      if LChildItem = nil then
+      begin
+        LChildItem := LMovedItem.ChildEntries[1];
+        if LChildItem = nil then
+          Break;
+      end;
+      LMovedItem := LChildItem;
+    end;
+
+    {Disconnect the moved item from its current parent item.}
+    LMovedItemChildIndex := Ord(LMovedItem.ParentEntry.ChildEntries[1] = LMovedItem);
+    LMovedItem.ParentEntry.ChildEntries[LMovedItemChildIndex] := nil;
+
+    {Set the new parent for the moved item}
+    AEntry.ParentEntry.ChildEntries[LRemovedItemChildIndex] := LMovedItem;
+    LMovedItem.ParentEntry := AEntry.ParentEntry;
+
+    {Set the new left child for the moved item}
+    LChildItem := AEntry.ChildEntries[0];
+    if LChildItem <> nil then
+    begin
+      LMovedItem.ChildEntries[0] := LChildItem;
+      LChildItem.ParentEntry := LMovedItem;
+      AEntry.ChildEntries[0] := nil;
+    end;
+
+    {Set the new right child for the moved item}
+    LChildItem := AEntry.ChildEntries[1];
+    if LChildItem <> nil then
+    begin
+      LMovedItem.ChildEntries[1] := LChildItem;
+      LChildItem.ParentEntry := LMovedItem;
+      AEntry.ChildEntries[1] := nil;
+    end;
+
+  end
+  else
+  begin
+    {The deleted item is a leaf item:  Remove it from the tree directly.}
+    AEntry.ParentEntry.ChildEntries[LRemovedItemChildIndex] := nil;
+  end;
+  {Reset the parent for the removed item.}
+  AEntry.ParentEntry := nil;
+end;
+
+function TReturnAddressInfoCache.FindEntry(AReturnAddress: NativeUInt): PReturnAddressInfo;
+var
+  LAddressBits: NativeUInt;
+  LParentItem: PReturnAddressInfo;
+begin
+  LAddressBits := AReturnAddress;
+  LParentItem := @Entries[0];
+  {Step down the tree until the item is found or there is no child item in the required direction.}
+  while True do
+  begin
+    {Get the child item in the required direction.}
+    Result := LParentItem.ChildEntries[LAddressBits and 1];
+    {If there is no child, or the child's key value matches the search key value then we're done.}
+    if (Result = nil)
+      or (Result.ReturnAddress = AReturnAddress) then
+    begin
+      Exit;
+    end;
+    {The child key value is not a match -> Move down the tree.}
+    LParentItem := Result;
+    LAddressBits := LAddressBits shr 1;
+  end;
+end;
 
 {--------------------------Stack Tracing Subroutines--------------------------}
 
@@ -122,11 +283,9 @@ end;
 
 {$else}
 
-{Dumps the call stack trace to the given address. Fills the list with the
- addresses where the called addresses can be found. This is the fast stack
- frame based tracing routine.}
-procedure GetFrameBasedStackTrace(AReturnAddresses: PNativeUInt;
-  AMaxDepth, ASkipFrames: Cardinal);
+{Dumps the call stack trace to the given address. Fills the list with the addresses where the called addresses can be
+found.  This is the fast stack frame based tracing routine.}
+procedure GetFrameBasedStackTrace(AReturnAddresses: PNativeUInt; AMaxDepth, ASkipFrames: Cardinal);
 var
   LStackTop, LStackBottom, LCurrentFrame: NativeUInt;
 begin
@@ -169,8 +328,8 @@ const
   HexTable: array[0..15] of AnsiChar = '0123456789ABCDEF';
 
 type
-  {The state of a memory page. Used by the raw stack tracing mechanism to
-   determine whether an address is a valid call site or not.}
+  {The state of a memory page. Used by the raw stack tracing mechanism to determine whether an address is a valid call
+  site or not.}
   TMemoryPageAccess = (mpaUnknown, mpaNotExecutable, mpaExecutable);
 
 var
@@ -178,8 +337,7 @@ var
   MemoryPageAccessMap: array[0..1024 * 1024 - 1] of TMemoryPageAccess;
 
 {$IFDEF MSWINDOWS}
-{Updates the memory page access map. Currently only supports the low 4GB of
- address space.}
+{Updates the memory page access map. Currently only supports the low 4GB of address space.}
 procedure UpdateMemoryPageAccessMap(AAddress: NativeUInt);
 var
   LMemInfo: TMemoryBasicInformation;
@@ -191,8 +349,7 @@ begin
   begin
     {Get access type}
     if (LMemInfo.State = MEM_COMMIT)
-      and (LMemInfo.Protect and (PAGE_EXECUTE_READ or PAGE_EXECUTE_READWRITE
-        or PAGE_EXECUTE_WRITECOPY or PAGE_EXECUTE) <> 0)
+      and (LMemInfo.Protect and (PAGE_EXECUTE_READ or PAGE_EXECUTE_READWRITE or PAGE_EXECUTE_WRITECOPY or PAGE_EXECUTE) <> 0)
       and (LMemInfo.Protect and PAGE_GUARD = 0) then
     begin
       LAccess := mpaExecutable
@@ -246,20 +403,17 @@ end;
 {$ifend}
 
 {$IFDEF MSWINDOWS}
-{Returns true if the return address is a valid call site. This function is only
- safe to call while exceptions are being handled.}
+{Returns true if the return address is a valid call site.  This function is only safe to call while exceptions are
+being handled.}
 function IsValidCallSite(AReturnAddress: NativeUInt): boolean;
 var
   LCallAddress: NativeUInt;
   LCode8Back, LCode4Back, LTemp: Cardinal;
   LOld8087CW: Word;
-{$if CompilerVersion > 22}
   LOldMXCSR: Cardinal;
-{$ifend}
 begin
-  {We assume (for now) that all code will execute within the first 4GB of
-   address space.}
-  if (AReturnAddress > $ffff) and (AReturnAddress <= $ffffffff) then
+  {We assume (for now) that all code will execute within the first 4GB of address space.}
+  if (AReturnAddress > $ffff) {$if SizeOf(Pointer) = 8}and (AReturnAddress <= $ffffffff){$endif} then
   begin
     {The call address is up to 8 bytes before the return address}
     LCallAddress := AReturnAddress - 8;
@@ -270,16 +424,12 @@ begin
     if (MemoryPageAccessMap[LCallAddress div 4096] = mpaExecutable)
       and (MemoryPageAccessMap[(LCallAddress + 8) div 4096] = mpaExecutable) then
     begin
-      {Try to determine what kind of call it is (if any), more or less in order
-       of frequency of occurrence. (Code below taken from the Jedi Code Library
-       (jcl.sourceforge.net).)  We need to retrieve the current floating point
-       control registers, since any external exception will reset it to the
-       DLL defaults which may not otherwise correspond to the defaults of the
-       main application (QC 107198).}
+      {Try to determine what kind of call it is (if any), more or less in order of frequency of occurrence. (Code below
+      taken from the Jedi Code Library (jcl.sourceforge.net).)  We need to retrieve the current floating point control
+      registers, since any external exception will reset it to the DLL defaults which may not otherwise correspond to
+      the defaults of the main application (QC 107198).}
       LOld8087CW := Get8087CW;
-{$if CompilerVersion > 22}
       LOldMXCSR := GetMXCSR;
-{$ifend}
       try
         {5 bytes, CALL NEAR REL32}
         if PByteArray(LCallAddress)[3] = $E8 then
@@ -357,13 +507,10 @@ begin
       except
         {The access has changed}
         UpdateMemoryPageAccessMap(LCallAddress);
-        {The RTL sets the FPU control words to the default values if an
-        external exception occurs.  Reset their values here to the values on
-        entry to this call.}
+        {The RTL sets the FPU control words to the default values if an external exception occurs.  Reset their values
+        here to the values on entry to this call.}
         Set8087CW(LOld8087CW);
-{$if CompilerVersion > 22}
         SetMXCSR(LOldMXCSR);
-{$ifend}
         {Not executable}
         Result := False;
       end;
@@ -376,17 +523,15 @@ begin
 end;
 {$ENDIF}
 
-{Dumps the call stack trace to the given address. Fills the list with the
- addresses where the called addresses can be found. This is the "raw" stack
- tracing routine.}
+{Dumps the call stack trace to the given address.  Fills the list with the addresses where the called addresses can be
+found.  This is the "raw" stack tracing routine.}
 
 {$IFDEF MACOS}
 function backtrace(result: PNativeUInt; size: Integer): Integer; cdecl; external libc name '_backtrace';
 function _NSGetExecutablePath(buf: PAnsiChar; BufSize: PCardinal): Integer; cdecl; external libc name '__NSGetExecutablePath';
 {$ENDIF}
 
-procedure GetRawStackTrace(AReturnAddresses: PNativeUInt;
-  AMaxDepth, ASkipFrames: Cardinal);
+procedure GetRawStackTrace(AReturnAddresses: PNativeUInt; AMaxDepth, ASkipFrames: Cardinal);
 var
   LStackTop, LStackBottom, LCurrentFrame, LNextFrame, LReturnAddress,
     LStackAddress: NativeUInt;
@@ -417,8 +562,8 @@ begin
   end;
   {$POINTERMATH OFF}
   {$ENDIF}
-  {Are exceptions being handled? Can only do a raw stack trace if the possible
-   access violations are going to be handled.}
+  {Are exceptions being handled? Can only do a raw stack trace if the possible access violations are going to be
+  handled.}
 {$IFDEF MSWINDOWS}
   if Assigned(ExceptObjProc) then
   begin
@@ -439,15 +584,13 @@ begin
       if (LNextFrame < LStackTop)
         and (LNextFrame > LCurrentFrame) then
       begin
-        {The pointer to the next stack frame appears valid: Get the return
-         address of the current frame}
+        {The pointer to the next stack frame appears valid:  Get the return address of the current frame}
         LReturnAddress := PNativeUInt(LCurrentFrame + SizeOf(Pointer))^;
         {Does this appear to be a valid return address}
-        if (LReturnAddress > $ffff) and (LReturnAddress <= $ffffffff) then
+        if (LReturnAddress > $ffff) {$if SizeOf(Pointer) = 8}and (LReturnAddress <= $ffffffff){$endif} then
         begin
-          {Is the map for this return address incorrect? It may be unknown or marked
-           as non-executable because a library was previously not yet loaded, or
-           perhaps this is not a valid stack frame.}
+          {Is the map for this return address incorrect? It may be unknown or marked as non-executable because a library
+          was previously not yet loaded, or perhaps this is not a valid stack frame.}
           if MemoryPageAccessMap[(LReturnAddress - 8) div 4096] <> mpaExecutable then
             UpdateMemoryPageAccessMap(LReturnAddress - 8);
           {Is this return address actually valid?}
@@ -463,8 +606,7 @@ begin
           end
           else
           begin
-            {If the return address is invalid it implies this stack frame is
-             invalid after all.}
+            {If the return address is invalid it implies this stack frame is invalid after all.}
             LNextFrame := LStackTop;
           end;
         end
@@ -514,8 +656,7 @@ begin
       Inc(AReturnAddresses);
       Dec(AMaxDepth);
     end;
-    {Restore the last Windows error code, since a VirtualQuery call may have
-     modified it.}
+    {Restore the last Windows error code, since a VirtualQuery call may have modified it.}
     SetLastError(LLastOSError);
   end
   else
@@ -528,11 +669,10 @@ end;
 
 {-----------------------------Stack Trace Logging----------------------------}
 
-{Gets the textual representation of the stack trace into ABuffer and returns
- a pointer to the position just after the last character.}
+{Gets the textual representation of the stack trace into ABuffer and returns a pointer to the position just after the
+last character.}
 {$ifdef JCLDebug}
-{Converts an unsigned integer to a hexadecimal string at the buffer location,
- returning the new buffer position.}
+{Converts an unsigned integer to a hexadecimal string at the buffer location, returning the new buffer position.}
 function NativeUIntToHexBuf(ANum: NativeUInt; APBuffer: PAnsiChar): PAnsiChar;
 const
   MaxDigits = 16;
@@ -568,23 +708,29 @@ begin
     AString := Format('%s[%s]', [AString, AInfo]);
 end;
 
-function LogStackTrace(AReturnAddresses: PNativeUInt; AMaxDepth: Cardinal;
-  ABuffer: PAnsiChar): PAnsiChar;
+var
+  LReturnAddressInfoCache: TReturnAddressInfoCache;
+  LLogStackTrace_Locked: Integer; //0 = unlocked, 1 = locked
+
+function LogStackTrace(AReturnAddresses: PNativeUInt; AMaxDepth: Cardinal; ABuffer: PAnsiChar): PAnsiChar;
 var
   LInd: Cardinal;
   LAddress: NativeUInt;
-  LNumChars: Integer;
   LInfo: TJCLLocationInfo;
   LTempStr: string;
   P: PChar;
+  LLocationCacheInitialized: Boolean;
+  LPInfo: PReturnAddressInfo;
 begin
+  LLocationCacheInitialized := False;
+
   Result := ABuffer;
-  {$IFDEF CONDITIONALEXPRESSIONS} // Delphi 5+
-    {$IF declared(BeginGetLocationInfoCache)} // available depending on the JCL's version
-  BeginGetLocationInfoCache;
+
+  {This routine is protected by a lock - only one thread can be inside it at any given time.}
+  while AtomicCmpExchange(LLogStackTrace_Locked, 1, 0) <> 0 do
+    Winapi.Windows.SwitchToThread;
+
   try
-    {$IFEND}
-  {$ENDIF}
     for LInd := 0 to AMaxDepth - 1 do
     begin
       LAddress := AReturnAddresses^;
@@ -595,40 +741,53 @@ begin
       Result^ := #10;
       Inc(Result);
       Result := NativeUIntToHexBuf(LAddress, Result);
-      {Get location info for the caller (at least one byte before the return
-       address).}
-      GetLocationInfo(Pointer(LAddress - 1), LInfo);
-      {Build the result string}
-      LTempStr := ' ';
-      AppendInfoToString(LTempStr, LInfo.SourceName);
-      AppendInfoToString(LTempStr, LInfo.UnitName);
 
-      {Remove UnitName from ProcedureName, no need to output it twice}
-      P := PChar(LInfo.ProcedureName);
-      if (StrLComp(P, PChar(LInfo.UnitName), Length(LInfo.UnitName)) = 0) and (P[Length(LInfo.UnitName)] = '.') then
-        AppendInfoToString(LTempStr, Copy(LInfo.ProcedureName, Length(LInfo.UnitName) + 2))
-      else
-        AppendInfoToString(LTempStr, LInfo.ProcedureName);
+      {If the info for the return address is not yet in the cache, add it.}
+      LPInfo := LReturnAddressInfoCache.FindEntry(LAddress);
+      if LPInfo = nil then
+      begin
+        if not LLocationCacheInitialized then
+        begin
+          {$if declared(BeginGetLocationInfoCache)} // available depending on the JCL's version
+          BeginGetLocationInfoCache;
+          {$endif}
+          LLocationCacheInitialized := True;
+        end;
+        {Get location info for the caller (at least one byte before the return address).}
+        GetLocationInfo(Pointer(LAddress - 1), LInfo);
+        {Build the result string}
+        LTempStr := ' ';
+        AppendInfoToString(LTempStr, LInfo.SourceName);
+        AppendInfoToString(LTempStr, LInfo.UnitName);
 
-      if LInfo.LineNumber <> 0 then
-        AppendInfoToString(LTempStr, IntToStr(LInfo.LineNumber));
-      {Return the result}
-      if Length(LTempStr) < 256 then
-        LNumChars := Length(LTempStr)
-      else
-        LNumChars := 255;
-      StrLCopy(Result, PAnsiChar(AnsiString(LTempStr)), LNumChars);
-      Inc(Result, LNumChars);
-      {Next address}
+        {Remove UnitName from ProcedureName, no need to output it twice}
+        P := PChar(LInfo.ProcedureName);
+        if (StrLComp(P, PChar(LInfo.UnitName), Length(LInfo.UnitName)) = 0) and (P[Length(LInfo.UnitName)] = '.') then
+          AppendInfoToString(LTempStr, Copy(LInfo.ProcedureName, Length(LInfo.UnitName) + 2))
+        else
+          AppendInfoToString(LTempStr, LInfo.ProcedureName);
+
+        if LInfo.LineNumber <> 0 then
+          AppendInfoToString(LTempStr, IntToStr(LInfo.LineNumber));
+
+        LPInfo := LReturnAddressInfoCache.AddEntry(LAddress, AnsiString(LTempStr));
+      end;
+
+      System.Move(LPInfo.InfoText, Result^, LPInfo.InfoTextLength);
+      Inc(Result, LPInfo.InfoTextLength);
+
       Inc(AReturnAddresses);
     end;
-  {$IFDEF CONDITIONALEXPRESSIONS} // Delphi 5+
-    {$IF declared(BeginGetLocationInfoCache)} // available depending on the JCL's version
   finally
-    EndGetLocationInfoCache;
+    if LLocationCacheInitialized then
+    begin
+      {$if declared(BeginGetLocationInfoCache)} // available depending on the JCL's version
+      EndGetLocationInfoCache;
+      {$endif}
+    end;
+
+    LLogStackTrace_Locked := 0;
   end;
-    {$IFEND}
-  {$ENDIF}
 end;
 {$endif}
 
@@ -650,11 +809,11 @@ begin
 end;
 {$endif}
 
-{$ifdef EurekaLog}
+{$ifdef EurekaLog_Legacy}
 function LogStackTrace(AReturnAddresses: PNativeUInt; AMaxDepth: Cardinal;
   ABuffer: PAnsiChar): PAnsiChar;
 begin
-  {Needs EurekaLog 5.0.5 or a newer build}
+  {Needs EurekaLog 5 or 6}
   Result := ExceptionLog.FastMM_LogStackTrace(
     AReturnAddresses, AMaxDepth, ABuffer,
     {EurekaLog stack trace fine tuning}
@@ -678,10 +837,18 @@ begin
 end;
 {$endif}
 
+{$ifdef EurekaLog_V7}
+function LogStackTrace(AReturnAddresses: PNativeUInt; AMaxDepth: Cardinal; ABuffer: PAnsiChar): PAnsiChar;
+begin
+  {Needs EurekaLog 7 or later}
+  Result := EFastMM4Support.FastMM_LogStackTrace(PPointer(AReturnAddresses), AMaxDepth, ABuffer, 10 * 256,
+    [ddUnit, ddProcedure, ddSourceCode], True, False, False, True, False, True);
+end;
+{$endif}
+
 {$IFDEF MACOS}
 
-{Appends the source text to the destination and returns the new destination
- position}
+{Appends the source text to the destination and returns the new destination position}
 function AppendStringToBuffer(const ASource, ADestination: PAnsiChar; ACount: Cardinal): PAnsiChar;
 begin
   System.Move(ASource^, ADestination^, ACount);
@@ -691,8 +858,7 @@ end;
 var
   MapFile: TSBMapFile;
 
-function LogStackTrace(AReturnAddresses: PNativeUInt;
-  AMaxDepth: Cardinal; ABuffer: PAnsiChar): PAnsiChar;
+function LogStackTrace(AReturnAddresses: PNativeUInt; AMaxDepth: Cardinal; ABuffer: PAnsiChar): PAnsiChar;
 var
   s1: AnsiString;
   I: Integer;
@@ -745,4 +911,5 @@ begin
 {$ifdef JCLDebug}
   JclStackTrackingOptions := JclStackTrackingOptions + [stAllModules];
 {$endif}
+
 end.
