@@ -487,9 +487,9 @@ end;
 procedure TfFastMMUsageTracker.RefreshSnapShot;
 var
   LP_FreeVMList: TList;
-  LU_MEM_FREE: SIZE_T;
-  LU_MEM_COMMIT: SIZE_T;
-  LU_MEM_RESERVE: SIZE_T;
+  LU_MEM_FREE: NativeUInt;
+  LU_MEM_COMMIT: NativeUInt;
+  LU_MEM_RESERVE: NativeUInt;
   LAllocatedSize, LTotalBlocks, LTotalAllocated, LTotalReserved,
     LPrevAllocatedSize, LPrevTotalBlocks, LPrevTotalAllocated, LPrevTotalReserved: NativeUInt;
 
@@ -542,7 +542,7 @@ var
   var
     LP_Base: PByte;
     LR_Info: TMemoryBasicInformation;
-    LU_rv: SIZE_T;
+    LU_rv: NativeUInt;
     LI_I: Integer;
     LA_Char: array[0..MAX_PATH] of Char;
   begin
@@ -733,7 +733,7 @@ var
         GlobalMemoryStatus(LR_GlobalMemoryStatus);
       end;
 
-      LP_FreeVMList.SortList(LocSort);
+      LP_FreeVMList.Sort(@LocSort);
 
       GetProcessWorkingSetSize(GetCurrentProcess, LU_MinQuota, LU_MaxQuota);
       GetSystemInfo(LR_SystemInfo);
