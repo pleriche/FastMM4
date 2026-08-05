@@ -17174,6 +17174,12 @@ begin
   begin
     Result := nil;
   end;
+{$IFDEF fpc}
+  {Under FreePascal the pointer is a var parameter and the caller takes the new
+   value from it rather than from the function result, so it has to be updated
+   here. FastReallocMem ends with the same assignment for the same reason.}
+  APointer := Result;
+{$ENDIF}
 end;
 
 {Allocates a block and fills it with zeroes}
