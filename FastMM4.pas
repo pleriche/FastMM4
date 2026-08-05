@@ -16403,7 +16403,11 @@ begin
   if AUserOffset < SizeOf(Pointer) then
   begin
 {$IFDEF FPC}
-    LFillPattern := NativeUInt(DebugFillPattern);
+    {DebugFreeMem stores a zero in the first pointer of the user area where
+     Delphi stores the address of the dummy VMT, so zero is what an unmodified
+     freed block holds here. Expecting the fill pattern instead reported those
+     bytes as changed in every error report, whatever the real change was.}
+    LFillPattern := 0;
 {$ELSE}
     LFillPattern := NativeUInt(@FreedObjectVMT.VMTMethods[0]);
 {$ENDIF}
@@ -16841,9 +16845,21 @@ begin
   LFooterValid := LHeaderValid
     and (PNativeUInt(PByte(APBlock) + SizeOf(TFullDebugBlockHeader) + APBlock^.UserSize)^ = (not LHeaderCheckSum));
   {Is the footer and debug VMT in place? The debug VMT is only valid if the user size is greater than the size of a pointer.}
-{$IFNDEF FPC}
+  {There is no dummy VMT for freed objects under FreePascal: DebugFreeMem stores
+   a zero in the first pointer of the user area instead of the address of
+   FreedObjectVMT, so that zero is what is checked there. The fill pattern check
+   below starts after that first pointer on every compiler, so without this test
+   a write into the first field of a freed object would go unnoticed.
+   Compiling the whole statement out, which is what happened before, left
+   LBlockUnmodified permanently False, so every GetMem of a reused block
+   reported a block modified after being freed and returned nil.}
   if LFooterValid
-    and (APBlock.UserSize < SizeOf(Pointer)) or (PNativeUInt(PByte(APBlock) + SizeOf(TFullDebugBlockHeader))^ = NativeUInt(@FreedObjectVMT.VMTMethods[0])) then
+{$IFNDEF FPC}
+    and (APBlock.UserSize < SizeOf(Pointer)) or (PNativeUInt(PByte(APBlock) + SizeOf(TFullDebugBlockHeader))^ = NativeUInt(@FreedObjectVMT.VMTMethods[0]))
+{$ELSE}
+    and ((APBlock^.UserSize < SizeOf(Pointer)) or (PNativeUInt(PByte(APBlock) + SizeOf(TFullDebugBlockHeader))^ = 0))
+{$ENDIF}
+    then
   begin
     {Store the debug fill pattern in place of the footer in order to simplify
      checking for block modifications.}
@@ -16862,7 +16878,6 @@ begin
     PNativeUInt(PByte(APBlock) + SizeOf(TFullDebugBlockHeader) + APBlock.UserSize)^ := not LHeaderCheckSum;
   end
   else
-{$ENDIF}
     LBlockUnmodified := False;
   if (not LHeaderValid) or (not LFooterValid) or (not LBlockUnmodified) then
   begin
