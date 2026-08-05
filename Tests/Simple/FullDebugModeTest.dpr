@@ -228,7 +228,9 @@ begin
   Check(Length(S) = 15000, 'an ansistring grown 1500 times has the right length');
   LOk := True;
   for I := 1 to Length(S) do
-    if S[I] <> Chr(Ord('a') + ((I - 1) mod 10)) then
+    {AnsiChar throughout: Chr returns the compiler's default character type,
+     which is not AnsiChar on Delphi}
+    if S[I] <> AnsiChar(Ord('a') + ((I - 1) mod 10)) then
       LOk := False;
   Check(LOk, 'the string contents are correct');
   SetLength(A, 0);
