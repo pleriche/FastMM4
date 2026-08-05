@@ -16811,16 +16811,17 @@ begin
   {Is the footer and debug VMT in place? The debug VMT is only valid if the user size is greater than the size of a pointer.}
   {There is no dummy VMT for freed objects under FreePascal: DebugFreeMem stores
    a zero in the first pointer of the user area instead of the address of
-   FreedObjectVMT, so the VMT test is left out there. The fill pattern check
-   below starts after that first pointer on every compiler, so leaving the test
-   out only drops a check that cannot be made, and the fill pattern is still
-   verified. Compiling the test out along with the whole statement, which is
-   what happened before, left LBlockUnmodified permanently False, so every
-   GetMem of a reused block reported a block modified after being freed and
-   returned nil.}
+   FreedObjectVMT, so that zero is what is checked there. The fill pattern check
+   below starts after that first pointer on every compiler, so without this test
+   a write into the first field of a freed object would go unnoticed.
+   Compiling the whole statement out, which is what happened before, left
+   LBlockUnmodified permanently False, so every GetMem of a reused block
+   reported a block modified after being freed and returned nil.}
   if LFooterValid
 {$IFNDEF FPC}
     and (APBlock.UserSize < SizeOf(Pointer)) or (PNativeUInt(PByte(APBlock) + SizeOf(TFullDebugBlockHeader))^ = NativeUInt(@FreedObjectVMT.VMTMethods[0]))
+{$ELSE}
+    and ((APBlock^.UserSize < SizeOf(Pointer)) or (PNativeUInt(PByte(APBlock) + SizeOf(TFullDebugBlockHeader))^ = 0))
 {$ENDIF}
     then
   begin
