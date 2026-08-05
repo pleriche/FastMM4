@@ -16041,6 +16041,29 @@ begin
   end;
 end;
 
+{$IFDEF FPC}
+{$IFDEF 64BIT}
+{A global variable named inside an assembler block is encoded by the 64-bit
+ FreePascal assembler as an absolute address rather than as a RIP-relative one,
+ which is the same limitation that makes this unit undefine ASMVersion for
+ 64-bit FreePascal further above. The address that the assembler code computes
+ is then not the address of the variable, so a locked increment or decrement
+ through it writes to an unrelated location or raises an access violation. The
+ two helpers below are ordinary Pascal, where the compiler emits the
+ RIP-relative reference itself, and they hand the address to the assembler code
+ in rax.}
+function GetThreadsInFullDebugModeRoutineAddress: Pointer;
+begin
+  Result := @ThreadsInFullDebugModeRoutine;
+end;
+
+function GetCurrentAllocationNumberAddress: Pointer;
+begin
+  Result := @CurrentAllocationNumber;
+end;
+{$ENDIF}
+{$ENDIF}
+
 procedure DoneChangingFullDebugModeBlock; assembler;
 asm
 {$IFDEF 32BIT}
@@ -16049,7 +16072,16 @@ asm
 {$IFDEF AllowAsmNoframe}
 .noframe
 {$ENDIF}
+{$IFDEF FPC}
+  {Reserve the register parameter area that the x64 calling convention requires
+   every caller to provide. The compiler has already aligned the stack to 16
+   bytes for this block and 32 is a multiple of 16, so the alignment holds.}
+  sub rsp, 32
+  call GetThreadsInFullDebugModeRoutineAddress
+  add rsp, 32
+{$ELSE}
   lea rax, ThreadsInFullDebugModeRoutine
+{$ENDIF}
   lock dec dword ptr [rax]
 {$ENDIF}
 end;
@@ -16063,7 +16095,14 @@ asm
 {$IFDEF AllowAsmNoframe}
 .noframe
 {$ENDIF}
+{$IFDEF FPC}
+  {See the comment on the register parameter area above}
+  sub rsp, 32
+  call GetCurrentAllocationNumberAddress
+  add rsp, 32
+{$ELSE}
   lea rax, CurrentAllocationNumber
+{$ENDIF}
   lock inc dword ptr [rax]
 {$ENDIF}
 end;
