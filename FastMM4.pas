@@ -17208,10 +17208,20 @@ end;
  overwrite the footer and then be reported as having corrupted the block. Under
  FullDebugMode the requested size is the only size the caller is entitled to.
 
- A block whose header checksum does not verify returns zero. The caller then
- reallocates rather than writing into a block whose recorded size cannot be
- trusted, and that reallocation reports the corruption through
+ Zero is returned unless the header checksum verifies, the footer still holds
+ the inverted checksum, and the block is one this memory manager has handed out
+ and has not taken back. A freed block keeps a valid header checksum, since
+ DebugFreeMem recalculates it after marking the block free, so the header alone
+ would report a plausible size for a pointer that is already dangling. The
+ caller then reallocates rather than writing into a block whose recorded size
+ cannot be trusted, and that reallocation reports the real fault through
  CheckBlockBeforeFreeOrRealloc.
+
+ CheckBlockBeforeFreeOrRealloc itself is deliberately not called here. It logs a
+ block error as a side effect, which does not belong in a query, and it walks
+ the fill pattern to the end of the block, which is proportional to the block
+ size on a call the runtime makes every time a string grows. The three checks
+ above are all constant time.
 
  No block scan lock is taken. This only reads the header of a block that the
  caller owns, it modifies nothing, and taking the lock would put a query on the
@@ -17219,17 +17229,22 @@ end;
 function DebugMemSize(APointer: Pointer): NativeUInt;
 var
   LActualBlock: PFullDebugBlockHeader;
+  LHeaderCheckSum: NativeUInt;
 begin
+  Result := 0;
   if APointer = nil then
-  begin
-    Result := 0;
     Exit;
-  end;
   LActualBlock := PFullDebugBlockHeader(PByte(APointer) - SizeOf(TFullDebugBlockHeader));
-  if CalculateHeaderCheckSum(LActualBlock) = LActualBlock^.HeaderCheckSum then
-    Result := LActualBlock^.UserSize
-  else
-    Result := 0;
+  LHeaderCheckSum := CalculateHeaderCheckSum(LActualBlock);
+  if LHeaderCheckSum <> LActualBlock^.HeaderCheckSum then
+    Exit;
+  {The user size is only trustworthy once the header checksum has verified, so
+   the footer is located with it only after that test}
+  if PNativeUInt(PByte(LActualBlock) + SizeOf(TFullDebugBlockHeader) + LActualBlock^.UserSize)^ <> (not LHeaderCheckSum) then
+    Exit;
+  if LActualBlock^.AllocatedByRoutine <> Pointer(@DebugGetMem) then
+    Exit;
+  Result := LActualBlock^.UserSize;
 end;
 {$ENDIF}
 
