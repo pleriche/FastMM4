@@ -16043,6 +16043,28 @@ begin
   end;
 end;
 
+{$IFDEF FPC}
+{A global variable named inside an assembler block is encoded by the 64-bit
+ FreePascal assembler as an absolute address rather than as a RIP-relative one,
+ which is the same limitation that makes this unit undefine ASMVersion for
+ 64-bit FreePascal further above. The address that the assembler code computes
+ is then not the address of the variable, so a locked increment or decrement
+ through it writes to an unrelated location or raises an access violation. The
+ two helpers below are ordinary Pascal, where the compiler emits the
+ RIP-relative reference itself, and they hand the address to the assembler code
+ in rax, in the same way as GetMediumBlocksLockedPointer does for
+ AcquireSpinLockMediumBlocks.}
+function GetThreadsInFullDebugModeRoutinePointer: PInteger;
+begin
+  Result := @ThreadsInFullDebugModeRoutine;
+end;
+
+function GetCurrentAllocationNumberPointer: PCardinal;
+begin
+  Result := @CurrentAllocationNumber;
+end;
+{$ENDIF}
+
 procedure DoneChangingFullDebugModeBlock; assembler;
 asm
 {$IFDEF 32BIT}
@@ -16051,7 +16073,11 @@ asm
 {$IFDEF AllowAsmNoframe}
 .noframe
 {$ENDIF}
+{$IFDEF FPC}
+  call GetThreadsInFullDebugModeRoutinePointer
+{$ELSE}
   lea rax, ThreadsInFullDebugModeRoutine
+{$ENDIF}
   lock dec dword ptr [rax]
 {$ENDIF}
 end;
@@ -16065,7 +16091,11 @@ asm
 {$IFDEF AllowAsmNoframe}
 .noframe
 {$ENDIF}
+{$IFDEF FPC}
+  call GetCurrentAllocationNumberPointer
+{$ELSE}
   lea rax, CurrentAllocationNumber
+{$ENDIF}
   lock inc dword ptr [rax]
 {$ENDIF}
 end;
