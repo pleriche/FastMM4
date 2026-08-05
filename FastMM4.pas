@@ -16823,7 +16823,7 @@ begin
    reported a block modified after being freed and returned nil.}
   if LFooterValid
 {$IFNDEF FPC}
-    and ((APBlock.UserSize < SizeOf(Pointer)) or (PNativeUInt(PByte(APBlock) + SizeOf(TFullDebugBlockHeader))^ = NativeUInt(@FreedObjectVMT.VMTMethods[0])))
+    and (APBlock.UserSize < SizeOf(Pointer)) or (PNativeUInt(PByte(APBlock) + SizeOf(TFullDebugBlockHeader))^ = NativeUInt(@FreedObjectVMT.VMTMethods[0]))
 {$ELSE}
     and ((APBlock^.UserSize < SizeOf(Pointer)) or (PNativeUInt(PByte(APBlock) + SizeOf(TFullDebugBlockHeader))^ = 0))
 {$ENDIF}
