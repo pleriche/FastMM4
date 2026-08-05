@@ -73,6 +73,11 @@ const
 
 var
   GFailures: Integer = 0;
+{$IFDEF FullDebugModeIsActive}
+  {Kept alive for as long as the allocator holds the pointer passed to
+   SetMMLogFileName}
+  GLogFileName: AnsiString = '';
+{$ENDIF}
 
 procedure Say(const AText: string);
 begin
@@ -91,16 +96,29 @@ begin
   end;
 end;
 
-function EventLogFileName: string;
+{$IFDEF FullDebugModeIsActive}
+{The log file this test looks at has to be the one the allocator writes, and
+ the allocator picks its own name from the module name and then lets the
+ FastMMLogFilePath environment variable move it elsewhere. Naming it here
+ settles both. Returns the path, or an empty string when a stale log from an
+ earlier run cannot be removed, which would let a corruption check pass on the
+ old file rather than on anything this run did.}
+function PrepareEventLog: string;
 begin
-  Result := ChangeFileExt(ParamStr(0), '') + '_MemoryManager_EventLog.txt';
+  Result := ChangeFileExt(ParamStr(0), '') + '_CorruptionCheck.log';
+  GLogFileName := AnsiString(Result);
+  SetMMLogFileName(PAnsiChar(GLogFileName));
+  if FileExists(Result) then
+  begin
+    DeleteFile(Result);
+    if FileExists(Result) then
+    begin
+      Say('  FAIL  a log file from an earlier run could not be removed: ' + Result);
+      Result := '';
+    end;
+  end;
 end;
-
-procedure DeleteEventLog;
-begin
-  if FileExists(EventLogFileName) then
-    DeleteFile(EventLogFileName);
-end;
+{$ENDIF}
 
 {Allocate, fill, verify and free over every size class, several times over, so
  that blocks are reused. A reused block that is wrongly reported as modified
@@ -108,13 +126,14 @@ end;
 procedure TestAllocateFillFree;
 var
   LPointers: array[0..63] of Pointer;
-  LRound, I, J, LSize: Integer;
+  LRound, I, J, LSize, LAllocated: Integer;
   LOk: Boolean;
 begin
   Say('allocate, fill and free over all size classes');
   LOk := True;
   for LRound := 1 to 8 do
   begin
+    LAllocated := 0;
     for I := 0 to High(LPointers) do
     begin
       LSize := CBlockSizes[I mod Length(CBlockSizes)] + LRound;
@@ -124,11 +143,10 @@ begin
         LOk := False;
         Break;
       end;
+      Inc(LAllocated);
       FillChar(LPointers[I]^, LSize, Byte(I));
     end;
-    if not LOk then
-      Break;
-    for I := 0 to High(LPointers) do
+    for I := 0 to LAllocated - 1 do
     begin
       LSize := CBlockSizes[I mod Length(CBlockSizes)] + LRound;
       for J := 0 to LSize - 1 do
@@ -138,7 +156,9 @@ begin
           Break;
         end;
     end;
-    for I := 0 to High(LPointers) do
+    {Free whatever was allocated on every path, so a failure part way through a
+     round does not leave blocks behind for the checks that follow}
+    for I := 0 to LAllocated - 1 do
       FreeMem(LPointers[I]);
     if not LOk then
       Break;
@@ -156,6 +176,11 @@ var
 begin
   Say('reallocation that moves the block');
   GetMem(P, 64);
+  if P = nil then
+  begin
+    Check(False, 'the initial allocation succeeded');
+    Exit;
+  end;
   for I := 0 to 63 do
     PByte(P)[I] := Byte(I);
   ReallocMem(P, 400000);
@@ -181,6 +206,11 @@ var
 begin
   Say('reallocation inside the existing block');
   GetMem(P, 100);
+  if P = nil then
+  begin
+    Check(False, 'the initial allocation succeeded');
+    Exit;
+  end;
   for I := 0 to 99 do
     PByte(P)[I] := Byte(I);
   LFirst := P;
@@ -293,17 +323,29 @@ end;
 function RunModifyAfterFreeCheck: Integer;
 var
   P, Q: Pointer;
+  LLog: string;
 begin
   Say('modify after free detection');
-  DeleteEventLog;
+  LLog := PrepareEventLog;
+  if LLog = '' then
+  begin
+    Result := TEST_FAILED;
+    Exit;
+  end;
   GetMem(P, 128);
+  if P = nil then
+  begin
+    Say('  FAIL  the block to corrupt could not be allocated');
+    Result := TEST_FAILED;
+    Exit;
+  end;
   FreeMem(P);
   PNativeUInt(P)^ := NativeUInt($DEADBEEF);
   PByte(P)[64] := $AA;
   GetMem(Q, 128);
   if Q <> nil then
     FreeMem(Q);
-  if FileExists(EventLogFileName) then
+  if FileExists(LLog) then
   begin
     Say('  ok    the change was reported');
     Result := TEST_PASSED;
@@ -321,17 +363,29 @@ const
   CSize = 128;
 var
   P, Q: Pointer;
+  LLog: string;
 begin
   Say('corrupted footer detection');
-  DeleteEventLog;
+  LLog := PrepareEventLog;
+  if LLog = '' then
+  begin
+    Result := TEST_FAILED;
+    Exit;
+  end;
   GetMem(P, CSize);
+  if P = nil then
+  begin
+    Say('  FAIL  the block to corrupt could not be allocated');
+    Result := TEST_FAILED;
+    Exit;
+  end;
   FreeMem(P);
   {The footer sits immediately after the user area of the block}
   PNativeUInt(PByte(P) + CSize)^ := NativeUInt($0BADF00D);
   GetMem(Q, CSize);
   if Q <> nil then
     FreeMem(Q);
-  if FileExists(EventLogFileName) then
+  if FileExists(LLog) then
   begin
     Say('  ok    the damaged footer was reported');
     Result := TEST_PASSED;
@@ -367,8 +421,21 @@ begin
     Say('unknown mode: ' + LMode);
     Halt(TEST_FAILED);
 {$ELSE}
-    Say('this mode needs FullDebugMode, skipping');
+    {Skipping is right only where the allocator cannot offer the mode at all.
+     On a platform that supports it, a build that left the define out is the
+     silent green this test exists to prevent, so it fails instead.}
+  {$IFDEF MSWINDOWS}
+    Say('FAILED: this mode needs FullDebugMode and this build does not have it');
+    Halt(TEST_FAILED);
+  {$ELSE}
+    {$IFDEF MACOS}
+    Say('FAILED: this mode needs FullDebugMode and this build does not have it');
+    Halt(TEST_FAILED);
+    {$ELSE}
+    Say('skipped: FullDebugMode is not supported on this platform');
     Halt(TEST_PASSED);
+    {$ENDIF}
+  {$ENDIF}
 {$ENDIF}
   end;
 
