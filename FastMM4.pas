@@ -17146,13 +17146,18 @@ begin
           OnDebugReallocMemStart(LActualBlock, ANewSize);
         {$ENDIF}
         {Clear all data after the new end of the block up to the old end of the
-         block, including the trailer.}
-        DebugFillMem(Pointer(PByte(APointer) + NativeUInt(ANewSize) + SizeOf(NativeUInt))^,
-          NativeInt(LActualBlock^.UserSize) - ANewSize,
+         block, including the trailer. There is nothing to clear when the block
+         is being grown in place, which is when the new size is the larger of
+         the two. DebugFillMem already writes nothing for a count that is not
+         positive, so this test states that intent in Pascal rather than leaving
+         it to be read out of the assembler.}
+        if LActualBlock^.UserSize > NativeUInt(ANewSize) then
+          DebugFillMem(Pointer(PByte(APointer) + NativeUInt(ANewSize) + SizeOf(NativeUInt))^,
+            NativeInt(LActualBlock^.UserSize) - ANewSize,
 {$IFNDEF CatchUseOfFreedInterfaces}
-          NativeUInt(DebugFillPattern));
+            NativeUInt(DebugFillPattern));
 {$ELSE}
-          RotateRight(NativeUInt(@VMTBadInterface), (ANewSize and (SizeOf(Pointer) - 1)) * 8));
+            RotateRight(NativeUInt(@VMTBadInterface), (ANewSize and (SizeOf(Pointer) - 1)) * 8));
 {$ENDIF}
         {Update the user size}
         LActualBlock^.UserSize := ANewSize;
