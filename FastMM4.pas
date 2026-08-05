@@ -2084,7 +2084,7 @@ function FastAllocMem(ASize: {$IFDEF XE2AndUp}NativeInt{$ELSE}{$IFDEF fpc}Native
 function DebugGetMem(ASize: {$IFDEF FPC}ptruint{$ELSE}{$IFDEF XE2AndUp}NativeInt{$ELSE}Integer{$ENDIF}{$ENDIF}): Pointer;
 function DebugFreeMem(APointer: Pointer): {$IFDEF fpc}ptruint{$ELSE}Integer{$ENDIF};
 function DebugReallocMem({$IFDEF FPC}var {$ENDIF}APointer: Pointer; ANewSize: {$IFDEF FPC}ptruint{$ELSE}{$IFDEF XE2AndUp}NativeInt{$ELSE}Integer{$ENDIF}{$ENDIF}): Pointer;
-function DebugAllocMem(ASize: {$IFDEF XE2AndUp}NativeInt{$ELSE}Cardinal{$ENDIF}): Pointer;
+function DebugAllocMem(ASize: {$IFDEF XE2AndUp}NativeInt{$ELSE}{$IFDEF fpc}NativeUInt{$ELSE}Cardinal{$ENDIF}{$ENDIF}): Pointer;
 {Scans the memory pool for any corruptions. If a corruption is encountered, an "Out of Memory" exception is
  raised.}
 procedure ScanMemoryPoolForCorruptions;
@@ -17239,13 +17239,76 @@ begin
 end;
 
 {Allocates a block and fills it with zeroes}
-function DebugAllocMem(ASize: {$IFDEF XE2AndUp}NativeInt{$ELSE}Cardinal{$ENDIF}): Pointer;
+function DebugAllocMem(ASize: {$IFDEF XE2AndUp}NativeInt{$ELSE}{$IFDEF fpc}NativeUInt{$ELSE}Cardinal{$ENDIF}{$ENDIF}): Pointer;
 begin
   Result := DebugGetMem(ASize);
   {Clear the block}
   if Result <>  nil then
     FillChar(Result^, ASize, 0);
 end;
+
+{$IFDEF fpc}
+{Frees a block that was allocated by DebugGetMem, for the FreememSize entry of
+ the FreePascal memory manager. The size is ignored, exactly as FastFreeMemSize
+ ignores it, because a block cannot be freed partially.}
+function DebugFreeMemSize(APointer: Pointer; ASize: NativeUInt): NativeUInt;
+begin
+  if ASize = 0 then
+  begin
+    Result := 0;
+    Exit;
+  end;
+  Result := DebugFreeMem(APointer);
+end;
+
+{Returns the size of a block that was allocated by DebugGetMem, for the MemSize
+ entry of the FreePascal memory manager.
+
+ This returns the size that was requested, where FastMemSize returns the space
+ physically available in the block. The bytes past the requested size hold the
+ debug footer, so a caller that treated the available space as usable would
+ overwrite the footer and then be reported as having corrupted the block. Under
+ FullDebugMode the requested size is the only size the caller is entitled to.
+
+ Zero is returned unless the header checksum verifies, the footer still holds
+ the inverted checksum, and the block is one this memory manager has handed out
+ and has not taken back. A freed block keeps a valid header checksum, since
+ DebugFreeMem recalculates it after marking the block free, so the header alone
+ would report a plausible size for a pointer that is already dangling. The
+ caller then reallocates rather than writing into a block whose recorded size
+ cannot be trusted, and that reallocation reports the real fault through
+ CheckBlockBeforeFreeOrRealloc.
+
+ CheckBlockBeforeFreeOrRealloc itself is deliberately not called here. It logs a
+ block error as a side effect, which does not belong in a query, and it walks
+ the fill pattern to the end of the block, which is proportional to the block
+ size on a call the runtime makes every time a string grows. The three checks
+ above are all constant time.
+
+ No block scan lock is taken. This only reads the header of a block that the
+ caller owns, it modifies nothing, and taking the lock would put a query on the
+ same blocking protocol as the memory pool scan.}
+function DebugMemSize(APointer: Pointer): NativeUInt;
+var
+  LActualBlock: PFullDebugBlockHeader;
+  LHeaderCheckSum: NativeUInt;
+begin
+  Result := 0;
+  if APointer = nil then
+    Exit;
+  LActualBlock := PFullDebugBlockHeader(PByte(APointer) - SizeOf(TFullDebugBlockHeader));
+  LHeaderCheckSum := CalculateHeaderCheckSum(LActualBlock);
+  if LHeaderCheckSum <> LActualBlock^.HeaderCheckSum then
+    Exit;
+  {The user size is only trustworthy once the header checksum has verified, so
+   the footer is located with it only after that test}
+  if PNativeUInt(PByte(LActualBlock) + SizeOf(TFullDebugBlockHeader) + LActualBlock^.UserSize)^ <> (not LHeaderCheckSum) then
+    Exit;
+  if LActualBlock^.AllocatedByRoutine <> Pointer(@DebugGetMem) then
+    Exit;
+  Result := LActualBlock^.UserSize;
+end;
+{$ENDIF}
 
 {Raises a runtime error if a memory corruption was encountered. Subroutine for
  InternalScanMemoryPool and InternalScanSmallBlockPool.}
@@ -21099,6 +21162,14 @@ begin
        NewMemoryManager.GetMem := @DebugGetMem;
        NewMemoryManager.FreeMem := @DebugFreeMem;
        NewMemoryManager.ReallocMem := @DebugReallocMem;
+       {The three entries below are set for the memory manager without
+        FullDebugMode just above. Leaving them nil here left the FreePascal
+        runtime calling address zero the first time it asked for the size of a
+        block, which is what a string or a dynamic array does as soon as it
+        grows.}
+       NewMemoryManager.FreememSize := @DebugFreeMemSize;
+       NewMemoryManager.AllocMem := @DebugAllocMem;
+       NewMemoryManager.MemSize := @DebugMemSize;
 {$ELSE}
        NewMemoryManager.GetMem := DebugGetMem;
        NewMemoryManager.FreeMem := DebugFreeMem;
