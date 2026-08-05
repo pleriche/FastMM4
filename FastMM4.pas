@@ -11981,6 +11981,7 @@ begin
   {$ELSE}
       System.RunError(reInvalidPtr);
   {$ENDIF}
+      Result := CFastFreeMemReturnValueError;
 {$ENDIF}
       Exit;
     end;
@@ -12004,6 +12005,7 @@ begin
   {$ELSE}
       System.RunError(reInvalidPtr);
   {$ENDIF}
+      Result := CFastFreeMemReturnValueError;
 {$ENDIF}
       Exit;
     end;
