@@ -97,26 +97,49 @@ begin
 end;
 
 {$IFDEF FullDebugModeIsActive}
-{The log file this test looks at has to be the one the allocator writes, and
- the allocator picks its own name from the module name and then lets the
- FastMMLogFilePath environment variable move it elsewhere. Naming it here
- settles both. Returns the path, or an empty string when a stale log from an
- earlier run cannot be removed, which would let a corruption check pass on the
- old file rather than on anything this run did.}
+{Can this exact file be created here? Creating it also truncates and removes
+ any log left by an earlier run, so a corruption check cannot be satisfied by
+ old evidence.}
+function FileCanBeCreated(const AFileName: string): Boolean;
+var
+  LHandle: THandle;
+begin
+  LHandle := THandle(FileCreate(AFileName));
+  Result := LHandle <> THandle(-1);
+  if Result then
+  begin
+    FileClose(LHandle);
+    DeleteFile(AFileName);
+    Result := not FileExists(AFileName);
+  end;
+end;
+
+{The log file this test looks at has to be the one the allocator writes.
+ The allocator takes its name from the module name, lets the FastMMLogFilePath
+ environment variable move it, and, if the file cannot be created where it was
+ told, silently redirects to My Documents instead (AppendEventLog, around
+ FastMM4.pas:15830-15867). Naming the file settles the first two but not the
+ third, so the name is only accepted here once this test has proved it can
+ create that file itself, which leaves the allocator's own fallback unreachable.
+ Returns an empty string when no writable location can be found.}
 function PrepareEventLog: string;
 begin
   Result := ChangeFileExt(ParamStr(0), '') + '_CorruptionCheck.log';
-  GLogFileName := AnsiString(Result);
-  SetMMLogFileName(PAnsiChar(GLogFileName));
-  if FileExists(Result) then
+  if not FileCanBeCreated(Result) then
   begin
-    DeleteFile(Result);
-    if FileExists(Result) then
+    {The directory holding the executable is not writable, so use the one place
+     that is meant to be}
+    Result := IncludeTrailingPathDelimiter(GetEnvironmentVariable('TEMP')) +
+      'FullDebugModeTest_CorruptionCheck.log';
+    if not FileCanBeCreated(Result) then
     begin
-      Say('  FAIL  a log file from an earlier run could not be removed: ' + Result);
+      Say('  FAIL  no writable location found for the log file');
       Result := '';
+      Exit;
     end;
   end;
+  GLogFileName := AnsiString(Result);
+  SetMMLogFileName(PAnsiChar(GLogFileName));
 end;
 {$ENDIF}
 
