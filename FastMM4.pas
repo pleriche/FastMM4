@@ -16371,7 +16371,11 @@ begin
   if AUserOffset < SizeOf(Pointer) then
   begin
 {$IFDEF FPC}
-    LFillPattern := NativeUInt(DebugFillPattern);
+    {DebugFreeMem stores a zero in the first pointer of the user area where
+     Delphi stores the address of the dummy VMT, so zero is what an unmodified
+     freed block holds here. Expecting the fill pattern instead reported those
+     bytes as changed in every error report, whatever the real change was.}
+    LFillPattern := 0;
 {$ELSE}
     LFillPattern := NativeUInt(@FreedObjectVMT.VMTMethods[0]);
 {$ENDIF}
@@ -16819,7 +16823,7 @@ begin
    reported a block modified after being freed and returned nil.}
   if LFooterValid
 {$IFNDEF FPC}
-    and (APBlock.UserSize < SizeOf(Pointer)) or (PNativeUInt(PByte(APBlock) + SizeOf(TFullDebugBlockHeader))^ = NativeUInt(@FreedObjectVMT.VMTMethods[0]))
+    and ((APBlock.UserSize < SizeOf(Pointer)) or (PNativeUInt(PByte(APBlock) + SizeOf(TFullDebugBlockHeader))^ = NativeUInt(@FreedObjectVMT.VMTMethods[0])))
 {$ELSE}
     and ((APBlock^.UserSize < SizeOf(Pointer)) or (PNativeUInt(PByte(APBlock) + SizeOf(TFullDebugBlockHeader))^ = 0))
 {$ENDIF}
