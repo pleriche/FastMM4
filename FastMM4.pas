@@ -16855,7 +16855,11 @@ begin
    reported a block modified after being freed and returned nil.}
   if LFooterValid
 {$IFNDEF FPC}
-    and (APBlock.UserSize < SizeOf(Pointer)) or (PNativeUInt(PByte(APBlock) + SizeOf(TFullDebugBlockHeader))^ = NativeUInt(@FreedObjectVMT.VMTMethods[0]))
+    {The inner parentheses matter: "and" binds tighter than "or", so without them
+     a block whose first pointer happens to hold the dummy VMT address entered
+     this branch even when the footer had not verified, and the fill pattern was
+     then written at an offset taken from a UserSize that had not been checked}
+    and ((APBlock.UserSize < SizeOf(Pointer)) or (PNativeUInt(PByte(APBlock) + SizeOf(TFullDebugBlockHeader))^ = NativeUInt(@FreedObjectVMT.VMTMethods[0])))
 {$ELSE}
     and ((APBlock^.UserSize < SizeOf(Pointer)) or (PNativeUInt(PByte(APBlock) + SizeOf(TFullDebugBlockHeader))^ = 0))
 {$ENDIF}
