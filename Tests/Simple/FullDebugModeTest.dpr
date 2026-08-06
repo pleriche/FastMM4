@@ -61,12 +61,29 @@ uses
   {$ENDIF}
   FastMM4 in '../../FastMM4.pas',
   FastMM4Messages in '../../FastMM4Messages.pas',
-  {$IFNDEF FPC}
-  {For TPath.GetTempFileName, which knows where the temporary directory is on
-   each platform Delphi targets. FreePascal has GetTempFileName in SysUtils.}
-  System.IOUtils,
-  {$ENDIF}
   SysUtils;
+
+{$IFDEF MSWINDOWS}
+{Imported rather than taken from a unit, the way the other tests here import
+ what they need from kernel32, so that this file does not depend on a unit name
+ that changed between Delphi versions. The ANSI entry points are the ones used
+ deliberately: the allocator opens its log with CreateFileA, so a name produced
+ by these needs no conversion to reach it unchanged.
+
+ GetTempPath answers with the directory Windows itself would use, consulting
+ TMP, TEMP and the profile in turn, so no single environment variable has to be
+ guessed at. GetTempFileName with uUnique zero creates the file as it names it,
+ which is what makes the name safe against another process picking the same
+ one.}
+const
+  CMaxPath = 260;
+
+function GetTempPathA(ABufferLength: Cardinal; ABuffer: PAnsiChar): Cardinal; stdcall;
+  external 'kernel32' name 'GetTempPathA';
+function GetTempFileNameA(APathName, APrefixString: PAnsiChar;
+  AUnique: Cardinal; ATempFileName: PAnsiChar): Cardinal; stdcall;
+  external 'kernel32' name 'GetTempFileNameA';
+{$ENDIF}
 
 const
   TEST_PASSED = 0;
@@ -119,22 +136,42 @@ begin
   end;
 end;
 
-{A name in the platform temporary directory that no other process holds. The
- runtime is asked for it rather than reading TEMP, which is a Windows spelling
- that macOS does not use, and the name is unique so that two corruption runs
- cannot delete each other's evidence.}
+{A name in the platform temporary directory that no other run holds. The
+ platform is asked where that directory is rather than one environment variable
+ being read, since TEMP is a Windows spelling and macOS supplies TMPDIR, and
+ the name is unique so that two corruption runs cannot delete each other's
+ evidence. An empty result means no such name could be obtained.}
 function TemporaryLogFileName: string;
+{$IFDEF MSWINDOWS}
+var
+  LDirectory: array[0..CMaxPath] of AnsiChar;
+  LFileName: array[0..CMaxPath] of AnsiChar;
+  LLength: Cardinal;
+{$ENDIF}
 begin
   Result := '';
-  try
-{$IFDEF FPC}
-    Result := GetTempFileName(GetTempDir, 'fdm');
+{$IFDEF MSWINDOWS}
+  LLength := GetTempPathA(SizeOf(LDirectory), @LDirectory[0]);
+  if (LLength = 0) or (LLength >= Cardinal(SizeOf(LDirectory))) then
+    Exit;
+  if GetTempFileNameA(@LDirectory[0], 'fdm', 0, @LFileName[0]) = 0 then
+    Exit;
+  Result := string(AnsiString(PAnsiChar(@LFileName[0])));
 {$ELSE}
-    Result := TPath.GetTempFileName;
-{$ENDIF}
+  {$IFDEF FPC}
+  try
+    Result := GetTempFileName(GetTempDir, 'fdm');
   except
     Result := '';
   end;
+  {$ELSE}
+  {Delphi outside Windows, where the convention is TMPDIR}
+  Result := GetEnvironmentVariable('TMPDIR');
+  if Result <> '' then
+    Result := IncludeTrailingPathDelimiter(Result) +
+      'FullDebugModeTest_CorruptionCheck.log';
+  {$ENDIF}
+{$ENDIF}
 end;
 
 {The log file this test looks at has to be the one the allocator writes.
