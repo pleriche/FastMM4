@@ -61,6 +61,11 @@ uses
   {$ENDIF}
   FastMM4 in '../../FastMM4.pas',
   FastMM4Messages in '../../FastMM4Messages.pas',
+  {$IFNDEF FPC}
+  {For TPath.GetTempFileName, which knows where the temporary directory is on
+   each platform Delphi targets. FreePascal has GetTempFileName in SysUtils.}
+  System.IOUtils,
+  {$ENDIF}
   SysUtils;
 
 const
@@ -114,6 +119,24 @@ begin
   end;
 end;
 
+{A name in the platform temporary directory that no other process holds. The
+ runtime is asked for it rather than reading TEMP, which is a Windows spelling
+ that macOS does not use, and the name is unique so that two corruption runs
+ cannot delete each other's evidence.}
+function TemporaryLogFileName: string;
+begin
+  Result := '';
+  try
+{$IFDEF FPC}
+    Result := GetTempFileName(GetTempDir, 'fdm');
+{$ELSE}
+    Result := TPath.GetTempFileName;
+{$ENDIF}
+  except
+    Result := '';
+  end;
+end;
+
 {The log file this test looks at has to be the one the allocator writes.
  The allocator takes its name from the module name, lets the FastMMLogFilePath
  environment variable move it, and, if the file cannot be created where it was
@@ -121,25 +144,41 @@ end;
  FastMM4.pas:15830-15867). Naming the file settles the first two but not the
  third, so the name is only accepted here once this test has proved it can
  create that file itself, which leaves the allocator's own fallback unreachable.
+
+ The allocator opens the log with CreateFileA, so what it actually receives is
+ the ANSI form of the name. Everything below is therefore done on the value
+ that survives that conversion, which keeps the file this test creates, the
+ name the allocator is given and the path this test later inspects the same
+ file even where the conversion cannot represent the original.
+
  Returns an empty string when no writable location can be found.}
 function PrepareEventLog: string;
+
+  function Accept(const ACandidate: string): Boolean;
+  begin
+    Result := ACandidate <> '';
+    if Result then
+    begin
+      GLogFileName := AnsiString(ACandidate);
+      Result := FileCanBeCreated(string(GLogFileName));
+    end;
+  end;
+
 begin
-  Result := ChangeFileExt(ParamStr(0), '') + '_CorruptionCheck.log';
-  if not FileCanBeCreated(Result) then
+  Result := '';
+  if not Accept(ChangeFileExt(ParamStr(0), '') + '_CorruptionCheck.log') then
   begin
     {The directory holding the executable is not writable, so use the one place
      that is meant to be}
-    Result := IncludeTrailingPathDelimiter(GetEnvironmentVariable('TEMP')) +
-      'FullDebugModeTest_CorruptionCheck.log';
-    if not FileCanBeCreated(Result) then
+    if not Accept(TemporaryLogFileName) then
     begin
       Say('  FAIL  no writable location found for the log file');
-      Result := '';
       Exit;
     end;
   end;
-  GLogFileName := AnsiString(Result);
+  Result := string(GLogFileName);
   SetMMLogFileName(PAnsiChar(GLogFileName));
+  Say('  log     ' + Result);
 end;
 {$ENDIF}
 
