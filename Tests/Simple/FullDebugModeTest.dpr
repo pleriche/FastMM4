@@ -61,6 +61,14 @@ uses
   {$ENDIF}
   FastMM4 in '../../FastMM4.pas',
   FastMM4Messages in '../../FastMM4Messages.pas',
+  {$IFNDEF FPC}
+  {$IFDEF POSIX}
+  {For getpid, which is what makes the temporary name here unique among the
+   processes that could be running this test at the same time. Windows and
+   FreePascal each have a temporary file API that settles this for them.}
+  Posix.Unistd,
+  {$ENDIF}
+  {$ENDIF}
   SysUtils;
 
 {$IFDEF MSWINDOWS}
@@ -165,11 +173,13 @@ begin
     Result := '';
   end;
   {$ELSE}
-  {Delphi outside Windows, where the convention is TMPDIR}
+  {Delphi outside Windows, where the convention is TMPDIR. The process id keeps
+   the name unique among concurrent runs, which is what the temporary file API
+   does for the other two branches.}
   Result := GetEnvironmentVariable('TMPDIR');
   if Result <> '' then
     Result := IncludeTrailingPathDelimiter(Result) +
-      'FullDebugModeTest_CorruptionCheck.log';
+      'FullDebugModeTest_' + IntToStr(getpid) + '_CorruptionCheck.log';
   {$ENDIF}
 {$ENDIF}
 end;
