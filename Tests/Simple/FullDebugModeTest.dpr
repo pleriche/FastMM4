@@ -61,7 +61,37 @@ uses
   {$ENDIF}
   FastMM4 in '../../FastMM4.pas',
   FastMM4Messages in '../../FastMM4Messages.pas',
+  {$IFNDEF FPC}
+  {$IFDEF POSIX}
+  {For getpid, which is what makes the temporary name here unique among the
+   processes that could be running this test at the same time. Windows and
+   FreePascal each have a temporary file API that settles this for them.}
+  Posix.Unistd,
+  {$ENDIF}
+  {$ENDIF}
   SysUtils;
+
+{$IFDEF MSWINDOWS}
+{Imported rather than taken from a unit, the way the other tests here import
+ what they need from kernel32, so that this file does not depend on a unit name
+ that changed between Delphi versions. The ANSI entry points are the ones used
+ deliberately: the allocator opens its log with CreateFileA, so a name produced
+ by these needs no conversion to reach it unchanged.
+
+ GetTempPath answers with the directory Windows itself would use, consulting
+ TMP, TEMP and the profile in turn, so no single environment variable has to be
+ guessed at. GetTempFileName with uUnique zero creates the file as it names it,
+ which is what makes the name safe against another process picking the same
+ one.}
+const
+  CMaxPath = 260;
+
+function GetTempPathA(ABufferLength: Cardinal; ABuffer: PAnsiChar): Cardinal; stdcall;
+  external 'kernel32' name 'GetTempPathA';
+function GetTempFileNameA(APathName, APrefixString: PAnsiChar;
+  AUnique: Cardinal; ATempFileName: PAnsiChar): Cardinal; stdcall;
+  external 'kernel32' name 'GetTempFileNameA';
+{$ENDIF}
 
 const
   TEST_PASSED = 0;
@@ -97,26 +127,105 @@ begin
 end;
 
 {$IFDEF FullDebugModeIsActive}
-{The log file this test looks at has to be the one the allocator writes, and
- the allocator picks its own name from the module name and then lets the
- FastMMLogFilePath environment variable move it elsewhere. Naming it here
- settles both. Returns the path, or an empty string when a stale log from an
- earlier run cannot be removed, which would let a corruption check pass on the
- old file rather than on anything this run did.}
-function PrepareEventLog: string;
+{Can this exact file be created here? Creating it also truncates and removes
+ any log left by an earlier run, so a corruption check cannot be satisfied by
+ old evidence.}
+function FileCanBeCreated(const AFileName: string): Boolean;
+var
+  LHandle: THandle;
 begin
-  Result := ChangeFileExt(ParamStr(0), '') + '_CorruptionCheck.log';
-  GLogFileName := AnsiString(Result);
-  SetMMLogFileName(PAnsiChar(GLogFileName));
-  if FileExists(Result) then
+  LHandle := THandle(FileCreate(AFileName));
+  Result := LHandle <> THandle(-1);
+  if Result then
   begin
-    DeleteFile(Result);
-    if FileExists(Result) then
+    FileClose(LHandle);
+    DeleteFile(AFileName);
+    Result := not FileExists(AFileName);
+  end;
+end;
+
+{A name in the platform temporary directory that no other run holds. The
+ platform is asked where that directory is rather than one environment variable
+ being read, since TEMP is a Windows spelling and macOS supplies TMPDIR, and
+ the name is unique so that two corruption runs cannot delete each other's
+ evidence. An empty result means no such name could be obtained.}
+function TemporaryLogFileName: string;
+{$IFDEF MSWINDOWS}
+var
+  LDirectory: array[0..CMaxPath] of AnsiChar;
+  LFileName: array[0..CMaxPath] of AnsiChar;
+  LLength: Cardinal;
+{$ENDIF}
+begin
+  Result := '';
+{$IFDEF MSWINDOWS}
+  LLength := GetTempPathA(SizeOf(LDirectory), @LDirectory[0]);
+  if (LLength = 0) or (LLength >= Cardinal(SizeOf(LDirectory))) then
+    Exit;
+  if GetTempFileNameA(@LDirectory[0], 'fdm', 0, @LFileName[0]) = 0 then
+    Exit;
+  Result := string(AnsiString(PAnsiChar(@LFileName[0])));
+{$ELSE}
+  {$IFDEF FPC}
+  try
+    Result := GetTempFileName(GetTempDir, 'fdm');
+  except
+    Result := '';
+  end;
+  {$ELSE}
+  {Delphi outside Windows, where the convention is TMPDIR. The process id keeps
+   the name unique among concurrent runs, which is what the temporary file API
+   does for the other two branches.}
+  Result := GetEnvironmentVariable('TMPDIR');
+  if Result <> '' then
+    Result := IncludeTrailingPathDelimiter(Result) +
+      'FullDebugModeTest_' + IntToStr(getpid) + '_CorruptionCheck.log';
+  {$ENDIF}
+{$ENDIF}
+end;
+
+{The log file this test looks at has to be the one the allocator writes.
+ The allocator takes its name from the module name, lets the FastMMLogFilePath
+ environment variable move it, and, if the file cannot be created where it was
+ told, silently redirects to My Documents instead (AppendEventLog, around
+ FastMM4.pas:15830-15867). Naming the file settles the first two but not the
+ third, so the name is only accepted here once this test has proved it can
+ create that file itself, which leaves the allocator's own fallback unreachable.
+
+ The allocator opens the log with CreateFileA, so what it actually receives is
+ the ANSI form of the name. Everything below is therefore done on the value
+ that survives that conversion, which keeps the file this test creates, the
+ name the allocator is given and the path this test later inspects the same
+ file even where the conversion cannot represent the original.
+
+ Returns an empty string when no writable location can be found.}
+function PrepareEventLog: string;
+
+  function Accept(const ACandidate: string): Boolean;
+  begin
+    Result := ACandidate <> '';
+    if Result then
     begin
-      Say('  FAIL  a log file from an earlier run could not be removed: ' + Result);
-      Result := '';
+      GLogFileName := AnsiString(ACandidate);
+      Result := FileCanBeCreated(string(GLogFileName));
     end;
   end;
+
+begin
+  Result := '';
+  if not Accept(ChangeFileExt(ParamStr(0), '') + '_CorruptionCheck.log') then
+  begin
+    {The directory holding the executable is not writable, so use the one place
+     that is meant to be}
+    if not Accept(TemporaryLogFileName) then
+    begin
+      Say('  FAIL  no writable location found for the log file');
+      Exit;
+    end;
+  end;
+  Result := string(GLogFileName);
+  SetMMLogFileName(PAnsiChar(GLogFileName));
+  Say('  log     ' + Result);
 end;
 {$ENDIF}
 
