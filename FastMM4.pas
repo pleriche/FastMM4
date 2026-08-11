@@ -2204,7 +2204,9 @@ const
    of the address space is always reserved by the OS.)}
   DebugReservedAddress = $01010000 * Cardinal(DebugFillByte); // Default value $80800000
 {$ELSE}
-  DebugFillPattern = $8080808080808080;
+  {The cast is required: with range checking on, an untyped $8080808080808080
+   is taken as a signed 64-bit constant and reported as out of range.}
+  DebugFillPattern = NativeUInt($8080808080808080);
 {$ENDIF}
   {The number of bytes of address space that cannot be allocated under FullDebugMode.  This block is reserved on
   startup and freed the first time the system runs out of address space.  This allows some subsequent memory allocation
@@ -17130,6 +17132,25 @@ var
   LMoveSize, LBlockSpace: NativeUInt;
   LActualBlock, LNewActualBlock: PFullDebugBlockHeader;
 begin
+{$IFDEF fpc}
+  {The FreePascal runtime calls ReAllocMem with a nil pointer to mean "allocate"
+   and with a size of zero to mean "free", so both have to be handled before the
+   block header is read. FastReallocMem starts with the same two guards.}
+  if APointer = nil then
+  begin
+    if ANewSize <> 0 then
+      APointer := DebugGetMem(ANewSize);
+    Result := APointer;
+    Exit;
+  end
+  else if ANewSize = 0 then
+  begin
+    DebugFreeMem(APointer);
+    APointer := nil;
+    Result := APointer;
+    Exit;
+  end;
+{$ENDIF}
   {Scan the entire memory pool first?}
   if FullDebugModeScanMemoryPoolBeforeEveryOperation then
     ScanMemoryPoolForCorruptions;
