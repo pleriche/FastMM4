@@ -9658,7 +9658,11 @@ begin
   try
     {We need extra space for (a) The debug header, (b) the block debug trailer
      and (c) the trailing block size pointer for free blocks}
-    Result := FastGetMem(ASize + FullDebugBlockOverhead {$ifdef LogLockContention}, LCollector{$endif});
+    {Refuse sizes for which adding the debug overhead would overflow.}
+    if (ASize < 0) or (ASize > (High(NativeInt) - NativeInt(FullDebugBlockOverhead))) then
+      Result := nil
+    else
+      Result := FastGetMem(ASize + FullDebugBlockOverhead {$ifdef LogLockContention}, LCollector{$endif});
     if Result <> nil then
     begin
       {Large blocks are always newly allocated (and never reused), so checking
@@ -9883,7 +9887,8 @@ begin
     LBlockSpace := GetAvailableSpaceInBlock(LActualBlock);
     {Can the block fit? We need space for the debug overhead and the block header
      of the next block}
-    if LBlockSpace < (NativeUInt(ANewSize) + FullDebugBlockOverhead) then
+    if (ANewSize < 0) or (ANewSize > (High(NativeInt) - NativeInt(FullDebugBlockOverhead)))
+      or (LBlockSpace < (NativeUInt(ANewSize) + FullDebugBlockOverhead)) then
     begin
       {Get a new block of the requested size.}
       Result := DebugGetMem(ANewSize);
