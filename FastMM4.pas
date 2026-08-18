@@ -9653,6 +9653,15 @@ begin
   {Scan the entire memory pool first?}
   if FullDebugModeScanMemoryPoolBeforeEveryOperation then
     ScanMemoryPoolForCorruptions;
+
+  {The 32-bit assembly language System.AllocMem lets negative size requests through.  Additionally, both the 32-bit and
+  64-bit paths are vulnerable to bad size requests when called from System.GetMemory.}
+  if ASize < 0 then
+  begin
+    Result := nil;
+    Exit;
+  end;
+
   {Enter the memory manager: block scans may not be performed now}
   StartChangingFullDebugModeBlock;
   try
@@ -9879,6 +9888,14 @@ begin
   {Is the debug info surrounding the block valid?}
   if CheckBlockBeforeFreeOrRealloc(LActualBlock, boReallocMem) then
   begin
+    {The 32-bit assembly language System.AllocMem and System._ReallocMem let through negative size requests.
+    Additionally, both the 32-bit and 64-bit paths are vulnerable to bad size requests when called from
+    System.ReallocMemory.}
+    if ANewSize < 0 then
+    begin
+      Result := nil;
+      Exit;
+    end;
     {Get the current block size}
     LBlockSpace := GetAvailableSpaceInBlock(LActualBlock);
     {Can the block fit? We need space for the debug overhead and the block header
