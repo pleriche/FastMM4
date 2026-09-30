@@ -909,8 +909,14 @@ interface
       {$define 64Bit}
       {$undef 32Bit}
     {$ifend}
+    {$if CompilerVersion >= 18}
+      {$define SupportsInline}
+    {$ifend}
     {$if CompilerVersion >= 23}
       {$define XE2AndUp}
+    {$ifend}
+    {$if CompilerVersion >= 35}
+      {$define SupportsYieldProcessor}
     {$ifend}
     {$define BCB6OrDelphi6AndUp}
     {$ifndef BCB}
@@ -932,6 +938,7 @@ interface
   {$endif}
 {$else}
   {$mode delphi}
+  {$define SupportsInline}
   {$ifdef CPUX64}
     {$asmmode intel}
     {$define 64bit}
@@ -952,6 +959,29 @@ interface
    stack traces are much more accurate than under 32-bit. (And frame based
    stack tracing is much faster.)}
   {$undef RawStackTraces}
+{$endif}
+
+{LLVM-based DCC compilers do not support inline assembly.}
+{$ifdef fpc}
+  {$define SupportsInlineAsm}
+{$else}
+  {$ifdef ASSEMBLER}
+    {$define SupportsInlineAsm}
+  {$endif}
+{$endif}
+
+{Disable features that require inline assembly when it is not supported.}
+{$ifndef SupportsInlineAsm}
+  {$undef ASMVersion}
+  {$undef UseCustomFixedSizeMoveRoutines}
+  {$undef UseCustomVariableSizeMoveRoutines}
+{$endif}
+
+{On LLVM targets, a plain store does not provide the ordering required when
+ releasing a lock. Use an atomic store with release semantics to ensure all
+ preceding writes are visible before the lock is released.}
+{$ifdef LLVM}
+  {$define UseAtomicLockRelease}
 {$endif}
 
 {Lock contention logging requires ~ASMVersion.}
@@ -1604,6 +1634,7 @@ procedure free(__ptr:pointer);cdecl;external clib name 'free';
 function usleep(__useconds:dword):longint;cdecl;external clib name 'usleep';
 {$endif}
 
+{$ifdef UseCustomFixedSizeMoveRoutines}
 {Fixed size move procedures. The 64-bit versions assume 16-byte alignment.}
 procedure Move4(const ASource; var ADest; ACount: NativeInt); forward;
 procedure Move12(const ASource; var ADest; ACount: NativeInt); forward;
@@ -1620,6 +1651,7 @@ procedure Move8(const ASource; var ADest; ACount: NativeInt); forward;
 procedure Move24(const ASource; var ADest; ACount: NativeInt); forward;
 procedure Move40(const ASource; var ADest; ACount: NativeInt); forward;
 procedure Move56(const ASource; var ADest; ACount: NativeInt); forward;
+{$endif}
 {$endif}
 
 {$ifdef DetectMMOperationsAfterUninstall}
@@ -2336,7 +2368,12 @@ end;
 {Compare [AAddress], CompareVal:
  If Equal: [AAddress] := NewVal and result = CompareVal
  If Unequal: Result := [AAddress]}
-function LockCmpxchg(CompareVal, NewVal: Byte; AAddress: PByte): Byte; {$ifdef fpc64bit}assembler; nostackframe;{$endif}
+function LockCmpxchg(CompareVal, NewVal: Byte; AAddress: PByte): Byte; {$ifdef SupportsInlineAsm}{$ifdef fpc64bit}assembler; nostackframe;{$endif}{$else}inline;{$endif}
+{$ifndef SupportsInlineAsm}
+begin
+  Result := AtomicCmpExchange(AAddress^, NewVal, CompareVal);
+end;
+{$else}
 asm
 {$ifdef 32Bit}
   {On entry:
@@ -2364,10 +2401,22 @@ asm
   {$endif}
 {$endif}
 end;
+{$endif}
+
+{Releases a lock acquired through LockCmpxchg}
+procedure ReleaseLock(var ALock: Boolean); {$ifdef SupportsInline}inline;{$endif}
+begin
+{$ifdef UseAtomicLockRelease}
+  AtomicExchange(Byte(ALock), Byte(Ord(False)));
+{$else}
+  ALock := False;
+{$endif}
+end;
 
 {$ifndef ASMVersion}
 {Gets the first set bit in the 32-bit number, returning the bit index}
-function FindFirstSetBit(ACardinal: Cardinal): Cardinal; {$ifdef fpc64bit} assembler; nostackframe; {$endif}
+function FindFirstSetBit(ACardinal: Cardinal): Cardinal; {$ifdef SupportsInlineAsm}{$ifdef fpc64bit} assembler; nostackframe; {$endif}{$endif}
+{$ifdef SupportsInlineAsm}
 asm
 {$ifdef 64Bit}
   {$ifndef unix}
@@ -2379,6 +2428,20 @@ asm
 {$endif}
   bsf eax, eax
 end;
+{$else}
+var
+  mask: UInt32;
+begin
+  Result := ACardinal;
+  if Result = 0 then Exit(32);
+  Result := (Not Result) and (Result - 1);
+  mask := $55555555; Result := (Result and mask) + ((Result shr  1) and mask);
+  mask := $33333333; Result := (Result and mask) + ((Result shr  2) and mask);
+  mask := $0f0f0f0f; Result := (Result and mask) + ((Result shr  4) and mask);
+  mask := $00ff00ff; Result := (Result and mask) + ((Result shr  8) and mask);
+  mask := $0000ffff; Result := (Result and mask) + ((Result shr 16) and mask);
+end;
+{$endif}
 {$endif}
 
 {$ifdef MACOS_OR_KYLIX}
@@ -2519,6 +2582,8 @@ begin
   ABuffer^ := #0;
   Result := ABuffer;
 end;
+
+{$ifdef UseCustomFixedSizeMoveRoutines}
 
 {----------------Faster Move Procedures-------------------}
 
@@ -2922,6 +2987,10 @@ asm
 {$endif}
 end;
 
+{$endif}
+
+{$ifdef UseCustomVariableSizeMoveRoutines}
+
 {Variable size move procedure: Rounds ACount up to the next multiple of 16 less
  SizeOf(Pointer). Important note: Always moves at least 16 - SizeOf(Pointer)
  bytes (the minimum small block size with 16 byte alignment), irrespective of
@@ -3139,6 +3208,8 @@ asm
   {$Endif}
 {$endif}
 end;
+
+{$endif}
 
 {----------------Windows Emulation Functions for Kylix / OS X Support-----------------}
 
@@ -3778,6 +3849,9 @@ begin
       while LockCmpxchg(0, 1, @SmallBlockTypes[LInd].BlockTypeLocked) <> 0 do
       begin
 {$ifdef NeverSleepOnThreadContention}
+  {$ifdef SupportsYieldProcessor}
+        YieldProcessor;
+  {$endif}
   {$ifdef UseSwitchToThread}
         SwitchToThread;
   {$endif}
@@ -3889,6 +3963,9 @@ begin
       ADidSleep := True;
 {$endif}
 {$ifdef NeverSleepOnThreadContention}
+  {$ifdef SupportsYieldProcessor}
+      YieldProcessor;
+  {$endif}
   {$ifdef UseSwitchToThread}
       SwitchToThread;
   {$endif}
@@ -4436,6 +4513,9 @@ begin
       ADidSleep := True;
 {$endif}
 {$ifdef NeverSleepOnThreadContention}
+  {$ifdef SupportsYieldProcessor}
+      YieldProcessor;
+  {$endif}
   {$ifdef UseSwitchToThread}
       SwitchToThread;
   {$endif}
@@ -4484,7 +4564,7 @@ begin
     LargeBlocksCircularList.NextLargeBlockHeader := Result;
     PLargeBlockHeader(Result).NextLargeBlockHeader := LOldFirstLargeBlock;
     LOldFirstLargeBlock.PreviousLargeBlockHeader := Result;
-    LargeBlocksLocked := False;
+    ReleaseLock(LargeBlocksLocked);
     {Add the size of the header}
     Inc(PByte(Result), LargeBlockHeaderSize);
 {$ifdef FullDebugMode}
@@ -4614,7 +4694,7 @@ begin
   until False;
 {$endif}
   {Unlock the large blocks}
-  LargeBlocksLocked := False;
+  ReleaseLock(LargeBlocksLocked);
 end;
 
 {$ifndef FullDebugMode}
@@ -4812,6 +4892,9 @@ begin
         ACollector := @LPSmallBlockType.BlockCollector;
 {$endif}
 {$ifdef NeverSleepOnThreadContention}
+  {$ifdef SupportsYieldProcessor}
+        YieldProcessor;
+  {$endif}
   {$ifdef UseSwitchToThread}
         SwitchToThread;
   {$endif}
@@ -4980,9 +5063,9 @@ begin
             begin
               {Out of memory}
               {Unlock the medium blocks}
-              MediumBlocksLocked := False;
+              ReleaseLock(MediumBlocksLocked);
               {Unlock the block type}
-              LPSmallBlockType.BlockTypeLocked := False;
+              ReleaseLock(LPSmallBlockType.BlockTypeLocked);
               {Failed}
               Result := nil;
               {done}
@@ -4996,7 +5079,7 @@ begin
         {Set the size and flags for this block}
         PNativeUInt(PByte(LMediumBlock) - BlockHeaderSize)^ := LBlockSize or IsMediumBlockFlag or IsSmallBlockPoolInUseFlag;
         {Unlock medium blocks}
-        MediumBlocksLocked := False;
+        ReleaseLock(MediumBlocksLocked);
         {Set up the block pool}
         LPSmallBlockPool := PSmallBlockPoolHeader(LMediumBlock);
         LPSmallBlockPool.BlockType := LPSmallBlockType;
@@ -5020,7 +5103,7 @@ begin
 {$endif}
     end;
     {Unlock the block type}
-    LPSmallBlockType.BlockTypeLocked := False;
+    ReleaseLock(LPSmallBlockType.BlockTypeLocked);
     {Set the block header}
     PNativeUInt(PByte(Result) - BlockHeaderSize)^ := UIntPtr(LPSmallBlockPool);
   end
@@ -5105,7 +5188,7 @@ begin
           end;
 {$endif}
           {Done}
-          MediumBlocksLocked := False;
+          ReleaseLock(MediumBlocksLocked);
 {$ifdef LogLockContention}
 {$ifndef FullDebugMode}
           if Assigned(ACollector) then
@@ -5191,7 +5274,7 @@ begin
       Dec(PNativeUInt(PByte(Result) - BlockHeaderSize)^, IsFreeBlockFlag);
 {$endif}
       {Unlock the medium blocks}
-      MediumBlocksLocked := False;
+      ReleaseLock(MediumBlocksLocked);
     end
     else
     begin
@@ -6216,7 +6299,7 @@ begin
 {$endif}
 {$ifndef UseReleaseStack}
       {Unlock medium blocks}
-      MediumBlocksLocked := False;
+      ReleaseLock(MediumBlocksLocked);
 {$endif}
       {All OK}
       Result := 0;
@@ -6238,7 +6321,7 @@ begin
         LastSequentiallyFedMediumBlock := Pointer(PByte(APointer) + LBlockSize);
 {$ifndef UseReleaseStack}
         {Unlock medium blocks}
-        MediumBlocksLocked := False;
+        ReleaseLock(MediumBlocksLocked);
 {$endif}
         {Success}
         Result := 0;
@@ -6252,7 +6335,7 @@ begin
         LPPreviousMediumBlockPoolHeader.NextMediumBlockPoolHeader := LPNextMediumBlockPoolHeader;
         LPNextMediumBlockPoolHeader.PreviousMediumBlockPoolHeader := LPPreviousMediumBlockPoolHeader;
         {Unlock medium blocks}
-        MediumBlocksLocked := False;
+        ReleaseLock(MediumBlocksLocked);
 {$ifdef ClearMediumBlockPoolsBeforeReturningToOS}
         FillChar(APointer^, MediumBlockPoolSize, 0);
 {$endif}
@@ -6271,13 +6354,13 @@ begin
 {$ifdef UseReleaseStack}
     if (Result <> 0) or ACleanupOperation then
     begin
-      MediumBlocksLocked := False;
+      ReleaseLock(MediumBlocksLocked);
       Break;
     end;
     LPReleaseStack := @MediumReleaseStack[GetStackSlot];
     if LPReleaseStack^.IsEmpty or (not LPReleaseStack.Pop(APointer)) then
     begin
-      MediumBlocksLocked := False;
+      ReleaseLock(MediumBlocksLocked);
       Break;
     end;
     {Get the block header}
@@ -6348,6 +6431,9 @@ begin
         LDidSleep := True;
 {$endif}
 {$ifdef NeverSleepOnThreadContention}
+  {$ifdef SupportsYieldProcessor}
+        YieldProcessor;
+  {$endif}
   {$ifdef UseSwitchToThread}
         SwitchToThread;
   {$endif}
@@ -6405,7 +6491,7 @@ begin
         if (LPSmallBlockType.CurrentSequentialFeedPool = LPSmallBlockPool) then
           LPSmallBlockType.MaxSequentialFeedBlockAddress := nil;
         {Unlock this block type}
-        LPSmallBlockType.BlockTypeLocked := False;
+        ReleaseLock(LPSmallBlockType.BlockTypeLocked);
         {Free the block pool}
         FreeMediumBlock(LPSmallBlockPool);
 {$ifdef UseReleaseStack}
@@ -6422,7 +6508,7 @@ begin
         begin
 {$endif}
           {Unlock this block type}
-          LPSmallBlockType.BlockTypeLocked := False;
+          ReleaseLock(LPSmallBlockType.BlockTypeLocked);
 {$ifdef UseReleaseStack}
           Break;
         end;
@@ -7229,7 +7315,7 @@ var
     if LSecondSplitSize >= MinimumMediumBlockSize then
       InsertMediumBlockIntoBin(LPNextBlock, LSecondSplitSize);
     {Unlock the medium blocks}
-    MediumBlocksLocked := False;
+    ReleaseLock(MediumBlocksLocked);
   end;
 
 {$ifdef LogLockContention}
@@ -7388,14 +7474,14 @@ begin
                 {Upsize the block in-place}
                 MediumBlockInPlaceUpsize;
                 {Unlock the medium blocks}
-                MediumBlocksLocked := False;
+                ReleaseLock(MediumBlocksLocked);
                 {Return the result}
                 Result := APointer;
                 {Done}
                 Exit;
               end;
               {Couldn't use the block: Unlock the medium blocks}
-              MediumBlocksLocked := False;
+              ReleaseLock(MediumBlocksLocked);
 {$ifndef AssumeMultiThreaded}
             end
             else
@@ -8962,6 +9048,9 @@ begin
       Break;
     end;
   {$ifdef NeverSleepOnThreadContention}
+    {$ifdef SupportsYieldProcessor}
+    YieldProcessor;
+    {$endif}
     {$ifdef UseSwitchToThread}
     SwitchToThread;
     {$endif}
@@ -9012,6 +9101,9 @@ begin
     if LockCmpxchg32(0, -1, @ThreadsInFullDebugModeRoutine) = 0 then
       Break;
 {$ifdef NeverSleepOnThreadContention}
+  {$ifdef SupportsYieldProcessor}
+    YieldProcessor;
+  {$endif}
   {$ifdef UseSwitchToThread}
     SwitchToThread;
   {$endif}
@@ -10477,6 +10569,9 @@ begin
     while LockCmpxchg(0, 1, @ExpectedMemoryLeaksListLocked) <> 0 do
     begin
 {$ifdef NeverSleepOnThreadContention}
+  {$ifdef SupportsYieldProcessor}
+      YieldProcessor;
+  {$endif}
   {$ifdef UseSwitchToThread}
       SwitchToThread;
   {$endif}
@@ -10516,7 +10611,7 @@ begin
   {Add it to the correct list}
   Result := LockExpectedMemoryLeaksList
     and UpdateExpectedLeakList(@ExpectedMemoryLeaks.FirstEntryByAddress, @LNewEntry);
-  ExpectedMemoryLeaksListLocked := False;
+  ReleaseLock(ExpectedMemoryLeaksListLocked);
 end;
 
 function RegisterExpectedMemoryLeak(ALeakedObjectClass: TClass; ACount: Integer = 1): Boolean; overload;
@@ -10534,7 +10629,7 @@ begin
   {Add it to the correct list}
   Result := LockExpectedMemoryLeaksList
     and UpdateExpectedLeakList(@ExpectedMemoryLeaks.FirstEntryByClass, @LNewEntry);
-  ExpectedMemoryLeaksListLocked := False;
+  ReleaseLock(ExpectedMemoryLeaksListLocked);
 end;
 
 {$ifdef CheckCppObjectTypeEnabled}
@@ -10556,7 +10651,7 @@ begin
       {Add it to the correct list}
       Result := LockExpectedMemoryLeaksList
         and UpdateExpectedLeakList(@ExpectedMemoryLeaks.FirstEntryByClass, @LNewEntry);
-      ExpectedMemoryLeaksListLocked := False;
+      ReleaseLock(ExpectedMemoryLeaksListLocked);
     end
     else
     begin
@@ -10585,7 +10680,7 @@ begin
   {Add it to the correct list}
   Result := LockExpectedMemoryLeaksList
     and UpdateExpectedLeakList(@ExpectedMemoryLeaks.FirstEntryBySizeOnly, @LNewEntry);
-  ExpectedMemoryLeaksListLocked := False;
+  ReleaseLock(ExpectedMemoryLeaksListLocked);
 end;
 
 function UnregisterExpectedMemoryLeak(ALeakedPointer: Pointer): Boolean; overload;
@@ -10607,7 +10702,7 @@ begin
   {Remove it from the list}
   Result := LockExpectedMemoryLeaksList
     and UpdateExpectedLeakList(@ExpectedMemoryLeaks.FirstEntryByAddress, @LNewEntry);
-  ExpectedMemoryLeaksListLocked := False;
+  ReleaseLock(ExpectedMemoryLeaksListLocked);
 end;
 
 function UnregisterExpectedMemoryLeak(ALeakedObjectClass: TClass; ACount: Integer = 1): Boolean; overload;
@@ -10664,7 +10759,7 @@ begin
     AddEntries(ExpectedMemoryLeaks.FirstEntryByClass);
     AddEntries(ExpectedMemoryLeaks.FirstEntryBySizeOnly);
     {Unlock the list}
-    ExpectedMemoryLeaksListLocked := False;
+    ReleaseLock(ExpectedMemoryLeaksListLocked);
   end;
 end;
 
@@ -10842,10 +10937,10 @@ begin
     end;
   finally
     {Unlock medium blocks}
-    MediumBlocksLocked := False;
+    ReleaseLock(MediumBlocksLocked);
     {Unlock all the small block types}
     for LInd := 0 to NumSmallBlockTypes - 1 do
-      SmallBlockTypes[LInd].BlockTypeLocked := False;
+      ReleaseLock(SmallBlockTypes[LInd].BlockTypeLocked);
   end;
   {Step through all the large blocks}
   LockLargeBlocks({$ifdef LogLockContention}LDidSleep{$endif});
@@ -10860,7 +10955,7 @@ begin
       LPLargeBlock := LPLargeBlock.NextLargeBlockHeader;
     end;
   finally
-    LargeBlocksLocked := False;
+    ReleaseLock(LargeBlocksLocked);
   end;
 end;
 
@@ -11811,10 +11906,10 @@ begin
     LPMediumBlockPoolHeader := LPMediumBlockPoolHeader.NextMediumBlockPoolHeader;
   end;
   {Unlock medium blocks}
-  MediumBlocksLocked := False;
+  ReleaseLock(MediumBlocksLocked);
   {Unlock all the small block types}
   for LInd := 0 to NumSmallBlockTypes - 1 do
-    SmallBlockTypes[LInd].BlockTypeLocked := False;
+    ReleaseLock(SmallBlockTypes[LInd].BlockTypeLocked);
   {Step through all the large blocks}
   LockLargeBlocks({$ifdef LogLockContention}LDidSleep{$endif});
   LPLargeBlock := LargeBlocksCircularList.NextLargeBlockHeader;
@@ -11827,7 +11922,7 @@ begin
     {Get the next large block}
     LPLargeBlock := LPLargeBlock.NextLargeBlockHeader;
   end;
-  LargeBlocksLocked := False;
+  ReleaseLock(LargeBlocksLocked);
 end;
 
 {Returns a summary of the information returned by GetMemoryManagerState}
@@ -11893,7 +11988,7 @@ begin
     {Get the next medium block pool}
     LPMediumBlockPoolHeader := LPMediumBlockPoolHeader.NextMediumBlockPoolHeader;
   end;
-  MediumBlocksLocked := False;
+  ReleaseLock(MediumBlocksLocked);
   {Step through all the large blocks}
   LockLargeBlocks({$ifdef LogLockContention}LDidSleep{$endif});
   LPLargeBlock := LargeBlocksCircularList.NextLargeBlockHeader;
@@ -11910,7 +12005,7 @@ begin
     {Get the next large block}
     LPLargeBlock := LPLargeBlock.NextLargeBlockHeader;
   end;
-  LargeBlocksLocked := False;
+  ReleaseLock(LargeBlocksLocked);
   {Fill in the rest of the map}
   LInd := 0;
   while LInd <= 65535 do
@@ -12034,10 +12129,10 @@ begin
   {Add the sequential feed unused space}
   Inc(Result.Unused, MediumSequentialFeedBytesLeft);
   {Unlock the medium blocks}
-  MediumBlocksLocked := False;
+  ReleaseLock(MediumBlocksLocked);
   {Unlock all the small block types}
   for LInd := 0 to NumSmallBlockTypes - 1 do
-    SmallBlockTypes[LInd].BlockTypeLocked := False;
+    ReleaseLock(SmallBlockTypes[LInd].BlockTypeLocked);
   {Step through all the large blocks}
   LockLargeBlocks({$ifdef LogLockContention}LDidSleep{$endif});
   LPLargeBlock := LargeBlocksCircularList.NextLargeBlockHeader;
@@ -12053,7 +12148,7 @@ begin
     {Get the next large block}
     LPLargeBlock := LPLargeBlock.NextLargeBlockHeader;
   end;
-  LargeBlocksLocked := False;
+  ReleaseLock(LargeBlocksLocked);
   {Set the total number of free bytes}
   Result.TotalFree := Result.FreeSmall + Result.FreeBig + Result.Unused;
 end;
@@ -12986,7 +13081,7 @@ begin
         if MediumReleaseStack[LSlot].Pop(LMemBlock) then
           FreeMediumBlock(LMemBlock, True)
         else
-          MediumBlocksLocked := False;
+          ReleaseLock(MediumBlocksLocked);
       end;
       if (not LargeReleaseStack[LSlot].IsEmpty)
         and (LockCmpxchg(0, 1, @LargeBlocksLocked) = 0) then
@@ -12994,7 +13089,7 @@ begin
         if LargeReleaseStack[LSlot].Pop(LMemBlock) then
           FreeLargeBlock(LMemBlock, True)
         else
-          LargeBlocksLocked := False;
+          ReleaseLock(LargeBlocksLocked);
       end;
     end;
   end;
